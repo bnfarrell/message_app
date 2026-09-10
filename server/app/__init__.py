@@ -19,10 +19,11 @@ def create_app(config: Config | None = None) -> Flask:
 
     register_error_handlers(app)
 
-    from app.api import auth, departments, health, users
+    from app.api import auth, departments, health, notifications, users
 
     app.register_blueprint(health.bp)
     app.register_blueprint(auth.bp)
     app.register_blueprint(departments.bp)
     app.register_blueprint(users.bp)
+    app.register_blueprint(notifications.bp)
     return app

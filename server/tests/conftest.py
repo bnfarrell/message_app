@@ -65,6 +65,17 @@ def fx(database):
 
 
 @pytest.fixture()
+def events(app):
+    from app.realtime import broadcast
+
+    captured = []
+    fn = captured.append  # keep one reference: a fresh bound method would not compare equal on removal
+    broadcast.add_listener(fn)
+    yield captured
+    broadcast.remove_listener(fn)
+
+
+@pytest.fixture()
 def login(app):
     def _login(email: str, password: str = PASSWORD):
         c = app.test_client()
