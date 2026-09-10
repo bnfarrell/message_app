@@ -3,12 +3,23 @@ from __future__ import annotations
 from datetime import timedelta
 
 from sqlalchemy import and_, case, exists, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app import clock
 from app.domain import audit, notifications
 from app.errors import Forbidden, NotFound, ValidationFailed
-from app.models import Conversation, Department, DraftPrompt, Guest, Message, Property, PropertyMembership, Stay, WorkOrder
+from app.models import (
+    Conversation,
+    Department,
+    DraftPrompt,
+    Guest,
+    Message,
+    Property,
+    PropertyMembership,
+    ResolutionCategory,
+    Stay,
+    WorkOrder,
+)
 from app.realtime.broadcast import queue_event
 from app.schemas.conversations import (
     ConversationDetail,
@@ -104,6 +115,8 @@ def _unanswered_expr():
 
 def viewer_scope(q, viewer_role: Role, viewer_user_id: str, viewer_department_id: str | None):
     if viewer_role == Role.dept_staff:
+        if viewer_department_id is None:
+            return q.where(Conversation.assigned_user_id == viewer_user_id)
         return q.where(or_(Conversation.assigned_user_id == viewer_user_id,
                            Conversation.assigned_department_id == viewer_department_id))
     return q
@@ -114,7 +127,8 @@ def list(db: Session, property_id: str, *, filter: str, viewer_user_id: str, vie
          offset: int = 0) -> list[ConversationSummary]:  # noqa: A001 — mirrors the API name
     now = clock.now()
     resolved = _resolved_condition(db, property_id)
-    q = select(Conversation).where(Conversation.property_id == property_id)
+    q = (select(Conversation).where(Conversation.property_id == property_id)
+         .options(selectinload(Conversation.guest), selectinload(Conversation.stay)))
     if filter == "all":
         q = q.where(Conversation.status == ConversationStatus.open, ~resolved)
     elif filter == "mine":
@@ -245,13 +259,20 @@ def patch(db: Session, property_id: str, conversation_id: str, actor_user_id: st
             raise ValidationFailed("Unknown department")
         c.assigned_department_id = changes.assigned_department_id
         c.assigned_user_id = None if changes.assigned_user_id is None else c.assigned_user_id
+    category_supplied = "resolution_category_id" in changes.model_fields_set
+    if category_supplied and changes.resolution_category_id is not None:
+        if not db.scalar(select(ResolutionCategory.id).where(
+                ResolutionCategory.id == changes.resolution_category_id,
+                ResolutionCategory.property_id == property_id)):
+            raise ValidationFailed("Unknown resolution category")
     if changes.status is not None:
         if changes.status == ConversationStatus.archived:
             if not can_archive:
                 raise Forbidden("Your role cannot archive conversations")
             c.status = ConversationStatus.archived
             c.archived_at = clock.now()
-            c.resolution_category_id = changes.resolution_category_id
+            if category_supplied:
+                c.resolution_category_id = changes.resolution_category_id
         elif changes.status == ConversationStatus.snoozed:
             if changes.snoozed_until is None:
                 raise ValidationFailed("snoozedUntil is required to snooze")
@@ -261,7 +282,7 @@ def patch(db: Session, property_id: str, conversation_id: str, actor_user_id: st
             c.status = ConversationStatus.open
             c.archived_at = None
             c.snoozed_until = None
-    elif changes.resolution_category_id is not None:
+    elif category_supplied:
         c.resolution_category_id = changes.resolution_category_id
     db.flush()
     after = {"status": c.status.value, "assigned_user_id": c.assigned_user_id,
