@@ -12,11 +12,11 @@ class AppError(Exception):
     code = "BAD_REQUEST"
 
     def __init__(self, message: str | None = None, *, details: Any = None, code: str | None = None):
-        super().__init__(message or self.code)
-        self.message = message or self.code.replace("_", " ").capitalize()
-        self.details = details
         if code:
             self.code = code
+        self.message = message or self.code.replace("_", " ").capitalize()
+        self.details = details
+        super().__init__(self.message)
 
     def to_body(self) -> dict:
         err: dict[str, Any] = {"code": self.code, "message": self.message}
