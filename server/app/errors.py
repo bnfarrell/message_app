@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from flask import Flask, jsonify
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 from werkzeug.exceptions import HTTPException
 
 
@@ -56,8 +57,18 @@ class TransitionError(AppError):
 
 
 class ConsentError(AppError):
+    """Raised by consent.assert_can_send(). May carry `audit_write`: a callback that persists the
+    compliance audit row on a fresh connection once the caller's own session has rolled back
+    (see Database.session() in app.db) — never on the caller's own still-open session, which may
+    already hold a write lock a nested write would deadlock against."""
+
     status = 422
     code = "CONSENT_OPTED_OUT"
+
+    def __init__(self, message: str | None = None, *, details: Any = None, code: str | None = None,
+                 audit_write: Callable[[Session], None] | None = None):
+        super().__init__(message, details=details, code=code)
+        self.audit_write = audit_write
 
 
 class RateLimited(AppError):

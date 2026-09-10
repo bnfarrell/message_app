@@ -69,8 +69,16 @@ class Database:
             yield db
             db.commit()
             events = db.info.pop("events", [])
-        except Exception:
+        except Exception as exc:
             db.rollback()
+            # The rollback above has already released any write lock this session held, so a
+            # pending audit write (e.g. ConsentError.audit_write) can safely land on a brand-new
+            # connection here — never on the still-open `db` above, which is what deadlocked it.
+            audit_write = getattr(exc, "audit_write", None)
+            if audit_write is not None:
+                with self.SessionLocal() as audit_db:
+                    audit_write(audit_db)
+                    audit_db.commit()
             raise
         finally:
             db.close()

@@ -1,7 +1,7 @@
 """TCPA consent (design.md §9.1). assert_can_send() is called from exactly one place: messages.send()."""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Callable, Literal
 
 from sqlalchemy.orm import Session
 
@@ -53,6 +53,7 @@ def opt_in(db: Session, guest: Guest, source: str) -> None:
     _set(db, guest, SmsConsentStatus.opted_in, source)
 
 
-def assert_can_send(guest: Guest, *, allow_opt_out_confirmation: bool = False) -> None:
+def assert_can_send(guest: Guest, *, allow_opt_out_confirmation: bool = False,
+                    audit_write: Callable[[Session], None] | None = None) -> None:
     if guest.sms_consent_status == SmsConsentStatus.opted_out and not allow_opt_out_confirmation:
-        raise ConsentError("Guest has opted out of SMS")
+        raise ConsentError("Guest has opted out of SMS", audit_write=audit_write)

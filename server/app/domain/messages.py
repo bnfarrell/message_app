@@ -6,7 +6,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.db import get_db
 from app.domain import audit, consent
 from app.domain import conversations as conv_domain
 from app.domain.redaction import redact
@@ -15,14 +14,7 @@ from app.models import Conversation, DigitalAsset, Guest, Message, WorkOrder
 from app.queue import jobs
 from app.realtime.broadcast import queue_event
 from app.schemas.conversations import MessageOut
-from app.schemas.enums import (
-    AuthorType,
-    Channel,
-    DeliveryStatus,
-    Direction,
-    DraftPromptStatus,
-    SmsConsentStatus,
-)
+from app.schemas.enums import AuthorType, Channel, DeliveryStatus, Direction, DraftPromptStatus
 
 
 def _get(db: Session, property_id: str, message_id: str) -> Message:
@@ -88,18 +80,22 @@ def send(db: Session, property_id: str, conversation_id: str, body: str, *,
     body = (body or "").strip()
     if not body:
         raise ValidationFailed("Message body is empty")
-    if len(body) > MAX_BODY:
-        raise ValidationFailed(f"Message body exceeds {MAX_BODY} characters")
 
     conv = conv_domain.get(db, property_id, conversation_id)
     guest = db.get(Guest, conv.guest_id)
-    if guest.sms_consent_status == SmsConsentStatus.opted_out and not allow_opt_out_confirmation:
-        # The caller's session will roll back when ConsentError propagates, so the audit row gets its own
-        # session. Nothing has been written in `db` yet at this point, so SQLite WAL allows the second writer.
-        with get_db().session() as audit_db:
-            audit.record(audit_db, property_id, author_user_id, "message.rejected_opted_out", "conversation",
-                         conv.id, after={"body_length": len(body)}, ip=ip, user_agent=user_agent)
-    consent.assert_can_send(guest, allow_opt_out_confirmation=allow_opt_out_confirmation)
+
+    def _audit_rejection(audit_db: Session) -> None:
+        # Called by Database.session() on a fresh connection, strictly after the caller's own
+        # session has rolled back — never here, inline, on `db`: at this point the caller may
+        # already have flushed other rows (e.g. inbound.handle's guest/conversation/message), and
+        # a nested write here would contend for the same write lock and deadlock/504 instead of
+        # cleanly 422ing (see review finding for Task 11 fix round 1).
+        audit.record(audit_db, property_id, author_user_id, "message.rejected_opted_out",
+                     "conversation", conv.id, after={"body_length": len(body)},
+                     ip=ip, user_agent=user_agent)
+
+    consent.assert_can_send(guest, allow_opt_out_confirmation=allow_opt_out_confirmation,
+                            audit_write=_audit_rejection)
 
     if digital_asset_id:
         asset = db.scalar(select(DigitalAsset).where(DigitalAsset.id == digital_asset_id,
@@ -109,6 +105,9 @@ def send(db: Session, property_id: str, conversation_id: str, body: str, *,
         body = f"{body} /a/{asset.short_code}"
         asset.send_count += 1
 
+    if len(body) > MAX_BODY:
+        raise ValidationFailed(f"Message body exceeds {MAX_BODY} characters")
+
     now = clock.now()
     m = Message(conversation_id=conv.id, property_id=property_id, direction=Direction.outbound,
                 author_type=author_type, author_user_id=author_user_id, channel=Channel.sms,
@@ -117,11 +116,11 @@ def send(db: Session, property_id: str, conversation_id: str, body: str, *,
     db.add(m)
 
     conv.last_staff_message_at = now
-    conv.sla_due_at = None
-    conv.sla_breach_notified_at = None
-    if conv.first_response_seconds is None and conv.last_guest_message_at is not None \
-            and author_type == AuthorType.staff:
-        conv.first_response_seconds = int((now - conv.last_guest_message_at).total_seconds())
+    if author_type == AuthorType.staff:
+        conv.sla_due_at = None
+        conv.sla_breach_notified_at = None
+        if conv.first_response_seconds is None and conv.last_guest_message_at is not None:
+            conv.first_response_seconds = int((now - conv.last_guest_message_at).total_seconds())
 
     if draft_prompt_id:
         from app.models import DraftPrompt

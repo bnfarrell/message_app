@@ -63,3 +63,66 @@ def test_send_rejects_over_length(app, fx, client, database):
     cid = _conversation_id(database, fx)
     with database.session() as db, pytest.raises(ValidationFailed):
         messages.send(db, fx.property_a.id, cid, "x" * 1601, author_user_id=fx.agent_a.id)
+
+
+def test_send_rejects_when_digital_asset_link_pushes_body_over_length(app, fx, client, database):
+    """The short link is appended before the length is enforced, not after (review finding 2)."""
+    import pytest
+
+    from app.errors import ValidationFailed
+    from app.models import DigitalAsset
+
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "one")
+    cid = _conversation_id(database, fx)
+    with database.session() as db:
+        asset = DigitalAsset(property_id=fx.property_a.id, name="Spa Menu",
+                             url="https://example.test/spa", short_code="spa1")
+        db.add(asset)
+        db.flush()
+        asset_id = asset.id
+    body = "x" * (messages.MAX_BODY - 5)  # + " /a/spa1" (8 chars) pushes just over MAX_BODY
+    with database.session() as db, pytest.raises(ValidationFailed):
+        messages.send(db, fx.property_a.id, cid, body, author_user_id=fx.agent_a.id,
+                      digital_asset_id=asset_id)
+
+
+def test_system_send_does_not_clear_sla_or_record_first_response(app, fx, client, database):
+    """Only a staff reply should satisfy the SLA clock or first-response timer (finding 3)."""
+    from app.schemas.enums import AuthorType
+
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    cid = _conversation_id(database, fx)
+    with database.session() as db:
+        assert db.get(Conversation, cid).sla_due_at is not None  # sanity: inbound started the SLA
+    with database.session() as db:
+        messages.send(db, fx.property_a.id, cid, "Automated heads up", author_user_id=None,
+                      author_type=AuthorType.system)
+        c = db.get(Conversation, cid)
+        assert c.sla_due_at is not None  # a system send must not silently satisfy a human SLA
+        assert c.first_response_seconds is None
+
+
+def test_send_audit_survives_a_dirty_caller_session(app, fx, database):
+    """Mimics a caller (e.g. inbound.handle) whose outer transaction already flushed rows before a
+    rejected send: the audit row must still be written, not deadlock the shared connection
+    (review finding 1)."""
+    import pytest
+
+    from app.domain import consent
+    from app.domain import conversations as conv_domain
+    from app.errors import ConsentError
+    from app.models import AuditLog, Guest
+
+    with pytest.raises(ConsentError) as ei:
+        with database.session() as db:
+            guest = db.get(Guest, fx.guest_inhouse_a.id)
+            consent.opt_out(db, guest, "sms_keyword")
+            conv, _ = conv_domain.find_or_create_for_guest(db, fx.property_a.id, guest)
+            messages.record_inbound(db, fx.property_a.id, conv, "already flushed on this session",
+                                    "SM-dirty")
+            messages.send(db, fx.property_a.id, conv.id, "Hello?", author_user_id=fx.agent_a.id)
+    assert ei.value.status == 422 and ei.value.code == "CONSENT_OPTED_OUT"
+    with database.session() as db:
+        assert db.scalar(select(Message).where(Message.direction == Direction.outbound)) is None
+        assert db.scalar(select(AuditLog).where(
+            AuditLog.action == "message.rejected_opted_out")) is not None
