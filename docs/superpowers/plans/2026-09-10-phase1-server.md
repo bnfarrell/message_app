@@ -2232,15 +2232,18 @@ def login():
     ip, ua = client_meta()
     with db_session() as db:
         user = db.scalar(select(UserAccount).where(UserAccount.email == body.email.lower()))
-        if user is None or user.status != UserStatus.active or not verify_password(
-            body.password, user.password_hash
-        ):
+        valid = (user is not None and user.status == UserStatus.active
+                 and verify_password(body.password, user.password_hash))
+        if valid:
+            token = create_session(db, user.id, ip, ua)
+            audit.record(db, None, user.id, "auth.login", "user_account", user.id, ip=ip, user_agent=ua)
+            payload = _session_out(db, user)
+    if not valid:
+        # Written in its own session: raising inside the block above would roll the audit row back.
+        with db_session() as db:
             audit.record(db, None, None, "auth.login_failed", "user_account",
                          user.id if user else None, after={"email": body.email}, ip=ip, user_agent=ua)
-            raise Unauthorized("Email or password is incorrect")
-        token = create_session(db, user.id, ip, ua)
-        audit.record(db, None, user.id, "auth.login", "user_account", user.id, ip=ip, user_agent=ua)
-        payload = _session_out(db, user)
+        raise Unauthorized("Email or password is incorrect")
     resp = make_response(ok(payload)[0], 200)
     resp.set_cookie(COOKIE_NAME, token, max_age=SESSION_HOURS * 3600, httponly=True,
                     samesite="Lax", path="/", secure=False)
@@ -2265,24 +2268,6 @@ def me():
     with db_session() as db:
         user = db.get(UserAccount, g.user.id)
         return ok(_session_out(db, user))
-```
-
-Note on the failed-login audit: `raise Unauthorized` inside `with db_session()` rolls the session back, so the `auth.login_failed` row is lost. Fix it the simple way: move the failed branch out of the `with` — load the user in one session, and if the check fails open a second short `with db_session() as db:` that writes only the audit row, then raise. Structure the final code as:
-
-```python
-    with db_session() as db:
-        user = db.scalar(select(UserAccount).where(UserAccount.email == body.email.lower()))
-        valid = (user is not None and user.status == UserStatus.active
-                 and verify_password(body.password, user.password_hash))
-        if valid:
-            token = create_session(db, user.id, ip, ua)
-            audit.record(db, None, user.id, "auth.login", "user_account", user.id, ip=ip, user_agent=ua)
-            payload = _session_out(db, user)
-    if not valid:
-        with db_session() as db:
-            audit.record(db, None, None, "auth.login_failed", "user_account",
-                         user.id if user else None, after={"email": body.email}, ip=ip, user_agent=ua)
-        raise Unauthorized("Email or password is incorrect")
 ```
 
 - [ ] **Step 12: Register the blueprint and reset limiters in tests**
@@ -2979,11 +2964,11 @@ def events(app):
     from app.realtime import broadcast
 
     captured = []
-    broadcast.add_listener(captured.append)
+    fn = captured.append  # keep one reference: a fresh bound method would not compare equal on removal
+    broadcast.add_listener(fn)
     yield captured
-    broadcast.remove_listener(captured.append)
+    broadcast.remove_listener(fn)
 ```
-(`captured.append` is the same bound-method object only if you keep a reference — store it: `fn = captured.append; broadcast.add_listener(fn); yield captured; broadcast.remove_listener(fn)`.)
 
 - [ ] **Step 4: Write the notifications domain and schema**
 
@@ -3597,8 +3582,10 @@ from tests.factories import make_conversation, make_message
 
 
 def _outbound(database, fx, to_phone: str):
+    from app.models import Guest
+
     with database.session() as db:
-        guest = fx.guest_inhouse_a
+        guest = db.get(Guest, fx.guest_inhouse_a.id)  # re-attach: fixture objects are detached
         guest.phone_e164 = to_phone
         conv = make_conversation(db, fx, guest)
         msg = make_message(db, conv, direction=Direction.outbound, body="Hello")
@@ -3652,9 +3639,9 @@ def test_retry_requeues_a_failed_message(app, fx, database, worker):
     clock.advance(seconds=0.5)
     worker.tick()
     with database.session() as db:
-        # Give the guest a working number so the retry can succeed.
-        fx.guest_inhouse_a.phone_e164 = "+15551234567"
-        db.merge(fx.guest_inhouse_a)
+        from app.models import Guest
+
+        db.get(Guest, fx.guest_inhouse_a.id).phone_e164 = "+15551234567"  # a working number for the retry
         m = messages.retry(db, fx.property_a.id, msg_id)
         assert m.delivery_status == DeliveryStatus.queued
         assert m.provider_error_code is None
@@ -3976,3 +3963,5249 @@ git commit -m "feat(server): ChannelAdapter interface, MockSmsAdapter, outbound 
 ```
 
 ---
+
+### Task 10: Guests, stays, and consent
+
+**Files:**
+- Create: `server/app/domain/guests.py`, `server/app/domain/stays.py`, `server/app/domain/consent.py`, `server/tests/test_consent.py`, `server/tests/test_guests_stays.py`
+
+**Interfaces:**
+- Produces: `guests.find_by_phone(db, property_id, phone) -> Guest | None`; `guests.find_or_create_by_phone(db, property_id, phone) -> tuple[Guest, bool]` (created flag); `guests.normalize_phone(raw) -> str` (E.164 for US numbers: digits only → `+1XXXXXXXXXX`; already `+` → kept); `stays.find_in_house_for_guest(db, property_id, guest_id) -> Stay | None`; `stays.find_in_house_by_phone(db, property_id, phone) -> tuple[Guest, Stay] | None`; `consent.STOP_WORDS`, `consent.START_WORDS`, `consent.HELP_WORDS`; `consent.classify_keyword(body) -> Literal["stop","start","help"] | None`; `consent.opt_out(db, guest, source)`, `consent.opt_in(db, guest, source)`; `consent.assert_can_send(guest, *, allow_opt_out_confirmation=False)` raising `ConsentError`; `consent.STOP_CONFIRMATION(property_name) -> str`.
+
+- [ ] **Step 1: Write the failing tests**
+
+`server/tests/test_consent.py`:
+```python
+import pytest
+
+from app.domain import consent
+from app.errors import ConsentError
+from app.models import Guest
+from app.schemas.enums import SmsConsentStatus
+
+
+@pytest.mark.parametrize("body,expected", [
+    ("STOP", "stop"), ("stop", "stop"), (" Stop please ", "stop"), ("STOPALL", "stop"),
+    ("UNSUBSCRIBE", "stop"), ("CANCEL", "stop"), ("END", "stop"), ("QUIT", "stop"),
+    ("START", "start"), ("UNSTOP", "start"), ("YES", "start"),
+    ("HELP", "help"), ("help me", "help"),
+    ("Please stop the AC noise", None),     # 'stop' not the first word → real message
+    ("Can you help with towels?", None),
+    ("", None),
+])
+def test_classify_keyword(body, expected):
+    assert consent.classify_keyword(body) == expected
+
+
+def test_opt_out_and_opt_in_record_source_and_time(app, fx, database):
+    from app import clock
+
+    with database.session() as db:
+        g = db.get(Guest, fx.guest_inhouse_a.id)
+        consent.opt_out(db, g, "sms_keyword")
+        assert g.sms_consent_status == SmsConsentStatus.opted_out
+        assert g.sms_consent_source == "sms_keyword"
+        assert g.sms_consent_at == clock.now()
+        consent.opt_in(db, g, "sms_keyword")
+        assert g.sms_consent_status == SmsConsentStatus.opted_in
+
+
+def test_assert_can_send_blocks_opted_out_unless_confirmation(app, fx, database):
+    with database.session() as db:
+        g = db.get(Guest, fx.guest_inhouse_a.id)
+        consent.assert_can_send(g)
+        consent.opt_out(db, g, "sms_keyword")
+        with pytest.raises(ConsentError) as ei:
+            consent.assert_can_send(g)
+        assert ei.value.code == "CONSENT_OPTED_OUT"
+        consent.assert_can_send(g, allow_opt_out_confirmation=True)  # the one exception
+```
+
+`server/tests/test_guests_stays.py`:
+```python
+from app.domain import guests, stays
+from app.schemas.enums import SmsConsentStatus
+
+
+def test_normalize_phone():
+    assert guests.normalize_phone("(555) 123-4567") == "+15551234567"
+    assert guests.normalize_phone("15551234567") == "+15551234567"
+    assert guests.normalize_phone("+44 20 7946 0958") == "+442079460958"
+
+
+def test_find_or_create_by_phone_is_idempotent_and_property_scoped(app, fx, database):
+    with database.session() as db:
+        g1, created1 = guests.find_or_create_by_phone(db, fx.property_a.id, "+15550001111")
+        g2, created2 = guests.find_or_create_by_phone(db, fx.property_a.id, "+1 (555) 000-1111")
+        gb, createdb = guests.find_or_create_by_phone(db, fx.property_b.id, "+15550001111")
+    assert created1 and not created2 and createdb
+    assert g1.id == g2.id and gb.id != g1.id
+    assert g1.sms_consent_status == SmsConsentStatus.unknown
+
+
+def test_find_in_house_by_phone_matches_checked_in_stay_only(app, fx, database):
+    with database.session() as db:
+        hit = stays.find_in_house_by_phone(db, fx.property_a.id, fx.guest_inhouse_a.phone_e164)
+        assert hit is not None and hit[1].room_number == "412"
+        assert stays.find_in_house_by_phone(db, fx.property_a.id, fx.guest_nostay_a.phone_e164) is None
+        # Same phone at another property is not in-house here.
+        assert stays.find_in_house_by_phone(db, fx.property_a.id, fx.guest_b.phone_e164) is None
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_consent.py tests/test_guests_stays.py -q`
+Expected: FAIL with `ModuleNotFoundError`.
+
+- [ ] **Step 3: Write `app/domain/guests.py`**
+
+```python
+from __future__ import annotations
+
+import re
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import Guest
+
+
+def normalize_phone(raw: str) -> str:
+    raw = raw.strip()
+    digits = re.sub(r"\D", "", raw)
+    if raw.startswith("+"):
+        return "+" + digits
+    if len(digits) == 10:
+        return "+1" + digits
+    if len(digits) == 11 and digits.startswith("1"):
+        return "+" + digits
+    return "+" + digits
+
+
+def find_by_phone(db: Session, property_id: str, phone: str) -> Guest | None:
+    return db.scalar(select(Guest).where(Guest.property_id == property_id,
+                                         Guest.phone_e164 == normalize_phone(phone)))
+
+
+def find_or_create_by_phone(db: Session, property_id: str, phone: str) -> tuple[Guest, bool]:
+    existing = find_by_phone(db, property_id, phone)
+    if existing:
+        return existing, False
+    g = Guest(property_id=property_id, phone_e164=normalize_phone(phone))
+    db.add(g)
+    db.flush()
+    return g, True
+
+
+def get(db: Session, property_id: str, guest_id: str) -> Guest | None:
+    return db.scalar(select(Guest).where(Guest.id == guest_id, Guest.property_id == property_id))
+```
+
+- [ ] **Step 4: Write `app/domain/stays.py`**
+
+```python
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.domain.guests import find_by_phone
+from app.models import Guest, Stay
+from app.schemas.enums import StayStatus
+
+
+def find_in_house_for_guest(db: Session, property_id: str, guest_id: str) -> Stay | None:
+    return db.scalar(
+        select(Stay).where(Stay.property_id == property_id, Stay.guest_id == guest_id,
+                           Stay.status == StayStatus.checked_in)
+        .order_by(Stay.actual_checkin_at.desc())
+    )
+
+
+def find_in_house_by_phone(db: Session, property_id: str, phone: str) -> tuple[Guest, Stay] | None:
+    guest = find_by_phone(db, property_id, phone)
+    if guest is None:
+        return None
+    stay = find_in_house_for_guest(db, property_id, guest.id)
+    return (guest, stay) if stay else None
+
+
+def get(db: Session, property_id: str, stay_id: str) -> Stay | None:
+    return db.scalar(select(Stay).where(Stay.id == stay_id, Stay.property_id == property_id))
+```
+
+- [ ] **Step 5: Write `app/domain/consent.py`**
+
+```python
+"""TCPA consent (design.md §9.1). assert_can_send() is called from exactly one place: messages.send()."""
+from __future__ import annotations
+
+from typing import Literal
+
+from sqlalchemy.orm import Session
+
+from app import clock
+from app.domain import audit
+from app.errors import ConsentError
+from app.models import Guest
+from app.schemas.enums import SmsConsentStatus
+
+STOP_WORDS = {"stop", "stopall", "unsubscribe", "cancel", "end", "quit"}
+START_WORDS = {"start", "unstop", "yes"}
+HELP_WORDS = {"help"}
+
+Keyword = Literal["stop", "start", "help"]
+
+
+def classify_keyword(body: str) -> Keyword | None:
+    words = body.strip().lower().split()
+    if not words:
+        return None
+    first = words[0].strip(".,!?")
+    if first in STOP_WORDS:
+        return "stop"
+    if first in START_WORDS:
+        return "start"
+    if first in HELP_WORDS:
+        return "help"
+    return None
+
+
+def STOP_CONFIRMATION(property_name: str) -> str:
+    return f"You're unsubscribed from {property_name} messages. Reply START to resume."
+
+
+def _set(db: Session, guest: Guest, status: SmsConsentStatus, source: str) -> None:
+    before = {"sms_consent_status": guest.sms_consent_status.value}
+    guest.sms_consent_status = status
+    guest.sms_consent_at = clock.now()
+    guest.sms_consent_source = source
+    db.flush()
+    audit.record(db, guest.property_id, None, f"consent.{status.value}", "guest", guest.id,
+                 before=before, after={"sms_consent_status": status.value, "source": source})
+
+
+def opt_out(db: Session, guest: Guest, source: str) -> None:
+    _set(db, guest, SmsConsentStatus.opted_out, source)
+
+
+def opt_in(db: Session, guest: Guest, source: str) -> None:
+    _set(db, guest, SmsConsentStatus.opted_in, source)
+
+
+def assert_can_send(guest: Guest, *, allow_opt_out_confirmation: bool = False) -> None:
+    if guest.sms_consent_status == SmsConsentStatus.opted_out and not allow_opt_out_confirmation:
+        raise ConsentError("Guest has opted out of SMS")
+```
+
+- [ ] **Step 6: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass.
+
+- [ ] **Step 7: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): guests, in-house stay lookup, TCPA consent keywords and send-path check"
+```
+
+---
+
+### Task 11: Conversations domain, the send path, the inbound path, and the SMS webhook (§11.1 #1, #2, #5)
+
+**Files:**
+- Create: `server/app/domain/conversations.py`, `server/app/channels/inbound.py`, `server/app/api/hooks.py`, `server/tests/test_inbound.py`, `server/tests/test_send.py`
+- Modify: `server/app/domain/messages.py` (add `send`, `record_inbound`), `server/app/schemas/conversations.py` (add conversation shapes), `server/app/__init__.py`, `server/tests/factories.py` (add `inbound(client, fx, from_phone, body, to=None)` helper)
+
+**Interfaces:**
+- Produces: `conversations.find_or_create_for_guest(db, property_id, guest, stay=None) -> tuple[Conversation, bool]` (reopens archived); `conversations.get(db, property_id, conversation_id) -> Conversation` (404); `conversations.sla_minutes(db, property_id) -> int`; `conversations.auto_resolve_hours(db, property_id) -> int`; `messages.send(db, property_id, conversation_id, body, *, author_user_id, author_type=AuthorType.staff, digital_asset_id=None, draft_prompt_id=None, allow_opt_out_confirmation=False, ip=None, user_agent=None) -> Message`; `messages.record_inbound(db, property_id, conversation, body, provider_message_id, *, redacted) -> Message`; `inbound.handle(db, property_id, msg: InboundMessage) -> InboundResult(conversation, message, created_conversation, keyword)`; `POST /api/hooks/sms/inbound` (form-encoded Twilio fields, `X-Mock-Secret`); `ConversationSummary`, `GuestOut`, `StayOut` schemas. Test helper `inbound(client, fx, from_phone, body, to=None) -> Response`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `server/tests/factories.py`:
+```python
+def inbound(client, fx, from_phone: str, body: str, to: str | None = None, sid: str | None = None):
+    import uuid
+
+    return client.post(
+        "/api/hooks/sms/inbound",
+        data={"From": from_phone, "To": to or fx.property_a.sms_number, "Body": body,
+              "MessageSid": sid or f"SM{uuid.uuid4().hex[:10]}"},
+        headers={"X-Mock-Secret": "dev"},
+    )
+```
+
+`server/tests/test_inbound.py`:
+```python
+from sqlalchemy import select
+
+from app.models import AuditLog, Conversation, Guest, Message
+from app.schemas.enums import ConversationStatus, DeliveryStatus, Direction, SmsConsentStatus
+from tests.factories import inbound
+
+
+def test_unknown_number_creates_guest_and_conversation(app, fx, client, database, events):
+    """§11.1 #1"""
+    res = inbound(client, fx, "+15550142290", "Hi, arriving around 9pm tonight, is that ok?")
+    assert res.status_code == 204
+    with database.session() as db:
+        g = db.scalar(select(Guest).where(Guest.phone_e164 == "+15550142290"))
+        assert g.property_id == fx.property_a.id
+        assert g.sms_consent_status == SmsConsentStatus.opted_in
+        assert g.sms_consent_source == "inbound_sms"
+        c = db.scalar(select(Conversation).where(Conversation.guest_id == g.id))
+        assert c.status == ConversationStatus.open and c.stay_id is None
+        assert c.sla_due_at is not None and c.last_guest_message_at is not None
+        m = db.scalar(select(Message).where(Message.conversation_id == c.id))
+        assert m.direction == Direction.inbound and m.body.startswith("Hi, arriving")
+    assert [e.type for e in events if e.type.startswith("conversation.")] == ["conversation.created"]
+    assert any(e.type == "message.created" for e in events)
+
+
+def test_known_in_house_guest_attaches_stay(app, fx, client, database):
+    """§11.1 #2"""
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "The AC in our room isn't working")
+    with database.session() as db:
+        c = db.scalar(select(Conversation).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+        assert c.stay_id == fx.stay_inhouse_a.id
+
+
+def test_second_message_reuses_open_conversation(app, fx, client, database):
+    inbound(client, fx, "+15550142290", "one")
+    inbound(client, fx, "+15550142290", "two")
+    with database.session() as db:
+        assert db.scalar(select(Conversation).where(
+            Conversation.property_id == fx.property_a.id)) is not None
+        convs = db.scalars(select(Conversation).where(Conversation.property_id == fx.property_a.id)).all()
+        assert len(convs) == 1
+        assert len(db.scalars(select(Message).where(Message.conversation_id == convs[0].id)).all()) == 2
+
+
+def test_archived_conversation_reopens_on_inbound(app, fx, client, database):
+    from app import clock
+
+    inbound(client, fx, "+15550142290", "one")
+    with database.session() as db:
+        c = db.scalar(select(Conversation).where(Conversation.property_id == fx.property_a.id))
+        c.status = ConversationStatus.archived
+        c.archived_at = clock.now()
+    inbound(client, fx, "+15550142290", "two")
+    with database.session() as db:
+        c = db.scalar(select(Conversation).where(Conversation.property_id == fx.property_a.id))
+        assert c.status == ConversationStatus.open and c.archived_at is None
+
+
+def test_duplicate_provider_sid_is_idempotent(app, fx, client, database):
+    inbound(client, fx, "+15550142290", "one", sid="SM-dup")
+    inbound(client, fx, "+15550142290", "one", sid="SM-dup")
+    with database.session() as db:
+        assert len(db.scalars(select(Message)).all()) == 1
+
+
+def test_stop_opts_out_sends_one_confirmation_and_blocks_sends(app, fx, client, database, worker, login):
+    """§11.1 #5"""
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "STOP")
+    with database.session() as db:
+        g = db.get(Guest, fx.guest_inhouse_a.id)
+        assert g.sms_consent_status == SmsConsentStatus.opted_out
+        c = db.scalar(select(Conversation).where(Conversation.guest_id == g.id))
+        msgs = db.scalars(select(Message).where(Message.conversation_id == c.id).order_by(Message.sent_at)).all()
+        assert [m.direction for m in msgs] == [Direction.inbound, Direction.outbound]
+        assert "unsubscribed" in msgs[1].body.lower() and "START" in msgs[1].body
+        assert c.sla_due_at is None  # keyword messages do not start an SLA
+    staff = login("agent@hvh.test")
+    res = staff.post(f"/api/p/{fx.property_a.id}/conversations/{c.id}/messages", json={"body": "Hello?"})
+    assert res.status_code == 422
+    assert res.get_json()["error"]["code"] == "CONSENT_OPTED_OUT"
+    with database.session() as db:
+        assert len(db.scalars(select(Message).where(Message.direction == Direction.outbound)).all()) == 1
+        actions = [a.action for a in db.scalars(select(AuditLog)).all()]
+        assert "message.rejected_opted_out" in actions and "consent.opted_out" in actions
+    # START re-enables
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "START")
+    with database.session() as db:
+        assert db.get(Guest, fx.guest_inhouse_a.id).sms_consent_status == SmsConsentStatus.opted_in
+
+
+def test_help_replies_with_property_help_text(app, fx, client, database):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "HELP")
+    with database.session() as db:
+        out = db.scalar(select(Message).where(Message.direction == Direction.outbound))
+        assert "555 0100" in out.body
+
+
+def test_card_numbers_are_redacted_before_storage(app, fx, client, database):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "charge it to 4242 4242 4242 4242 pls")
+    with database.session() as db:
+        m = db.scalar(select(Message).where(Message.direction == Direction.inbound))
+        assert m.redacted is True and "4242 4242 4242 4242" not in m.body and m.body.endswith("4242 pls")
+
+
+def test_webhook_rejects_bad_secret_and_unknown_property_number(app, fx, client):
+    res = client.post("/api/hooks/sms/inbound", data={"From": "+15550142290", "To": fx.property_a.sms_number,
+                                                     "Body": "x", "MessageSid": "SM1"},
+                      headers={"X-Mock-Secret": "wrong"})
+    assert res.status_code == 401
+    res = inbound(client, fx, "+15550142290", "x", to="+19999999999")
+    assert res.status_code == 404
+
+
+def test_inbound_notifies_front_desk_when_unassigned(app, fx, client, database):
+    from app.models import Notification
+
+    inbound(client, fx, "+15550142290", "hello")
+    with database.session() as db:
+        targets = sorted(n.user_id for n in db.scalars(select(Notification)).all())
+    assert targets == sorted([fx.agent_a.id, fx.agent_a2.id])
+```
+
+`server/tests/test_send.py`:
+```python
+from sqlalchemy import select
+
+from app import clock
+from app.domain import messages
+from app.models import Conversation, Message
+from app.schemas.enums import DeliveryStatus, Direction
+from tests.factories import inbound
+
+
+def _conversation_id(database, fx):
+    with database.session() as db:
+        return db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+
+
+def test_send_queues_message_clears_sla_and_records_first_response(app, fx, client, database, events):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    cid = _conversation_id(database, fx)
+    clock.advance(minutes=3)
+    with database.session() as db:
+        m = messages.send(db, fx.property_a.id, cid, "On it, Sarah.", author_user_id=fx.agent_a.id)
+        assert m.delivery_status == DeliveryStatus.queued and m.direction == Direction.outbound
+        c = db.get(Conversation, cid)
+        assert c.sla_due_at is None
+        assert c.first_response_seconds == 180
+        assert c.last_staff_message_at == clock.now()
+    assert any(e.type == "message.created" and e.payload["body"] == "On it, Sarah." for e in events)
+    from app.models import Job
+
+    with database.session() as db:
+        assert db.scalar(select(Job).where(Job.type == "outbound.send")) is not None
+
+
+def test_send_via_api_requires_reply_capability(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    cid = _conversation_id(database, fx)
+    corporate = login("corporate@hvh.test")
+    assert corporate.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages",
+                          json={"body": "x"}).status_code == 403
+    agent = login("agent@hvh.test")
+    res = agent.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages", json={"body": "x"})
+    assert res.status_code == 201
+    assert res.get_json()["deliveryStatus"] == "queued"
+
+
+def test_first_response_is_recorded_only_once(app, fx, client, database):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "one")
+    cid = _conversation_id(database, fx)
+    clock.advance(minutes=2)
+    with database.session() as db:
+        messages.send(db, fx.property_a.id, cid, "a", author_user_id=fx.agent_a.id)
+    clock.advance(minutes=10)
+    with database.session() as db:
+        messages.send(db, fx.property_a.id, cid, "b", author_user_id=fx.agent_a.id)
+        assert db.get(Conversation, cid).first_response_seconds == 120
+
+
+def test_send_rejects_over_length(app, fx, client, database):
+    import pytest
+
+    from app.errors import ValidationFailed
+
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "one")
+    cid = _conversation_id(database, fx)
+    with database.session() as db, pytest.raises(ValidationFailed):
+        messages.send(db, fx.property_a.id, cid, "x" * 1601, author_user_id=fx.agent_a.id)
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_inbound.py tests/test_send.py -q`
+Expected: FAIL — 404 on the webhook, `ImportError` for `messages.send`.
+
+- [ ] **Step 3: Add conversation shapes to `app/schemas/conversations.py`**
+
+Append:
+```python
+from datetime import date
+
+from app.schemas.enums import ConversationStatus, SmsConsentStatus, StayStatus
+
+
+class GuestOut(CamelModel):
+    id: str
+    first_name: str | None = None
+    last_name: str | None = None
+    phone_e164: str
+    email: str | None = None
+    loyalty_tier: str | None = None
+    vip: bool
+    sms_consent_status: SmsConsentStatus
+    notes_summary: str | None = None
+
+
+class StayOut(CamelModel):
+    id: str
+    room_number: str | None = None
+    room_type: str | None = None
+    status: StayStatus
+    arrival_date: date
+    departure_date: date
+    adults: int
+    children: int
+    is_return_guest: bool
+    stay_count: int
+
+
+class ConversationSummary(CamelModel):
+    id: str
+    status: ConversationStatus
+    guest: GuestOut
+    room_number: str | None = None
+    assigned_user_id: str | None = None
+    assigned_department_id: str | None = None
+    channel_primary: Channel
+    last_guest_message_at: datetime | None = None
+    last_staff_message_at: datetime | None = None
+    last_message_preview: str | None = None
+    sla_due_at: datetime | None = None
+    unanswered: bool
+    open_work_order_count: int
+    snoozed_until: datetime | None = None
+```
+
+(Keep the existing `MessageOut`; `ConversationDetail`, `NoteOut`, etc. arrive in Task 12.)
+
+- [ ] **Step 4: Write `app/domain/conversations.py` (creation half; list/detail/assign arrive in Task 12)**
+
+```python
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app import clock
+from app.errors import NotFound
+from app.models import Conversation, Guest, Property, Stay
+from app.realtime.broadcast import queue_event
+from app.schemas.enums import Channel, ConversationStatus
+
+
+def get(db: Session, property_id: str, conversation_id: str) -> Conversation:
+    c = db.scalar(select(Conversation).where(Conversation.id == conversation_id,
+                                             Conversation.property_id == property_id))
+    if c is None:
+        raise NotFound("Conversation not found")
+    return c
+
+
+def _setting(db: Session, property_id: str, key: str, default: int) -> int:
+    settings = db.scalar(select(Property.settings).where(Property.id == property_id)) or {}
+    return int(settings.get(key, default))
+
+
+def sla_minutes(db: Session, property_id: str) -> int:
+    return _setting(db, property_id, "sla_minutes", 15)
+
+
+def auto_resolve_hours(db: Session, property_id: str) -> int:
+    return _setting(db, property_id, "auto_resolve_hours", 4)
+
+
+def find_or_create_for_guest(db: Session, property_id: str, guest: Guest,
+                             stay: Stay | None = None) -> tuple[Conversation, bool]:
+    """Returns the guest's single live conversation, reopening an archived one if that is all there is."""
+    c = db.scalar(
+        select(Conversation).where(Conversation.property_id == property_id,
+                                   Conversation.guest_id == guest.id)
+        .order_by(Conversation.updated_at.desc())
+    )
+    if c is None:
+        c = Conversation(property_id=property_id, guest_id=guest.id, stay_id=stay.id if stay else None,
+                         status=ConversationStatus.open, channel_primary=Channel.sms)
+        db.add(c)
+        db.flush()
+        return c, True
+    if c.status == ConversationStatus.archived:
+        c.status = ConversationStatus.open
+        c.archived_at = None
+        c.resolution_category_id = None
+    elif c.status == ConversationStatus.snoozed:
+        c.status = ConversationStatus.open
+        c.snoozed_until = None
+    if stay and c.stay_id != stay.id:
+        c.stay_id = stay.id
+    db.flush()
+    return c, False
+
+
+def touch_updated(db: Session, c: Conversation) -> None:
+    c.updated_at = clock.now()
+    queue_event(db, c.property_id, "conversation.updated", {"id": c.id})
+```
+
+- [ ] **Step 5: Add `send` and `record_inbound` to `app/domain/messages.py`**
+
+Add these imports at the top of `messages.py`:
+```python
+from datetime import timedelta
+
+from app.domain import audit, consent
+from app.domain import conversations as conv_domain
+from app.domain.redaction import redact
+from app.errors import ValidationFailed
+from app.models import Conversation, DigitalAsset, Guest, WorkOrder
+from app.schemas.enums import AuthorType, Channel, DraftPromptStatus
+```
+(`DraftPrompt`/`WorkOrder` are used by the `draft_prompt_id` branch; the model already exists.)
+
+Then append:
+```python
+MAX_BODY = 1600
+
+
+def send(db: Session, property_id: str, conversation_id: str, body: str, *,
+         author_user_id: str | None, author_type: AuthorType = AuthorType.staff,
+         digital_asset_id: str | None = None, draft_prompt_id: str | None = None,
+         allow_opt_out_confirmation: bool = False, ip: str | None = None,
+         user_agent: str | None = None) -> Message:
+    """THE outbound path. Every message to a guest goes through here (design.md §9.1)."""
+    body = (body or "").strip()
+    if not body:
+        raise ValidationFailed("Message body is empty")
+    if len(body) > MAX_BODY:
+        raise ValidationFailed(f"Message body exceeds {MAX_BODY} characters")
+
+    conv = conv_domain.get(db, property_id, conversation_id)
+    guest = db.get(Guest, conv.guest_id)
+    if guest.sms_consent_status == SmsConsentStatus.opted_out and not allow_opt_out_confirmation:
+        # The caller's session will roll back when ConsentError propagates, so the audit row gets its own
+        # session. Nothing has been written in `db` yet at this point, so SQLite WAL allows the second writer.
+        with get_db().session() as audit_db:
+            audit.record(audit_db, property_id, author_user_id, "message.rejected_opted_out", "conversation",
+                         conv.id, after={"body_length": len(body)}, ip=ip, user_agent=user_agent)
+    consent.assert_can_send(guest, allow_opt_out_confirmation=allow_opt_out_confirmation)
+
+    if digital_asset_id:
+        asset = db.scalar(select(DigitalAsset).where(DigitalAsset.id == digital_asset_id,
+                                                     DigitalAsset.property_id == property_id))
+        if asset is None:
+            raise ValidationFailed("Unknown digital asset")
+        body = f"{body} /a/{asset.short_code}"
+        asset.send_count += 1
+
+    now = clock.now()
+    m = Message(conversation_id=conv.id, property_id=property_id, direction=Direction.outbound,
+                author_type=author_type, author_user_id=author_user_id, channel=Channel.sms,
+                body=body, digital_asset_id=digital_asset_id, delivery_status=DeliveryStatus.queued,
+                sent_at=now)
+    db.add(m)
+
+    conv.last_staff_message_at = now
+    conv.sla_due_at = None
+    conv.sla_breach_notified_at = None
+    if conv.first_response_seconds is None and conv.last_guest_message_at is not None \
+            and author_type == AuthorType.staff:
+        conv.first_response_seconds = int((now - conv.last_guest_message_at).total_seconds())
+
+    if draft_prompt_id:
+        from app.models import DraftPrompt
+
+        dp = db.scalar(select(DraftPrompt).where(DraftPrompt.id == draft_prompt_id,
+                                                 DraftPrompt.property_id == property_id,
+                                                 DraftPrompt.conversation_id == conv.id))
+        if dp is not None and dp.status == DraftPromptStatus.pending:
+            dp.status = DraftPromptStatus.sent
+            dp.resolved_at = now
+            dp.resolved_by_user_id = author_user_id
+            wo = db.get(WorkOrder, dp.work_order_id)
+            if wo is not None:
+                wo.guest_notified_at = now
+
+    db.flush()
+    jobs.enqueue(db, "outbound.send", {"message_id": m.id})
+    audit.record(db, property_id, author_user_id, "message.sent", "message", m.id,
+                 after={"conversation_id": conv.id, "length": len(body)}, ip=ip, user_agent=user_agent)
+    queue_event(db, property_id, "message.created",
+                MessageOut.model_validate(m).model_dump(mode="json", by_alias=True))
+    conv_domain.touch_updated(db, conv)
+    return m
+
+
+def record_inbound(db: Session, property_id: str, conv: Conversation, body: str,
+                   provider_message_id: str, *, start_sla: bool = True) -> Message:
+    clean, redacted = redact(body)
+    now = clock.now()
+    m = Message(conversation_id=conv.id, property_id=property_id, direction=Direction.inbound,
+                author_type=AuthorType.guest, channel=Channel.sms, body=clean, redacted=redacted,
+                delivery_status=DeliveryStatus.delivered, provider_message_id=provider_message_id,
+                sent_at=now, delivered_at=now)
+    db.add(m)
+    conv.last_guest_message_at = now
+    if start_sla:
+        conv.sla_due_at = now + timedelta(minutes=conv_domain.sla_minutes(db, property_id))
+        conv.sla_breach_notified_at = None
+    db.flush()
+    queue_event(db, property_id, "message.created",
+                MessageOut.model_validate(m).model_dump(mode="json", by_alias=True))
+    return m
+```
+
+Add `from app.db import get_db` and `SmsConsentStatus` to the imports for the consent block above.
+
+- [ ] **Step 6: Write `app/channels/inbound.py`**
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.channels.base import InboundMessage
+from app.domain import consent, guests, messages, notifications, stays
+from app.domain import conversations as conv_domain
+from app.models import Conversation, Message, Property
+from app.realtime.broadcast import queue_event
+from app.schemas.enums import AuthorType, SmsConsentStatus
+
+
+@dataclass
+class InboundResult:
+    conversation: Conversation
+    message: Message
+    created_conversation: bool
+    keyword: str | None
+
+
+def property_for_number(db: Session, to_number: str) -> Property | None:
+    return db.scalar(select(Property).where(Property.sms_number == guests.normalize_phone(to_number)))
+
+
+def handle(db: Session, property_id: str, msg: InboundMessage) -> InboundResult:
+    existing = db.scalar(select(Message).where(Message.property_id == property_id,
+                                               Message.provider_message_id == msg.provider_message_id))
+    if existing is not None:
+        conv = db.get(Conversation, existing.conversation_id)
+        return InboundResult(conv, existing, False, None)
+
+    guest, _ = guests.find_or_create_by_phone(db, property_id, msg.from_)
+    if guest.sms_consent_status == SmsConsentStatus.unknown:
+        consent.opt_in(db, guest, "inbound_sms")
+
+    stay = stays.find_in_house_for_guest(db, property_id, guest.id)
+    conv, created = conv_domain.find_or_create_for_guest(db, property_id, guest, stay)
+
+    keyword = consent.classify_keyword(msg.body)
+    message = messages.record_inbound(db, property_id, conv, msg.body, msg.provider_message_id,
+                                      start_sla=keyword is None)
+
+    prop = db.get(Property, property_id)
+    if keyword == "stop":
+        consent.opt_out(db, guest, "sms_keyword")
+        messages.send(db, property_id, conv.id, consent.STOP_CONFIRMATION(prop.name),
+                      author_user_id=None, author_type=AuthorType.system,
+                      allow_opt_out_confirmation=True)
+    elif keyword == "start":
+        consent.opt_in(db, guest, "sms_keyword")
+        messages.send(db, property_id, conv.id, f"You're resubscribed to {prop.name} messages.",
+                      author_user_id=None, author_type=AuthorType.system)
+    elif keyword == "help":
+        help_text = (prop.settings or {}).get("help_text") or f"{prop.name}: reply to this number."
+        messages.send(db, property_id, conv.id, help_text, author_user_id=None,
+                      author_type=AuthorType.system, allow_opt_out_confirmation=True)
+    else:
+        name = f"{guest.first_name or ''} {guest.last_name or ''}".strip() or guest.phone_e164
+        room = f" · {stay.room_number}" if stay and stay.room_number else ""
+        notifications.notify_user_or_department(
+            db, property_id, user_id=conv.assigned_user_id, department_id=conv.assigned_department_id,
+            type="message.inbound", title=f"{name}{room}", body=message.body[:140],
+            entity_type="conversation", entity_id=conv.id)
+
+    queue_event(db, property_id, "conversation.created" if created else "conversation.updated",
+                {"id": conv.id})
+    return InboundResult(conv, message, created, keyword)
+```
+
+Because `messages.send` calls `conv_domain.touch_updated`, a keyword reply will also emit `conversation.updated`; the test only checks `conversation.*` events for the first-message case (which emits exactly one `conversation.created`), so `handle` must **not** call `touch_updated` itself — it queues its own single event as written above. Ensure `messages.send` is not invoked in the non-keyword branch.
+
+- [ ] **Step 7: Write the webhook blueprint and register it**
+
+`server/app/api/hooks.py`:
+```python
+from flask import Blueprint, request
+
+from app.api._util import db_session, no_content
+from app.channels import inbound
+from app.channels.registry import get_sms_adapter
+from app.errors import NotFound, Unauthorized
+from app.ratelimit import rate_limited, webhook_limiter
+
+bp = Blueprint("hooks", __name__, url_prefix="/api/hooks")
+
+
+@bp.post("/sms/inbound")
+@rate_limited(webhook_limiter)
+def sms_inbound():
+    adapter = get_sms_adapter()
+    if not adapter.verify_inbound(request):
+        raise Unauthorized("Bad webhook signature")
+    payload = request.form.to_dict() if request.form else (request.get_json(silent=True) or {})
+    msg = adapter.parse_inbound(payload)
+    with db_session() as db:
+        prop = inbound.property_for_number(db, msg.to)
+        if prop is None:
+            raise NotFound("No property uses that number")
+        inbound.handle(db, prop.id, msg)
+    return no_content()
+```
+
+Register `hooks.bp` in `create_app`. Also register a minimal conversations blueprint now so `test_stop_opts_out…` and `test_send_via_api…` can POST a message; the full blueprint is Task 12. Create `server/app/api/conversations.py` with just:
+
+```python
+from flask import Blueprint, g
+
+from app.api._util import client_meta, db_session, ok, parse_body
+from app.auth.decorators import require_auth, require_capability, require_property
+from app.domain import messages
+from app.schemas.conversations import MessageOut, SendMessageRequest
+
+bp = Blueprint("conversations", __name__, url_prefix="/api/p/<property_id>/conversations")
+
+
+@bp.post("/<conversation_id>/messages")
+@require_auth
+@require_property
+@require_capability("reply")
+def send_message(property_id: str, conversation_id: str):
+    body = parse_body(SendMessageRequest)
+    ip, ua = client_meta()
+    with db_session() as db:
+        m = messages.send(db, g.property_id, conversation_id, body.body, author_user_id=g.user.id,
+                          digital_asset_id=body.digital_asset_id, draft_prompt_id=body.draft_prompt_id,
+                          ip=ip, user_agent=ua)
+        return ok(MessageOut.model_validate(m), 201)
+```
+
+and add to `app/schemas/conversations.py`:
+```python
+from pydantic import Field
+
+
+class SendMessageRequest(CamelModel):
+    body: str = Field(min_length=1, max_length=1600)
+    digital_asset_id: str | None = None
+    draft_prompt_id: str | None = None
+```
+
+- [ ] **Step 8: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass. The isolation suite now covers `POST …/conversations/<id>/messages` — it must return 403 for the cross-property user *before* the 404 for the dummy conversation id, which the decorator order guarantees.
+
+- [ ] **Step 9: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): conversations, the consent-enforced send path, inbound SMS handling and webhook"
+```
+
+---
+
+### Task 12: Conversations API — list with filters, detail, notes, assign/archive/snooze, retry (§11.1 #4, #10)
+
+**Files:**
+- Create: `server/app/domain/notes.py`, `server/tests/test_conversations_api.py`, `server/tests/test_note_leakage.py`
+- Modify: `server/app/domain/conversations.py` (list, detail, patch), `server/app/schemas/conversations.py` (detail shapes), `server/app/api/conversations.py` (all routes)
+
+**Interfaces:**
+- Produces: `conversations.list(db, property_id, *, filter: str, viewer_user_id, viewer_role, viewer_department_id, dept: str | None, limit=50, offset=0) -> list[ConversationSummary]` where `filter ∈ {all, mine, unassigned, overdue, resolved, archived}`; `conversations.detail(db, property_id, conversation_id) -> ConversationDetail`; `conversations.patch(db, property_id, conversation_id, actor_user_id, changes: ConversationPatch) -> Conversation`; `conversations.guest_thread(db, property_id, phone) -> GuestThread`; `notes.create(db, property_id, conversation_id, author_user_id, body) -> InternalNote` (extracts `@first_name` mentions → notifications); `notes.list(db, property_id, conversation_id) -> list[NoteOut]`. Schemas: `NoteOut`, `WorkOrderBrief`, `DraftPromptOut`, `ConversationDetail` (strict), `GuestThread` + `GuestThreadMessage` (strict, no note field), `ConversationPatch`, `CreateNoteRequest`, `ListQuery`. Routes: `GET conversations`, `GET conversations/<id>`, `POST conversations/<id>/messages`, `POST conversations/<id>/messages/<mid>/retry`, `POST conversations/<id>/notes`, `PATCH conversations/<id>`, `POST conversations/<id>/draft-prompts/<pid>/dismiss` (the dismiss route lands in Task 15 when `draft_prompts` exists — list it here so the blueprint is complete, but implement in 15).
+
+- [ ] **Step 1: Write the failing tests**
+
+`server/tests/test_conversations_api.py`:
+```python
+from datetime import timedelta
+
+from sqlalchemy import select
+
+from app import clock
+from app.models import Conversation, Message
+from app.schemas.enums import ConversationStatus, DeliveryStatus
+from tests.factories import inbound
+
+
+def _cid(database, guest_id):
+    with database.session() as db:
+        return db.scalar(select(Conversation.id).where(Conversation.guest_id == guest_id))
+
+
+def _base(fx):
+    return f"/api/p/{fx.property_a.id}/conversations"
+
+
+def test_list_sorts_oldest_unanswered_first_and_shows_context(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_nostay_a.phone_e164, "late checkout?")
+    clock.advance(minutes=1)
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    c = login("agent@hvh.test")
+    rows = c.get(_base(fx)).get_json()
+    assert [r["guest"]["firstName"] for r in rows] == ["Diego", "Sarah"]
+    sarah = rows[1]
+    assert sarah["roomNumber"] == "412" and sarah["unanswered"] is True
+    assert sarah["lastMessagePreview"] == "AC broken"
+    assert sarah["slaDueAt"] is not None
+
+
+def test_filters_mine_unassigned_overdue_resolved_archived(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_nostay_a.phone_e164, "one")
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "two")
+    diego, sarah = _cid(database, fx.guest_nostay_a.id), _cid(database, fx.guest_inhouse_a.id)
+    c = login("agent@hvh.test")
+    assert c.patch(f"{_base(fx)}/{sarah}", json={"assignedUserId": fx.agent_a.id}).status_code == 200
+    assert {r["id"] for r in c.get(_base(fx) + "?filter=mine").get_json()} == {sarah}
+    assert {r["id"] for r in c.get(_base(fx) + "?filter=unassigned").get_json()} == {diego}
+    assert c.get(_base(fx) + "?filter=overdue").get_json() == []
+    clock.advance(minutes=16)
+    assert {r["id"] for r in c.get(_base(fx) + "?filter=overdue").get_json()} == {diego, sarah}
+    # Resolved: no guest message for 4h and no open WO → leaves "all", appears in "resolved".
+    c.post(f"{_base(fx)}/{diego}/messages", json={"body": "Sure"})
+    clock.advance(hours=4, minutes=1)
+    assert diego not in {r["id"] for r in c.get(_base(fx)).get_json()}
+    assert {r["id"] for r in c.get(_base(fx) + "?filter=resolved").get_json()} == {diego}
+    # Archive with a category (none seeded → null), then it lives only in "archived".
+    assert c.patch(f"{_base(fx)}/{diego}", json={"status": "archived"}).status_code == 200
+    assert {r["id"] for r in c.get(_base(fx) + "?filter=archived").get_json()} == {diego}
+    assert diego not in {r["id"] for r in c.get(_base(fx) + "?filter=resolved").get_json()}
+
+
+def test_dept_staff_sees_only_their_department_or_own_conversations(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_nostay_a.phone_e164, "one")
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "two")
+    diego, sarah = _cid(database, fx.guest_nostay_a.id), _cid(database, fx.guest_inhouse_a.id)
+    agent = login("agent@hvh.test")
+    agent.patch(f"{_base(fx)}/{sarah}", json={"assignedDepartmentId": fx.dept_engineering.id})
+    eng = login("engineer@hvh.test")
+    assert {r["id"] for r in eng.get(_base(fx)).get_json()} == {sarah}
+    assert eng.get(f"{_base(fx)}/{diego}").status_code == 403
+
+
+def test_detail_includes_messages_notes_and_stay(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    c = login("agent@hvh.test")
+    assert c.post(f"{_base(fx)}/{cid}/notes", json={"body": "Gold guest, @Marcus please watch"}).status_code == 201
+    d = c.get(f"{_base(fx)}/{cid}").get_json()
+    assert d["guest"]["firstName"] == "Sarah" and d["stay"]["roomNumber"] == "412"
+    assert [m["body"] for m in d["messages"]] == ["AC broken"]
+    assert d["notes"][0]["body"].startswith("Gold guest") and d["notes"][0]["authorName"] == "Ava Agent"
+    assert d["workOrders"] == [] and d["draftPrompts"] == []
+
+
+def test_note_mention_notifies_mentioned_user(app, fx, client, database, login):
+    from app.models import Notification
+
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    login("agent@hvh.test").post(f"{_base(fx)}/{cid}/notes", json={"body": "@Marcus can you take this"})
+    with database.session() as db:
+        n = db.scalar(select(Notification).where(Notification.type == "note.mention"))
+        assert n.user_id == fx.agent_a2.id
+
+
+def test_snooze_hides_and_wakes(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    c = login("agent@hvh.test")
+    until = (clock.now() + timedelta(hours=1)).isoformat()
+    assert c.patch(f"{_base(fx)}/{cid}", json={"status": "snoozed", "snoozedUntil": until}).status_code == 200
+    assert c.get(_base(fx)).get_json() == []
+    with database.session() as db:
+        assert db.get(Conversation, cid).status == ConversationStatus.snoozed
+
+
+def test_retry_failed_message_via_api(app, fx, client, database, login, worker):
+    """§11.1 #4 (server half): failure carries the provider error; retry re-queues."""
+    with database.session() as db:
+        g = db.get(type(fx.guest_inhouse_a), fx.guest_inhouse_a.id)
+        g.phone_e164 = "+15552000000"
+    inbound(client, fx, "+15552000000", "hi")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    c = login("agent@hvh.test")
+    mid = c.post(f"{_base(fx)}/{cid}/messages", json={"body": "hello"}).get_json()["id"]
+    worker.tick(); clock.advance(seconds=0.5); worker.tick()
+    d = c.get(f"{_base(fx)}/{cid}").get_json()
+    failed = [m for m in d["messages"] if m["id"] == mid][0]
+    assert failed["deliveryStatus"] == "failed" and failed["providerErrorCode"] == "30007"
+    res = c.post(f"{_base(fx)}/{cid}/messages/{mid}/retry")
+    assert res.status_code == 200 and res.get_json()["deliveryStatus"] == "queued"
+
+
+def test_archive_requires_capability(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    login("agent@hvh.test").patch(f"{_base(fx)}/{cid}", json={"assignedDepartmentId": fx.dept_engineering.id})
+    eng = login("engineer@hvh.test")
+    assert eng.patch(f"{_base(fx)}/{cid}", json={"status": "archived"}).status_code == 403
+```
+
+`server/tests/test_note_leakage.py`:
+```python
+"""§11.1 #10: an internal note never appears in any guest-facing payload."""
+import json
+
+from pydantic import ValidationError
+
+from app.domain import conversations
+from app.schemas.conversations import GuestThread
+from tests.factories import inbound
+
+SECRET = "SECRET-NOTE-do-not-leak-7f3a"
+
+
+def test_guest_thread_excludes_notes_entirely(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
+    from sqlalchemy import select
+
+    from app.models import Conversation
+
+    with database.session() as db:
+        cid = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+    c = login("agent@hvh.test")
+    c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/notes", json={"body": SECRET})
+    c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages", json={"body": "visible reply"})
+    with database.session() as db:
+        thread = conversations.guest_thread(db, fx.property_a.id, fx.guest_inhouse_a.phone_e164)
+    payload = json.dumps(thread.model_dump(mode="json", by_alias=True))
+    assert SECRET not in payload
+    assert "visible reply" in payload
+    assert "note" not in payload.lower()
+
+
+def test_guest_thread_schema_rejects_a_notes_field():
+    try:
+        GuestThread.model_validate({"phone": "+1", "propertyName": "x", "messages": [], "notes": []})
+    except ValidationError:
+        return
+    raise AssertionError("GuestThread accepted a 'notes' field — it must be extra='forbid'")
+
+
+def test_staff_detail_keeps_notes_in_a_separate_array(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
+    from sqlalchemy import select
+
+    from app.models import Conversation
+
+    with database.session() as db:
+        cid = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+    c = login("agent@hvh.test")
+    c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/notes", json={"body": SECRET})
+    d = c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()
+    assert all(SECRET not in m["body"] for m in d["messages"])
+    assert d["notes"][0]["body"] == SECRET
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_conversations_api.py tests/test_note_leakage.py -q`
+Expected: FAIL — 404/405 on the new routes, `ImportError` for `GuestThread`.
+
+- [ ] **Step 3: Add the remaining schemas to `app/schemas/conversations.py`**
+
+```python
+from app.schemas.enums import DraftPromptStatus, Priority, WorkOrderStatus, WorkOrderType
+
+
+class NoteOut(CamelModel):
+    id: str
+    author_user_id: str
+    author_name: str
+    body: str
+    mentions: list[str]
+    created_at: datetime
+
+
+class WorkOrderBrief(CamelModel):
+    id: str
+    title: str
+    status: WorkOrderStatus
+    priority: Priority
+    type: WorkOrderType
+    department_id: str | None = None
+    assigned_user_id: str | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
+    guest_notified_at: datetime | None = None
+
+
+class DraftPromptOut(CamelModel):
+    id: str
+    work_order_id: str
+    work_order_title: str
+    body: str
+    status: DraftPromptStatus
+    created_at: datetime
+
+
+class ConversationDetail(CamelModel):
+    id: str
+    status: ConversationStatus
+    guest: GuestOut
+    stay: StayOut | None = None
+    assigned_user_id: str | None = None
+    assigned_department_id: str | None = None
+    channel_primary: Channel
+    last_guest_message_at: datetime | None = None
+    last_staff_message_at: datetime | None = None
+    first_response_seconds: int | None = None
+    sla_due_at: datetime | None = None
+    snoozed_until: datetime | None = None
+    resolution_category_id: str | None = None
+    archived_at: datetime | None = None
+    messages: list[MessageOut]
+    notes: list[NoteOut]
+    work_orders: list[WorkOrderBrief]
+    draft_prompts: list[DraftPromptOut]
+
+
+class GuestThreadMessage(CamelModel):
+    """What a guest could ever see. Deliberately has no field that could carry an internal note."""
+
+    id: str
+    direction: Direction
+    body: str
+    sent_at: datetime | None = None
+    delivery_status: DeliveryStatus
+
+
+class GuestThread(CamelModel):
+    phone: str
+    property_name: str
+    messages: list[GuestThreadMessage]
+
+
+class ConversationPatch(CamelModel):
+    assigned_user_id: str | None = None
+    assigned_department_id: str | None = None
+    status: ConversationStatus | None = None
+    resolution_category_id: str | None = None
+    snoozed_until: datetime | None = None
+    clear_assignment: bool = False
+
+
+class CreateNoteRequest(CamelModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class ListQuery(CamelModel):
+    filter: str = "all"
+    dept: str | None = None
+    limit: int = Field(default=50, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)
+```
+
+- [ ] **Step 4: Write `app/domain/notes.py`**
+
+```python
+from __future__ import annotations
+
+import re
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.domain import audit, notifications
+from app.domain import conversations as conv_domain
+from app.models import InternalNote, PropertyMembership, UserAccount
+from app.schemas.conversations import NoteOut
+
+_MENTION = re.compile(r"@([A-Za-z][\w'-]*)")
+
+
+def _resolve_mentions(db: Session, property_id: str, body: str) -> list[str]:
+    names = {m.lower() for m in _MENTION.findall(body)}
+    if not names:
+        return []
+    rows = db.execute(
+        select(UserAccount.id, UserAccount.first_name)
+        .join(PropertyMembership, PropertyMembership.user_id == UserAccount.id)
+        .where(PropertyMembership.property_id == property_id)
+    ).all()
+    return [uid for uid, first in rows if first.lower() in names]
+
+
+def create(db: Session, property_id: str, conversation_id: str, author_user_id: str, body: str) -> InternalNote:
+    conv = conv_domain.get(db, property_id, conversation_id)
+    mentions = _resolve_mentions(db, property_id, body)
+    note = InternalNote(conversation_id=conv.id, property_id=property_id, author_user_id=author_user_id,
+                        body=body.strip(), mentions=mentions)
+    db.add(note)
+    db.flush()
+    author = db.get(UserAccount, author_user_id)
+    for uid in mentions:
+        if uid != author_user_id:
+            notifications.create(db, property_id, uid, "note.mention",
+                                 f"{author.first_name} mentioned you", body=body[:140],
+                                 entity_type="conversation", entity_id=conv.id)
+    audit.record(db, property_id, author_user_id, "note.created", "internal_note", note.id,
+                 after={"conversation_id": conv.id})
+    conv_domain.touch_updated(db, conv)
+    return note
+
+
+def list_for(db: Session, property_id: str, conversation_id: str) -> list[NoteOut]:
+    rows = db.execute(
+        select(InternalNote, UserAccount)
+        .join(UserAccount, UserAccount.id == InternalNote.author_user_id)
+        .where(InternalNote.conversation_id == conversation_id, InternalNote.property_id == property_id)
+        .order_by(InternalNote.created_at)
+    ).all()
+    return [NoteOut(id=n.id, author_user_id=n.author_user_id, author_name=f"{u.first_name} {u.last_name}",
+                    body=n.body, mentions=list(n.mentions or []), created_at=n.created_at)
+            for n, u in rows]
+```
+
+- [ ] **Step 5: Add list/detail/patch/guest_thread to `app/domain/conversations.py`**
+
+Append (with the extra imports `and_, case, exists, func, or_` from sqlalchemy, `timedelta`, the models `Department, InternalNote, Message, WorkOrder, DraftPrompt, UserAccount`, the schemas, `Role`, `WorkOrderStatus`, `DraftPromptStatus`, `Direction`, and `from app.domain import audit, notifications`):
+
+```python
+OPEN_WO = [WorkOrderStatus.open, WorkOrderStatus.assigned, WorkOrderStatus.in_progress, WorkOrderStatus.blocked]
+
+
+def _open_wo_exists():
+    return exists().where(WorkOrder.source_conversation_id == Conversation.id, WorkOrder.status.in_(OPEN_WO))
+
+
+def _resolved_condition(db: Session, property_id: str):
+    """Spec §4 'Resolved': open, quiet for N hours, no open work order — and answered, so an ignored
+    guest can never fall out of the queue (a refinement of the spec wording)."""
+    cutoff = clock.now() - timedelta(hours=auto_resolve_hours(db, property_id))
+    return and_(Conversation.status == ConversationStatus.open,
+                Conversation.last_guest_message_at.isnot(None),
+                Conversation.last_guest_message_at < cutoff,
+                ~_unanswered_expr(),
+                ~_open_wo_exists())
+
+
+def _unanswered_expr():
+    return and_(Conversation.last_guest_message_at.isnot(None),
+                or_(Conversation.last_staff_message_at.is_(None),
+                    Conversation.last_staff_message_at < Conversation.last_guest_message_at))
+
+
+def viewer_scope(q, viewer_role: Role, viewer_user_id: str, viewer_department_id: str | None):
+    if viewer_role == Role.dept_staff:
+        return q.where(or_(Conversation.assigned_user_id == viewer_user_id,
+                           Conversation.assigned_department_id == viewer_department_id))
+    return q
+
+
+def list(db: Session, property_id: str, *, filter: str, viewer_user_id: str, viewer_role: Role,
+         viewer_department_id: str | None, dept: str | None = None, limit: int = 50,
+         offset: int = 0) -> list[ConversationSummary]:  # noqa: A001 — mirrors the API name
+    now = clock.now()
+    live = Conversation.status.in_([ConversationStatus.open, ConversationStatus.snoozed])
+    resolved = _resolved_condition(db, property_id)
+    q = select(Conversation).where(Conversation.property_id == property_id)
+    if filter == "all":
+        q = q.where(Conversation.status == ConversationStatus.open, ~resolved)
+    elif filter == "mine":
+        q = q.where(Conversation.status == ConversationStatus.open, ~resolved,
+                    Conversation.assigned_user_id == viewer_user_id)
+    elif filter == "unassigned":
+        q = q.where(Conversation.status == ConversationStatus.open, ~resolved,
+                    Conversation.assigned_user_id.is_(None), Conversation.assigned_department_id.is_(None))
+    elif filter == "overdue":
+        q = q.where(Conversation.status == ConversationStatus.open, Conversation.sla_due_at.isnot(None),
+                    Conversation.sla_due_at < now)
+    elif filter == "resolved":
+        q = q.where(resolved)
+    elif filter == "archived":
+        q = q.where(Conversation.status == ConversationStatus.archived)
+    elif filter == "snoozed":
+        q = q.where(Conversation.status == ConversationStatus.snoozed)
+    else:
+        raise ValidationFailed(f"Unknown filter {filter!r}")
+    if dept:
+        q = q.where(Conversation.assigned_department_id == dept)
+    q = viewer_scope(q, viewer_role, viewer_user_id, viewer_department_id)
+    q = q.order_by(case((_unanswered_expr(), 0), else_=1),
+                   Conversation.last_guest_message_at.asc().nulls_last(),
+                   Conversation.updated_at.desc()).limit(limit).offset(offset)
+    rows = db.scalars(q).all()
+    return [_summary(db, c) for c in rows]
+
+
+def _last_preview(db: Session, conversation_id: str) -> str | None:
+    body = db.scalar(select(Message.body).where(Message.conversation_id == conversation_id)
+                     .order_by(Message.sent_at.desc()).limit(1))
+    return body[:140] if body else None
+
+
+def _open_wo_count(db: Session, conversation_id: str) -> int:
+    return db.scalar(select(func.count()).select_from(WorkOrder).where(
+        WorkOrder.source_conversation_id == conversation_id, WorkOrder.status.in_(OPEN_WO))) or 0
+
+
+def _summary(db: Session, c: Conversation) -> ConversationSummary:
+    unanswered = bool(c.last_guest_message_at and (c.last_staff_message_at is None
+                                                    or c.last_staff_message_at < c.last_guest_message_at))
+    return ConversationSummary(
+        id=c.id, status=c.status, guest=GuestOut.model_validate(c.guest),
+        room_number=c.stay.room_number if c.stay else None,
+        assigned_user_id=c.assigned_user_id, assigned_department_id=c.assigned_department_id,
+        channel_primary=c.channel_primary, last_guest_message_at=c.last_guest_message_at,
+        last_staff_message_at=c.last_staff_message_at, last_message_preview=_last_preview(db, c.id),
+        sla_due_at=c.sla_due_at, unanswered=unanswered, open_work_order_count=_open_wo_count(db, c.id),
+        snoozed_until=c.snoozed_until,
+    )
+
+
+def assert_viewer_can_see(c: Conversation, viewer_role: Role, viewer_user_id: str,
+                          viewer_department_id: str | None) -> None:
+    if viewer_role == Role.dept_staff and not (
+        c.assigned_user_id == viewer_user_id or c.assigned_department_id == viewer_department_id
+    ):
+        raise Forbidden("This conversation belongs to another department")
+
+
+def detail(db: Session, property_id: str, conversation_id: str) -> ConversationDetail:
+    from app.domain import notes as notes_domain
+
+    c = get(db, property_id, conversation_id)
+    msgs = db.scalars(select(Message).where(Message.conversation_id == c.id).order_by(Message.sent_at)).all()
+    wos = db.scalars(select(WorkOrder).where(WorkOrder.source_conversation_id == c.id)
+                     .order_by(WorkOrder.created_at.desc())).all()
+    prompts = db.execute(select(DraftPrompt, WorkOrder.title).join(WorkOrder, WorkOrder.id == DraftPrompt.work_order_id)
+                         .where(DraftPrompt.conversation_id == c.id, DraftPrompt.status == DraftPromptStatus.pending)
+                         .order_by(DraftPrompt.created_at)).all()
+    return ConversationDetail(
+        id=c.id, status=c.status, guest=GuestOut.model_validate(c.guest),
+        stay=StayOut.model_validate(c.stay) if c.stay else None,
+        assigned_user_id=c.assigned_user_id, assigned_department_id=c.assigned_department_id,
+        channel_primary=c.channel_primary, last_guest_message_at=c.last_guest_message_at,
+        last_staff_message_at=c.last_staff_message_at, first_response_seconds=c.first_response_seconds,
+        sla_due_at=c.sla_due_at, snoozed_until=c.snoozed_until,
+        resolution_category_id=c.resolution_category_id, archived_at=c.archived_at,
+        messages=[MessageOut.model_validate(m) for m in msgs],
+        notes=notes_domain.list_for(db, property_id, c.id),
+        work_orders=[WorkOrderBrief.model_validate(w) for w in wos],
+        draft_prompts=[DraftPromptOut(id=p.id, work_order_id=p.work_order_id, work_order_title=title,
+                                      body=p.body, status=p.status, created_at=p.created_at)
+                       for p, title in prompts],
+    )
+
+
+def guest_thread(db: Session, property_id: str, phone: str) -> GuestThread:
+    """Guest-facing shape. Queries only `message` — internal_note is never touched here."""
+    from app.domain.guests import find_by_phone
+
+    prop = db.get(Property, property_id)
+    guest = find_by_phone(db, property_id, phone)
+    msgs: list[Message] = []
+    if guest:
+        msgs = db.scalars(
+            select(Message).join(Conversation, Conversation.id == Message.conversation_id)
+            .where(Conversation.guest_id == guest.id, Message.property_id == property_id)
+            .order_by(Message.sent_at)
+        ).all()
+    return GuestThread(phone=guest.phone_e164 if guest else phone, property_name=prop.name,
+                       messages=[GuestThreadMessage(id=m.id, direction=m.direction, body=m.body,
+                                                    sent_at=m.sent_at, delivery_status=m.delivery_status)
+                                 for m in msgs])
+
+
+def patch(db: Session, property_id: str, conversation_id: str, actor_user_id: str,
+          changes: ConversationPatch, *, can_archive: bool) -> Conversation:
+    c = get(db, property_id, conversation_id)
+    before = {"status": c.status.value, "assigned_user_id": c.assigned_user_id,
+              "assigned_department_id": c.assigned_department_id}
+    if changes.clear_assignment:
+        c.assigned_user_id = None
+        c.assigned_department_id = None
+    if changes.assigned_user_id is not None:
+        if not db.scalar(select(PropertyMembership.id).where(PropertyMembership.property_id == property_id,
+                                                              PropertyMembership.user_id == changes.assigned_user_id)):
+            raise ValidationFailed("Assignee is not a member of this property")
+        c.assigned_user_id = changes.assigned_user_id
+        if changes.assigned_user_id != actor_user_id:
+            notifications.create(db, property_id, changes.assigned_user_id, "conversation.assigned",
+                                 "Conversation assigned to you", entity_type="conversation", entity_id=c.id)
+    if changes.assigned_department_id is not None:
+        if not db.scalar(select(Department.id).where(Department.id == changes.assigned_department_id,
+                                                     Department.property_id == property_id)):
+            raise ValidationFailed("Unknown department")
+        c.assigned_department_id = changes.assigned_department_id
+        c.assigned_user_id = None if changes.assigned_user_id is None else c.assigned_user_id
+    if changes.status is not None:
+        if changes.status == ConversationStatus.archived:
+            if not can_archive:
+                raise Forbidden("Your role cannot archive conversations")
+            c.status = ConversationStatus.archived
+            c.archived_at = clock.now()
+            c.resolution_category_id = changes.resolution_category_id
+        elif changes.status == ConversationStatus.snoozed:
+            if changes.snoozed_until is None:
+                raise ValidationFailed("snoozedUntil is required to snooze")
+            c.status = ConversationStatus.snoozed
+            c.snoozed_until = changes.snoozed_until
+        elif changes.status == ConversationStatus.open:
+            c.status = ConversationStatus.open
+            c.archived_at = None
+            c.snoozed_until = None
+    elif changes.resolution_category_id is not None:
+        c.resolution_category_id = changes.resolution_category_id
+    db.flush()
+    after = {"status": c.status.value, "assigned_user_id": c.assigned_user_id,
+             "assigned_department_id": c.assigned_department_id}
+    audit.record(db, property_id, actor_user_id, "conversation.patched", "conversation", c.id,
+                 before=before, after=after)
+    queue_event(db, property_id, "conversation.assigned" if before["assigned_user_id"] != after["assigned_user_id"]
+                or before["assigned_department_id"] != after["assigned_department_id"] else "conversation.updated",
+                {"id": c.id})
+    return c
+```
+
+`Forbidden`, `ValidationFailed` come from `app.errors`; `PropertyMembership`, `Department` from `app.models`.
+
+- [ ] **Step 6: Complete `app/api/conversations.py`**
+
+Replace the file with:
+```python
+from flask import Blueprint, g
+
+from app.api._util import client_meta, db_session, no_content, ok, parse_body, parse_query
+from app.auth.decorators import require_auth, require_capability, require_property
+from app.auth.permissions import has_capability
+from app.domain import conversations, messages, notes
+from app.schemas.conversations import (
+    ConversationPatch, CreateNoteRequest, ListQuery, MessageOut, NoteOut, SendMessageRequest,
+)
+
+bp = Blueprint("conversations", __name__, url_prefix="/api/p/<property_id>/conversations")
+
+
+def _viewer():
+    m = g.membership
+    return dict(viewer_user_id=g.user.id, viewer_role=m.role, viewer_department_id=m.department_id)
+
+
+@bp.get("")
+@require_auth
+@require_property
+def list_conversations(property_id: str):
+    q = parse_query(ListQuery)
+    with db_session() as db:
+        return ok(conversations.list(db, g.property_id, filter=q.filter, dept=q.dept, limit=q.limit,
+                                     offset=q.offset, **_viewer()))
+
+
+@bp.get("/<conversation_id>")
+@require_auth
+@require_property
+def get_conversation(property_id: str, conversation_id: str):
+    with db_session() as db:
+        c = conversations.get(db, g.property_id, conversation_id)
+        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+        return ok(conversations.detail(db, g.property_id, conversation_id))
+
+
+@bp.post("/<conversation_id>/messages")
+@require_auth
+@require_property
+@require_capability("reply")
+def send_message(property_id: str, conversation_id: str):
+    body = parse_body(SendMessageRequest)
+    ip, ua = client_meta()
+    with db_session() as db:
+        m = messages.send(db, g.property_id, conversation_id, body.body, author_user_id=g.user.id,
+                          digital_asset_id=body.digital_asset_id, draft_prompt_id=body.draft_prompt_id,
+                          ip=ip, user_agent=ua)
+        return ok(MessageOut.model_validate(m), 201)
+
+
+@bp.post("/<conversation_id>/messages/<message_id>/retry")
+@require_auth
+@require_property
+@require_capability("reply")
+def retry_message(property_id: str, conversation_id: str, message_id: str):
+    with db_session() as db:
+        conversations.get(db, g.property_id, conversation_id)
+        m = messages.retry(db, g.property_id, message_id)
+        return ok(MessageOut.model_validate(m))
+
+
+@bp.post("/<conversation_id>/notes")
+@require_auth
+@require_property
+@require_capability("add_note")
+def add_note(property_id: str, conversation_id: str):
+    body = parse_body(CreateNoteRequest)
+    with db_session() as db:
+        n = notes.create(db, g.property_id, conversation_id, g.user.id, body.body)
+        out = [x for x in notes.list_for(db, g.property_id, conversation_id) if x.id == n.id][0]
+        return ok(out, 201)
+
+
+@bp.patch("/<conversation_id>")
+@require_auth
+@require_property
+@require_capability("assign")
+def patch_conversation(property_id: str, conversation_id: str):
+    changes = parse_body(ConversationPatch)
+    with db_session() as db:
+        conversations.patch(db, g.property_id, conversation_id, g.user.id, changes,
+                            can_archive=has_capability(g.membership.role, "archive"))
+        return ok(conversations.detail(db, g.property_id, conversation_id))
+```
+
+- [ ] **Step 7: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass. If `test_member_of_a_gets_403_on_every_b_route` fails on `PATCH` with a 400, the decorator order is wrong — `require_property` must run before `parse_body`, which it does when `parse_body` is called inside the view function, not in a decorator.
+
+- [ ] **Step 8: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): conversation list/detail/patch, internal notes with mentions, guest-thread shape"
+```
+
+---
+
+### Task 13: SLA sweep and snooze wake (§11.1 #8)
+
+**Files:**
+- Create: `server/app/queue/handlers/sla.py`, `server/app/queue/handlers/snooze.py`, `server/tests/test_sla.py`
+
+**Interfaces:**
+- Produces: handlers `sla.sweep` (recurring 30 s) and `snooze.wake` (recurring 60 s); `sla.sweep_once(db) -> int` and `snooze.wake_once(db) -> int` for direct use in tests.
+
+- [ ] **Step 1: Write the failing tests**
+
+`server/tests/test_sla.py`:
+```python
+from datetime import timedelta
+
+from sqlalchemy import select
+
+from app import clock
+from app.models import Conversation, Notification
+from app.queue.handlers.sla import sweep_once
+from app.queue.handlers.snooze import wake_once
+from app.schemas.enums import ConversationStatus
+from tests.factories import inbound
+
+
+def test_overdue_conversation_notifies_assignee_once(app, fx, client, database, login, events):
+    """§11.1 #8"""
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    with database.session() as db:
+        c = db.scalar(select(Conversation).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+        c.assigned_user_id = fx.agent_a.id
+        cid = c.id
+    with database.session() as db:
+        assert sweep_once(db) == 0  # not yet due
+    clock.advance(minutes=15, seconds=1)
+    with database.session() as db:
+        assert sweep_once(db) == 1
+    with database.session() as db:
+        assert sweep_once(db) == 0  # notified only once
+        n = db.scalars(select(Notification).where(Notification.type == "sla.breach")).all()
+        assert len(n) == 1 and n[0].user_id == fx.agent_a.id and n[0].entity_id == cid
+    staff = login("agent@hvh.test")
+    assert {r["id"] for r in staff.get(f"/api/p/{fx.property_a.id}/conversations?filter=overdue").get_json()} == {cid}
+    assert any(e.type == "conversation.updated" and e.payload["id"] == cid for e in events)
+
+
+def test_overdue_unassigned_conversation_notifies_front_desk(app, fx, client, database):
+    inbound(client, fx, fx.guest_nostay_a.phone_e164, "hello")
+    clock.advance(minutes=16)
+    with database.session() as db:
+        sweep_once(db)
+        targets = sorted(n.user_id for n in db.scalars(select(Notification).where(Notification.type == "sla.breach")).all())
+    assert targets == sorted([fx.agent_a.id, fx.agent_a2.id])
+
+
+def test_reply_clears_the_breach_and_a_new_inbound_restarts_it(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "one")
+    with database.session() as db:
+        cid = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+    clock.advance(minutes=16)
+    with database.session() as db:
+        assert sweep_once(db) == 1
+    login("agent@hvh.test").post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages", json={"body": "hi"})
+    with database.session() as db:
+        c = db.get(Conversation, cid)
+        assert c.sla_due_at is None and c.sla_breach_notified_at is None
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "two")
+    clock.advance(minutes=16)
+    with database.session() as db:
+        assert sweep_once(db) == 1
+
+
+def test_snooze_wake_reopens_due_conversations(app, fx, client, database):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "one")
+    with database.session() as db:
+        c = db.scalar(select(Conversation).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+        c.status = ConversationStatus.snoozed
+        c.snoozed_until = clock.now() + timedelta(minutes=30)
+        cid = c.id
+    with database.session() as db:
+        assert wake_once(db) == 0
+    clock.advance(minutes=31)
+    with database.session() as db:
+        assert wake_once(db) == 1
+        c = db.get(Conversation, cid)
+        assert c.status == ConversationStatus.open and c.snoozed_until is None
+
+
+def test_recurring_jobs_are_registered(app):
+    from app.queue import jobs
+
+    assert jobs.RECURRING["sla.sweep"] == 30 and jobs.RECURRING["snooze.wake"] == 60
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_sla.py -q`
+Expected: FAIL with `ModuleNotFoundError: app.queue.handlers.sla`.
+
+- [ ] **Step 3: Write the handlers**
+
+`server/app/queue/handlers/sla.py`:
+```python
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app import clock
+from app.domain import notifications
+from app.models import Conversation, Guest, Stay
+from app.queue.handlers import handler
+from app.realtime.broadcast import queue_event
+from app.schemas.enums import ConversationStatus
+
+
+def sweep_once(db: Session) -> int:
+    now = clock.now()
+    due = db.scalars(select(Conversation).where(
+        Conversation.status == ConversationStatus.open,
+        Conversation.sla_due_at.isnot(None), Conversation.sla_due_at < now,
+        Conversation.sla_breach_notified_at.is_(None))).all()
+    for c in due:
+        guest = db.get(Guest, c.guest_id)
+        stay = db.get(Stay, c.stay_id) if c.stay_id else None
+        name = f"{guest.first_name or ''} {guest.last_name or ''}".strip() or guest.phone_e164
+        room = f" · {stay.room_number}" if stay and stay.room_number else ""
+        minutes = int((now - c.sla_due_at).total_seconds() // 60)
+        notifications.notify_user_or_department(
+            db, c.property_id, user_id=c.assigned_user_id, department_id=c.assigned_department_id,
+            type="sla.breach", title=f"Response overdue: {name}{room}",
+            body=f"No reply for {minutes} min past the SLA", entity_type="conversation", entity_id=c.id)
+        c.sla_breach_notified_at = now
+        queue_event(db, c.property_id, "conversation.updated", {"id": c.id})
+    db.flush()
+    return len(due)
+
+
+@handler("sla.sweep")
+def sla_sweep(db: Session, payload: dict) -> None:
+    sweep_once(db)
+```
+
+`server/app/queue/handlers/snooze.py`:
+```python
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app import clock
+from app.models import Conversation
+from app.queue.handlers import handler
+from app.realtime.broadcast import queue_event
+from app.schemas.enums import ConversationStatus
+
+
+def wake_once(db: Session) -> int:
+    now = clock.now()
+    due = db.scalars(select(Conversation).where(
+        Conversation.status == ConversationStatus.snoozed,
+        Conversation.snoozed_until.isnot(None), Conversation.snoozed_until <= now)).all()
+    for c in due:
+        c.status = ConversationStatus.open
+        c.snoozed_until = None
+        queue_event(db, c.property_id, "conversation.updated", {"id": c.id})
+    db.flush()
+    return len(due)
+
+
+@handler("snooze.wake")
+def snooze_wake(db: Session, payload: dict) -> None:
+    wake_once(db)
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): SLA breach sweep and snooze wake jobs"
+```
+
+---
+
+### Task 14: Work orders domain — state machine, prefill, events, closed-loop prompt (§11.1 #6, #7)
+
+**Files:**
+- Create: `server/app/domain/work_orders.py`, `server/app/domain/draft_prompts.py`, `server/app/schemas/work_orders.py`, `server/tests/test_work_orders.py`
+
+**Interfaces:**
+- Produces: `work_orders.TRANSITIONS: dict[WorkOrderStatus, set[WorkOrderStatus]]`; `assert_transition(from_, to)` raising `TransitionError`; `create(db, property_id, actor_user_id, data: CreateWorkOrder) -> WorkOrder` (writes `created` event, assigns → `assigned` status, notifies assignee/department, broadcasts `work_order.created`); `prefill_from_conversation(db, property_id, conversation_id) -> WorkOrderPrefill` (title from last inbound body, description = last 3 inbound messages, room, department guessed by keyword); `transition(db, property_id, work_order_id, actor_user_id, to, comment=None) -> WorkOrder` (events, timestamps, `acknowledged_at`, on `complete` with `source_conversation_id` → `draft_prompts.create_for_completion`); `assign(db, property_id, work_order_id, actor_user_id, *, user_id=None, department_id=None)`; `comment(db, ...)`; `set_priority(db, ...)`; `get(db, property_id, id) -> WorkOrder`; `list(db, property_id, *, status, type, dept, assignee, mine_user_id) -> list[WorkOrderOut]`; `detail(db, property_id, id) -> WorkOrderDetail`. `draft_prompts.create_for_completion(db, wo) -> DraftPrompt | None`; `draft_prompts.dismiss(db, property_id, conversation_id, prompt_id, actor_user_id)`; `draft_prompts.draft_body(guest_first_name, room, title) -> str`. Schemas: `CreateWorkOrder`, `WorkOrderPatch`, `WorkOrderOut`, `WorkOrderEventOut`, `WorkOrderDetail`, `WorkOrderPrefill`, `WorkOrderListQuery`. `DEPARTMENT_KEYWORDS` mapping.
+
+- [ ] **Step 1: Write the failing tests**
+
+`server/tests/test_work_orders.py`:
+```python
+import pytest
+from sqlalchemy import select
+
+from app import clock
+from app.domain import work_orders
+from app.errors import TransitionError
+from app.models import Conversation, DraftPrompt, Message, Notification, WorkOrderEvent
+from app.schemas.enums import Direction, DraftPromptStatus, Priority, WorkOrderStatus, WorkOrderType
+from app.schemas.work_orders import CreateWorkOrder
+from tests.factories import inbound
+
+
+def _cid(database, guest_id):
+    with database.session() as db:
+        return db.scalar(select(Conversation.id).where(Conversation.guest_id == guest_id))
+
+
+@pytest.mark.parametrize("frm,to,ok", [
+    ("open", "assigned", True), ("open", "in_progress", True), ("open", "cancelled", True),
+    ("open", "complete", False), ("assigned", "in_progress", True), ("assigned", "open", True),
+    ("in_progress", "blocked", True), ("in_progress", "complete", True), ("blocked", "in_progress", True),
+    ("blocked", "complete", False), ("complete", "verified", True), ("complete", "in_progress", True),
+    ("verified", "open", False), ("cancelled", "open", False),
+])
+def test_transition_matrix(frm, to, ok):
+    if ok:
+        work_orders.assert_transition(WorkOrderStatus(frm), WorkOrderStatus(to))
+    else:
+        with pytest.raises(TransitionError):
+            work_orders.assert_transition(WorkOrderStatus(frm), WorkOrderStatus(to))
+
+
+def test_prefill_from_conversation(app, fx, client, database):
+    """§11.1 #6 (prefill half)"""
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "Hi there")
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "The AC in our room isn't working at all")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    with database.session() as db:
+        p = work_orders.prefill_from_conversation(db, fx.property_a.id, cid)
+    assert p.title == "The AC in our room isn't working at all"
+    assert "Hi there" in p.description and "AC" in p.description
+    assert p.location_ref == "412" and p.guest_name == "Sarah Chen"
+    assert p.department_id == fx.dept_engineering.id and p.type == WorkOrderType.maintenance
+    assert p.source_conversation_id == cid and p.source_message_id is not None
+
+
+def test_create_from_conversation_stores_source_and_notifies_department(app, fx, client, database, events):
+    """§11.1 #6 (create half)"""
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    with database.session() as db:
+        wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
+            title="AC not cooling", description="Guest reports warm room", type=WorkOrderType.maintenance,
+            priority=Priority.urgent, location_ref="412", department_id=fx.dept_engineering.id,
+            source_conversation_id=cid))
+        assert wo.status == WorkOrderStatus.open and wo.source_conversation_id == cid
+        ev = db.scalars(select(WorkOrderEvent).where(WorkOrderEvent.work_order_id == wo.id)).all()
+        assert [e.type.value for e in ev] == ["created"]
+        targets = sorted(n.user_id for n in db.scalars(select(Notification).where(Notification.type == "work_order.created")).all())
+        assert targets == sorted([fx.engineer_a.id, fx.supervisor_a.id])
+    assert any(e.type == "work_order.created" for e in events)
+
+
+def test_create_with_assignee_starts_assigned(app, fx, database):
+    with database.session() as db:
+        wo = work_orders.create(db, fx.property_a.id, fx.supervisor_a.id, CreateWorkOrder(
+            title="Toilet running", type=WorkOrderType.maintenance, location_ref="221",
+            department_id=fx.dept_engineering.id, assigned_user_id=fx.engineer_a.id))
+        assert wo.status == WorkOrderStatus.assigned and wo.assigned_user_id == fx.engineer_a.id
+        n = db.scalar(select(Notification).where(Notification.type == "work_order.assigned"))
+        assert n.user_id == fx.engineer_a.id
+
+
+def test_complete_creates_unsent_editable_draft_prompt(app, fx, client, database, events):
+    """§11.1 #7"""
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    with database.session() as db:
+        wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
+            title="AC not cooling", type=WorkOrderType.maintenance, location_ref="412",
+            department_id=fx.dept_engineering.id, source_conversation_id=cid))
+        wo_id = wo.id
+        msgs_before = len(db.scalars(select(Message)).all())
+    with database.session() as db:
+        work_orders.transition(db, fx.property_a.id, wo_id, fx.engineer_a.id, WorkOrderStatus.in_progress)
+    clock.advance(minutes=14)
+    with database.session() as db:
+        wo = work_orders.transition(db, fx.property_a.id, wo_id, fx.engineer_a.id, WorkOrderStatus.complete,
+                                    comment="Cleared condensate line")
+        assert wo.completed_at == clock.now() and wo.started_at is not None
+        prompts = db.scalars(select(DraftPrompt).where(DraftPrompt.conversation_id == cid)).all()
+        assert len(prompts) == 1 and prompts[0].status == DraftPromptStatus.pending
+        assert "Sarah" in prompts[0].body and "412" in prompts[0].body
+        assert len(db.scalars(select(Message)).all()) == msgs_before  # nothing was sent
+        types = [e.type.value for e in db.scalars(select(WorkOrderEvent).where(WorkOrderEvent.work_order_id == wo_id)
+                                                   .order_by(WorkOrderEvent.created_at)).all()]
+        assert types == ["created", "status_changed", "status_changed"]
+    assert any(e.type == "draft_prompt.created" for e in events)
+    assert any(e.type == "work_order.updated" for e in events)
+
+
+def test_complete_without_source_conversation_creates_no_prompt(app, fx, database):
+    with database.session() as db:
+        wo = work_orders.create(db, fx.property_a.id, fx.supervisor_a.id, CreateWorkOrder(
+            title="Hallway light", type=WorkOrderType.maintenance, location_ref="5F"))
+        work_orders.transition(db, fx.property_a.id, wo.id, fx.supervisor_a.id, WorkOrderStatus.in_progress)
+        work_orders.transition(db, fx.property_a.id, wo.id, fx.supervisor_a.id, WorkOrderStatus.complete)
+        assert db.scalars(select(DraftPrompt)).all() == []
+
+
+def test_sending_the_draft_marks_prompt_sent_and_guest_notified(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    with database.session() as db:
+        wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
+            title="AC not cooling", type=WorkOrderType.maintenance, location_ref="412",
+            department_id=fx.dept_engineering.id, source_conversation_id=cid))
+        wo_id = wo.id
+        work_orders.transition(db, fx.property_a.id, wo_id, fx.engineer_a.id, WorkOrderStatus.in_progress)
+        work_orders.transition(db, fx.property_a.id, wo_id, fx.engineer_a.id, WorkOrderStatus.complete)
+        pid = db.scalar(select(DraftPrompt.id).where(DraftPrompt.conversation_id == cid))
+    c = login("agent@hvh.test")
+    d = c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()
+    assert d["draftPrompts"][0]["id"] == pid and d["draftPrompts"][0]["workOrderTitle"] == "AC not cooling"
+    res = c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages",
+                 json={"body": "Hi Sarah — fixed!", "draftPromptId": pid})
+    assert res.status_code == 201
+    with database.session() as db:
+        assert db.get(DraftPrompt, pid).status == DraftPromptStatus.sent
+        from app.models import WorkOrder
+
+        assert db.get(WorkOrder, wo_id).guest_notified_at is not None
+    assert c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()["draftPrompts"] == []
+
+
+def test_invalid_transition_is_409_and_audited(app, fx, database):
+    with database.session() as db:
+        wo = work_orders.create(db, fx.property_a.id, fx.supervisor_a.id, CreateWorkOrder(
+            title="x", type=WorkOrderType.other, location_ref="lobby"))
+        with pytest.raises(TransitionError):
+            work_orders.transition(db, fx.property_a.id, wo.id, fx.supervisor_a.id, WorkOrderStatus.complete)
+
+
+def test_department_keyword_guess():
+    from app.domain.work_orders import guess_department_type
+
+    assert guess_department_type("the ac is broken and it's hot") == "engineering"
+    assert guess_department_type("could we get extra towels and pillows") == "housekeeping"
+    assert guess_department_type("late checkout please") == "front_desk"
+    assert guess_department_type("hello") is None
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_work_orders.py -q`
+Expected: FAIL with `ModuleNotFoundError: app.domain.work_orders`.
+
+- [ ] **Step 3: Write `app/schemas/work_orders.py`**
+
+```python
+from datetime import datetime
+
+from pydantic import Field
+
+from app.schemas.common import CamelModel
+from app.schemas.enums import LocationType, Priority, WorkOrderEventType, WorkOrderStatus, WorkOrderType
+
+
+class CreateWorkOrder(CamelModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    type: WorkOrderType = WorkOrderType.maintenance
+    priority: Priority = Priority.normal
+    location_type: LocationType = LocationType.room
+    location_ref: str | None = None
+    department_id: str | None = None
+    assigned_user_id: str | None = None
+    due_at: datetime | None = None
+    source_conversation_id: str | None = None
+    source_message_id: str | None = None
+
+
+class WorkOrderPatch(CamelModel):
+    status: WorkOrderStatus | None = None
+    assigned_user_id: str | None = None
+    department_id: str | None = None
+    priority: Priority | None = None
+    comment: str | None = Field(default=None, max_length=2000)
+    clear_assignee: bool = False
+
+
+class WorkOrderOut(CamelModel):
+    id: str
+    title: str
+    description: str | None = None
+    type: WorkOrderType
+    priority: Priority
+    status: WorkOrderStatus
+    location_type: LocationType
+    location_ref: str | None = None
+    department_id: str | None = None
+    assigned_user_id: str | None = None
+    reported_by_user_id: str | None = None
+    source_conversation_id: str | None = None
+    source_message_id: str | None = None
+    due_at: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    verified_at: datetime | None = None
+    guest_notified_at: datetime | None = None
+    acknowledged_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkOrderEventOut(CamelModel):
+    id: str
+    user_id: str | None = None
+    user_name: str | None = None
+    type: WorkOrderEventType
+    from_value: str | None = None
+    to_value: str | None = None
+    comment: str | None = None
+    created_at: datetime
+
+
+class WorkOrderDetail(WorkOrderOut):
+    events: list[WorkOrderEventOut]
+    guest_name: str | None = None
+    room_number: str | None = None
+
+
+class WorkOrderPrefill(CamelModel):
+    title: str
+    description: str
+    type: WorkOrderType
+    priority: Priority
+    location_type: LocationType
+    location_ref: str | None = None
+    department_id: str | None = None
+    guest_name: str | None = None
+    source_conversation_id: str
+    source_message_id: str | None = None
+
+
+class WorkOrderListQuery(CamelModel):
+    status: str | None = None          # comma-separated
+    type: WorkOrderType | None = None
+    dept: str | None = None
+    assignee: str | None = None
+    mine: bool = False
+    include_closed: bool = False
+```
+
+- [ ] **Step 4: Write `app/domain/draft_prompts.py`**
+
+```python
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app import clock
+from app.domain import audit
+from app.errors import NotFound
+from app.models import Conversation, DraftPrompt, Guest, Stay, WorkOrder
+from app.realtime.broadcast import queue_event
+from app.schemas.enums import DraftPromptStatus
+
+
+def draft_body(guest_first_name: str | None, room: str | None, title: str) -> str:
+    name = guest_first_name or "there"
+    where = f" in {room}" if room else ""
+    return (f"Hi {name} — our team has taken care of \"{title.lower()}\"{where}. "
+            f"Please text us if anything still isn't right.")
+
+
+def create_for_completion(db: Session, wo: WorkOrder) -> DraftPrompt | None:
+    """design.md §6.4: the highest-value twenty lines. Never sends; only proposes."""
+    if not wo.source_conversation_id:
+        return None
+    conv = db.get(Conversation, wo.source_conversation_id)
+    if conv is None:
+        return None
+    existing = db.scalar(select(DraftPrompt).where(DraftPrompt.work_order_id == wo.id,
+                                                   DraftPrompt.status == DraftPromptStatus.pending))
+    if existing:
+        return existing
+    guest = db.get(Guest, conv.guest_id)
+    stay = db.get(Stay, conv.stay_id) if conv.stay_id else None
+    room = stay.room_number if stay else wo.location_ref
+    dp = DraftPrompt(property_id=wo.property_id, conversation_id=conv.id, work_order_id=wo.id,
+                     body=draft_body(guest.first_name, room, wo.title), status=DraftPromptStatus.pending)
+    db.add(dp)
+    db.flush()
+    queue_event(db, wo.property_id, "draft_prompt.created",
+                {"id": dp.id, "conversationId": conv.id, "workOrderId": wo.id, "body": dp.body})
+    return dp
+
+
+def dismiss(db: Session, property_id: str, conversation_id: str, prompt_id: str, actor_user_id: str) -> DraftPrompt:
+    dp = db.scalar(select(DraftPrompt).where(DraftPrompt.id == prompt_id, DraftPrompt.property_id == property_id,
+                                             DraftPrompt.conversation_id == conversation_id))
+    if dp is None:
+        raise NotFound("Prompt not found")
+    if dp.status == DraftPromptStatus.pending:
+        dp.status = DraftPromptStatus.dismissed
+        dp.resolved_at = clock.now()
+        dp.resolved_by_user_id = actor_user_id
+        audit.record(db, property_id, actor_user_id, "draft_prompt.dismissed", "draft_prompt", dp.id)
+        queue_event(db, property_id, "conversation.updated", {"id": conversation_id})
+    return dp
+```
+
+- [ ] **Step 5: Write `app/domain/work_orders.py`**
+
+```python
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app import clock
+from app.domain import audit, draft_prompts, notifications
+from app.domain import conversations as conv_domain
+from app.errors import NotFound, TransitionError, ValidationFailed
+from app.models import (Conversation, Department, Guest, Message, PropertyMembership, Stay, UserAccount,
+                        WorkOrder, WorkOrderEvent)
+from app.realtime.broadcast import queue_event
+from app.schemas.enums import (DepartmentType, Direction, LocationType, Priority, WorkOrderEventType,
+                               WorkOrderStatus, WorkOrderType)
+from app.schemas.work_orders import (CreateWorkOrder, WorkOrderDetail, WorkOrderEventOut, WorkOrderOut,
+                                     WorkOrderPrefill)
+
+S = WorkOrderStatus
+TRANSITIONS: dict[WorkOrderStatus, set[WorkOrderStatus]] = {
+    S.open: {S.assigned, S.in_progress, S.cancelled},
+    S.assigned: {S.in_progress, S.open, S.cancelled},
+    S.in_progress: {S.blocked, S.complete, S.cancelled},
+    S.blocked: {S.in_progress, S.cancelled},
+    S.complete: {S.verified, S.in_progress},
+    S.verified: set(),
+    S.cancelled: set(),
+}
+OPEN_STATUSES = [S.open, S.assigned, S.in_progress, S.blocked, S.complete]
+
+DEPARTMENT_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "engineering": ("ac", "a/c", "air", "heat", "hvac", "hot", "cold", "leak", "toilet", "shower", "drain",
+                    "light", "bulb", "tv", "remote", "wifi", "door", "lock", "broken", "not working",
+                    "elevator", "noise", "outlet", "plug"),
+    "housekeeping": ("towel", "towels", "pillow", "sheets", "linen", "clean", "dirty", "trash", "vacuum",
+                     "amenities", "shampoo", "soap", "toilet paper", "housekeeping", "turndown"),
+    "front_desk": ("checkout", "check out", "check-in", "late", "early", "bill", "folio", "charge",
+                   "reservation", "key", "parking", "valet", "wake", "luggage"),
+}
+TYPE_FOR_DEPARTMENT = {"engineering": WorkOrderType.maintenance, "housekeeping": WorkOrderType.housekeeping,
+                       "front_desk": WorkOrderType.guest_request}
+
+
+def assert_transition(from_: WorkOrderStatus, to: WorkOrderStatus) -> None:
+    if to not in TRANSITIONS.get(from_, set()):
+        raise TransitionError(f"Cannot move a work order from {from_.value} to {to.value}")
+
+
+def guess_department_type(text: str) -> str | None:
+    import re
+
+    t = text.lower()
+    scores = {dept: sum(1 for kw in kws if re.search(rf"\b{re.escape(kw)}\b", t))
+              for dept, kws in DEPARTMENT_KEYWORDS.items()}  # word boundaries: "ac" must not match "back"
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else None
+
+
+def get(db: Session, property_id: str, work_order_id: str) -> WorkOrder:
+    wo = db.scalar(select(WorkOrder).where(WorkOrder.id == work_order_id, WorkOrder.property_id == property_id))
+    if wo is None:
+        raise NotFound("Work order not found")
+    return wo
+
+
+def _event(db: Session, wo: WorkOrder, user_id: str | None, type: WorkOrderEventType,
+           from_value: str | None = None, to_value: str | None = None, comment: str | None = None) -> None:
+    db.add(WorkOrderEvent(work_order_id=wo.id, property_id=wo.property_id, user_id=user_id, type=type,
+                          from_value=from_value, to_value=to_value, comment=comment))
+
+
+def _emit(db: Session, wo: WorkOrder, type: str) -> None:
+    queue_event(db, wo.property_id, type, WorkOrderOut.model_validate(wo).model_dump(mode="json", by_alias=True))
+
+
+def _validate_refs(db: Session, property_id: str, department_id: str | None, assigned_user_id: str | None) -> None:
+    if department_id and not db.scalar(select(Department.id).where(Department.id == department_id,
+                                                                    Department.property_id == property_id)):
+        raise ValidationFailed("Unknown department")
+    if assigned_user_id and not db.scalar(select(PropertyMembership.id).where(
+            PropertyMembership.property_id == property_id, PropertyMembership.user_id == assigned_user_id)):
+        raise ValidationFailed("Assignee is not a member of this property")
+
+
+def create(db: Session, property_id: str, actor_user_id: str, data: CreateWorkOrder) -> WorkOrder:
+    _validate_refs(db, property_id, data.department_id, data.assigned_user_id)
+    if data.source_conversation_id:
+        conv_domain.get(db, property_id, data.source_conversation_id)
+    wo = WorkOrder(property_id=property_id, title=data.title.strip(), description=data.description, type=data.type,
+                   priority=data.priority, location_type=data.location_type, location_ref=data.location_ref,
+                   department_id=data.department_id, assigned_user_id=data.assigned_user_id,
+                   reported_by_user_id=actor_user_id, source_conversation_id=data.source_conversation_id,
+                   source_message_id=data.source_message_id, due_at=data.due_at,
+                   status=S.assigned if data.assigned_user_id else S.open)
+    db.add(wo)
+    db.flush()
+    _event(db, wo, actor_user_id, WorkOrderEventType.created, to_value=wo.status.value)
+    if wo.assigned_user_id:
+        notifications.create(db, property_id, wo.assigned_user_id, "work_order.assigned",
+                             f"Assigned: {wo.title}", body=wo.location_ref, entity_type="work_order", entity_id=wo.id)
+    elif wo.department_id:
+        notifications.notify_user_or_department(db, property_id, user_id=None, department_id=wo.department_id,
+                                                type="work_order.created", title=f"New work order: {wo.title}",
+                                                body=wo.location_ref, entity_type="work_order", entity_id=wo.id)
+    audit.record(db, property_id, actor_user_id, "work_order.created", "work_order", wo.id,
+                 after={"title": wo.title, "source_conversation_id": wo.source_conversation_id})
+    _emit(db, wo, "work_order.created")
+    if wo.source_conversation_id:
+        queue_event(db, property_id, "conversation.updated", {"id": wo.source_conversation_id})
+    return wo
+
+
+def prefill_from_conversation(db: Session, property_id: str, conversation_id: str) -> WorkOrderPrefill:
+    conv = conv_domain.get(db, property_id, conversation_id)
+    guest = db.get(Guest, conv.guest_id)
+    stay = db.get(Stay, conv.stay_id) if conv.stay_id else None
+    inbound = db.scalars(select(Message).where(Message.conversation_id == conv.id, Message.direction == Direction.inbound)
+                         .order_by(Message.sent_at.desc()).limit(3)).all()
+    last = inbound[0] if inbound else None
+    title = (last.body.strip().splitlines()[0][:120] if last else "Guest request")
+    description = "\n".join(m.body for m in reversed(inbound))
+    dept_type = guess_department_type(description)
+    dept_id = None
+    if dept_type:
+        dept_id = db.scalar(select(Department.id).where(Department.property_id == property_id,
+                                                        Department.type == DepartmentType(dept_type)))
+    name = f"{guest.first_name or ''} {guest.last_name or ''}".strip() or None
+    return WorkOrderPrefill(
+        title=title, description=description, type=TYPE_FOR_DEPARTMENT.get(dept_type, WorkOrderType.guest_request),
+        priority=Priority.normal, location_type=LocationType.room if stay else LocationType.other,
+        location_ref=stay.room_number if stay else None, department_id=dept_id, guest_name=name,
+        source_conversation_id=conv.id, source_message_id=last.id if last else None)
+
+
+def transition(db: Session, property_id: str, work_order_id: str, actor_user_id: str, to: WorkOrderStatus,
+               comment: str | None = None) -> WorkOrder:
+    wo = get(db, property_id, work_order_id)
+    assert_transition(wo.status, to)
+    now = clock.now()
+    frm = wo.status
+    wo.status = to
+    if to == S.in_progress and wo.started_at is None:
+        wo.started_at = now
+    if to == S.complete:
+        wo.completed_at = now
+    if to == S.verified:
+        wo.verified_at = now
+    if wo.assigned_user_id == actor_user_id and wo.acknowledged_at is None:
+        wo.acknowledged_at = now
+    db.flush()
+    _event(db, wo, actor_user_id, WorkOrderEventType.status_changed, from_value=frm.value, to_value=to.value,
+           comment=comment)
+    audit.record(db, property_id, actor_user_id, "work_order.transition", "work_order", wo.id,
+                 before={"status": frm.value}, after={"status": to.value})
+    _emit(db, wo, "work_order.updated")
+    if to == S.complete:
+        draft_prompts.create_for_completion(db, wo)
+    if wo.source_conversation_id:
+        queue_event(db, property_id, "conversation.updated", {"id": wo.source_conversation_id})
+    return wo
+
+
+def assign(db: Session, property_id: str, work_order_id: str, actor_user_id: str, *,
+           user_id: str | None = None, department_id: str | None = None, clear: bool = False) -> WorkOrder:
+    wo = get(db, property_id, work_order_id)
+    _validate_refs(db, property_id, department_id, user_id)
+    before = wo.assigned_user_id
+    if clear:
+        wo.assigned_user_id = None
+        if wo.status == S.assigned:
+            wo.status = S.open
+    if department_id:
+        wo.department_id = department_id
+    if user_id:
+        wo.assigned_user_id = user_id
+        wo.acknowledged_at = None
+        if wo.status == S.open:
+            wo.status = S.assigned
+        if user_id != actor_user_id:
+            notifications.create(db, property_id, user_id, "work_order.assigned", f"Assigned: {wo.title}",
+                                 body=wo.location_ref, entity_type="work_order", entity_id=wo.id)
+    db.flush()
+    _event(db, wo, actor_user_id, WorkOrderEventType.assigned, from_value=before, to_value=wo.assigned_user_id)
+    _emit(db, wo, "work_order.updated")
+    return wo
+
+
+def comment(db: Session, property_id: str, work_order_id: str, actor_user_id: str, text: str) -> WorkOrder:
+    wo = get(db, property_id, work_order_id)
+    _event(db, wo, actor_user_id, WorkOrderEventType.commented, comment=text.strip())
+    wo.updated_at = clock.now()
+    _emit(db, wo, "work_order.updated")
+    return wo
+
+
+def set_priority(db: Session, property_id: str, work_order_id: str, actor_user_id: str, priority: Priority) -> WorkOrder:
+    wo = get(db, property_id, work_order_id)
+    before = wo.priority
+    wo.priority = priority
+    _event(db, wo, actor_user_id, WorkOrderEventType.priority_changed, from_value=before.value, to_value=priority.value)
+    _emit(db, wo, "work_order.updated")
+    return wo
+
+
+def list(db: Session, property_id: str, *, status: str | None = None, type: WorkOrderType | None = None,
+         dept: str | None = None, assignee: str | None = None, mine_user_id: str | None = None,
+         include_closed: bool = False) -> list[WorkOrderOut]:
+    # `from __future__ import annotations` keeps this annotation lazy, and the def statement binds the
+    # module-level name `list` only after the signature is built, so the annotation means builtins.list.
+    q = select(WorkOrder).where(WorkOrder.property_id == property_id)
+    if status:
+        q = q.where(WorkOrder.status.in_([S(s) for s in status.split(",") if s]))
+    elif not include_closed:
+        q = q.where(WorkOrder.status.in_(OPEN_STATUSES))
+    if type:
+        q = q.where(WorkOrder.type == type)
+    if dept:
+        q = q.where(WorkOrder.department_id == dept)
+    if assignee:
+        q = q.where(WorkOrder.assigned_user_id == assignee)
+    if mine_user_id:
+        q = q.where(WorkOrder.assigned_user_id == mine_user_id)
+    rows = db.scalars(q.order_by(WorkOrder.created_at.desc())).all()
+    return [WorkOrderOut.model_validate(w) for w in rows]
+
+
+def detail(db: Session, property_id: str, work_order_id: str) -> WorkOrderDetail:
+    wo = get(db, property_id, work_order_id)
+    rows = db.execute(select(WorkOrderEvent, UserAccount).outerjoin(UserAccount, UserAccount.id == WorkOrderEvent.user_id)
+                      .where(WorkOrderEvent.work_order_id == wo.id).order_by(WorkOrderEvent.created_at)).all()
+    guest_name = room = None
+    if wo.source_conversation_id:
+        conv = db.get(Conversation, wo.source_conversation_id)
+        if conv:
+            g = db.get(Guest, conv.guest_id)
+            guest_name = f"{g.first_name or ''} {g.last_name or ''}".strip() or g.phone_e164
+            st = db.get(Stay, conv.stay_id) if conv.stay_id else None
+            room = st.room_number if st else None
+    base = WorkOrderOut.model_validate(wo).model_dump()
+    return WorkOrderDetail(**base, guest_name=guest_name, room_number=room or wo.location_ref,
+                           events=[WorkOrderEventOut(id=e.id, user_id=e.user_id,
+                                                     user_name=f"{u.first_name} {u.last_name}" if u else None,
+                                                     type=e.type, from_value=e.from_value, to_value=e.to_value,
+                                                     comment=e.comment, created_at=e.created_at) for e, u in rows])
+```
+
+Inside `work_orders.py` never call the builtin `list(...)` after this definition — use a list comprehension or `[*xs]` — because the module-level name now refers to this function. (`conversations.py` has the same convention.)
+
+- [ ] **Step 6: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass.
+
+- [ ] **Step 7: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): work order state machine, prefill from conversation, events, closed-loop draft prompt"
+```
+
+---
+
+### Task 15: Work orders API and draft-prompt dismiss
+
+**Files:**
+- Create: `server/app/api/work_orders.py`, `server/tests/test_work_orders_api.py`
+- Modify: `server/app/api/conversations.py` (dismiss route), `server/app/__init__.py`
+
+**Interfaces:**
+- Produces routes: `GET work-orders`, `GET work-orders/prefill?conversationId=`, `POST work-orders`, `GET work-orders/<id>`, `PATCH work-orders/<id>` (status | assignedUserId | departmentId | priority | comment | clearAssignee), `POST conversations/<id>/draft-prompts/<pid>/dismiss`.
+
+- [ ] **Step 1: Write the failing tests**
+
+`server/tests/test_work_orders_api.py`:
+```python
+from sqlalchemy import select
+
+from app.models import Conversation
+from tests.factories import inbound
+
+
+def _cid(database, guest_id):
+    with database.session() as db:
+        return db.scalar(select(Conversation.id).where(Conversation.guest_id == guest_id))
+
+
+def test_prefill_create_transition_and_detail_via_api(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "The AC in our room isn't working")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    base = f"/api/p/{fx.property_a.id}/work-orders"
+    agent = login("agent@hvh.test")
+    p = agent.get(f"{base}/prefill?conversationId={cid}").get_json()
+    assert p["locationRef"] == "412" and p["departmentId"] == fx.dept_engineering.id
+    res = agent.post(base, json={**{k: p[k] for k in ("title", "description", "type", "priority", "locationType",
+                                                           "locationRef", "departmentId", "sourceConversationId",
+                                                           "sourceMessageId")}, "priority": "urgent"})
+    assert res.status_code == 201
+    wo = res.get_json()
+    assert wo["status"] == "open" and wo["sourceConversationId"] == cid
+    eng = login("engineer@hvh.test")
+    assert eng.patch(f"{base}/{wo['id']}", json={"assignedUserId": fx.engineer_a.id}).get_json()["status"] == "assigned"
+    assert eng.patch(f"{base}/{wo['id']}", json={"status": "in_progress"}).get_json()["status"] == "in_progress"
+    bad = eng.patch(f"{base}/{wo['id']}", json={"status": "verified"})
+    assert bad.status_code == 409 and bad.get_json()["error"]["code"] == "INVALID_TRANSITION"
+    done = eng.patch(f"{base}/{wo['id']}", json={"status": "complete", "comment": "Cleared drain line"})
+    assert done.status_code == 200
+    d = eng.get(f"{base}/{wo['id']}").get_json()
+    assert [e["type"] for e in d["events"]] == ["created", "assigned", "status_changed", "status_changed"]
+    assert d["events"][-1]["comment"] == "Cleared drain line" and d["guestName"] == "Sarah Chen"
+    assert d["events"][1]["userName"] == "Eli Engineer"
+
+
+def test_close_requires_capability_but_create_does_not(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/work-orders"
+    agent = login("agent@hvh.test")
+    wo = agent.post(base, json={"title": "Lamp", "type": "maintenance", "locationRef": "330"}).get_json()
+    agent.patch(f"{base}/{wo['id']}", json={"status": "in_progress"})
+    assert agent.patch(f"{base}/{wo['id']}", json={"status": "complete"}).status_code == 403
+    sup = login("supervisor@hvh.test")
+    assert sup.patch(f"{base}/{wo['id']}", json={"status": "complete"}).status_code == 200
+
+
+def test_list_filters(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/work-orders"
+    sup = login("supervisor@hvh.test")
+    a = sup.post(base, json={"title": "A", "type": "maintenance", "locationRef": "1", "assignedUserId": fx.engineer_a.id}).get_json()
+    b = sup.post(base, json={"title": "B", "type": "housekeeping", "locationRef": "2", "departmentId": fx.dept_housekeeping.id}).get_json()
+    sup.patch(f"{base}/{b['id']}", json={"status": "cancelled"})
+    ids = lambda r: {w["id"] for w in r.get_json()}  # noqa: E731
+    assert ids(sup.get(base)) == {a["id"]}
+    assert ids(sup.get(base + "?includeClosed=true")) == {a["id"], b["id"]}
+    assert ids(sup.get(base + "?status=cancelled")) == {b["id"]}
+    eng = login("engineer@hvh.test")
+    assert ids(eng.get(base + "?mine=true")) == {a["id"]}
+    assert ids(sup.get(base + f"?dept={fx.dept_housekeeping.id}&includeClosed=true")) == {b["id"]}
+
+
+def test_dismiss_draft_prompt(app, fx, client, database, login):
+    from app.domain import work_orders
+    from app.schemas.enums import WorkOrderStatus, WorkOrderType
+    from app.schemas.work_orders import CreateWorkOrder
+
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    with database.session() as db:
+        wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
+            title="AC", type=WorkOrderType.maintenance, locationRef="412", sourceConversationId=cid))
+        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id, WorkOrderStatus.in_progress)
+        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id, WorkOrderStatus.complete)
+    c = login("agent@hvh.test")
+    pid = c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()["draftPrompts"][0]["id"]
+    assert c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/draft-prompts/{pid}/dismiss").status_code == 204
+    assert c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()["draftPrompts"] == []
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_work_orders_api.py -q`
+Expected: FAIL with 404s.
+
+- [ ] **Step 3: Write `app/api/work_orders.py`**
+
+```python
+from flask import Blueprint, g, request
+
+from app.api._util import db_session, ok, parse_body, parse_query
+from app.auth.decorators import require_auth, require_capability, require_property
+from app.auth.permissions import has_capability
+from app.domain import work_orders
+from app.errors import Forbidden, ValidationFailed
+from app.schemas.enums import WorkOrderStatus
+from app.schemas.work_orders import CreateWorkOrder, WorkOrderListQuery, WorkOrderOut, WorkOrderPatch
+
+bp = Blueprint("work_orders", __name__, url_prefix="/api/p/<property_id>/work-orders")
+CLOSING = {WorkOrderStatus.complete, WorkOrderStatus.verified, WorkOrderStatus.cancelled}
+
+
+@bp.get("")
+@require_auth
+@require_property
+def list_work_orders(property_id: str):
+    q = parse_query(WorkOrderListQuery)
+    with db_session() as db:
+        return ok(work_orders.list(db, g.property_id, status=q.status, type=q.type, dept=q.dept,
+                                   assignee=q.assignee, mine_user_id=g.user.id if q.mine else None,
+                                   include_closed=q.include_closed))
+
+
+@bp.get("/prefill")
+@require_auth
+@require_property
+@require_capability("create_work_order")
+def prefill(property_id: str):
+    conversation_id = request.args.get("conversationId")
+    if not conversation_id:
+        raise ValidationFailed("conversationId is required")
+    with db_session() as db:
+        return ok(work_orders.prefill_from_conversation(db, g.property_id, conversation_id))
+
+
+@bp.post("")
+@require_auth
+@require_property
+@require_capability("create_work_order")
+def create_work_order(property_id: str):
+    data = parse_body(CreateWorkOrder)
+    with db_session() as db:
+        wo = work_orders.create(db, g.property_id, g.user.id, data)
+        return ok(WorkOrderOut.model_validate(wo), 201)
+
+
+@bp.get("/<work_order_id>")
+@require_auth
+@require_property
+def get_work_order(property_id: str, work_order_id: str):
+    with db_session() as db:
+        return ok(work_orders.detail(db, g.property_id, work_order_id))
+
+
+@bp.patch("/<work_order_id>")
+@require_auth
+@require_property
+def patch_work_order(property_id: str, work_order_id: str):
+    p = parse_body(WorkOrderPatch)
+    with db_session() as db:
+        if p.assigned_user_id or p.department_id or p.clear_assignee:
+            work_orders.assign(db, g.property_id, work_order_id, g.user.id, user_id=p.assigned_user_id,
+                               department_id=p.department_id, clear=p.clear_assignee)
+        if p.priority is not None:
+            work_orders.set_priority(db, g.property_id, work_order_id, g.user.id, p.priority)
+        if p.status is not None:
+            if p.status in CLOSING and not has_capability(g.membership.role, "close_work_order"):
+                raise Forbidden("Your role cannot close work orders")
+            work_orders.transition(db, g.property_id, work_order_id, g.user.id, p.status, comment=p.comment)
+        elif p.comment:
+            work_orders.comment(db, g.property_id, work_order_id, g.user.id, p.comment)
+        return ok(work_orders.detail(db, g.property_id, work_order_id))
+```
+
+Add the dismiss route to `app/api/conversations.py`:
+```python
+from app.domain import draft_prompts
+
+
+@bp.post("/<conversation_id>/draft-prompts/<prompt_id>/dismiss")
+@require_auth
+@require_property
+@require_capability("reply")
+def dismiss_prompt(property_id: str, conversation_id: str, prompt_id: str):
+    with db_session() as db:
+        draft_prompts.dismiss(db, g.property_id, conversation_id, prompt_id, g.user.id)
+    return no_content()
+```
+
+Register `work_orders.bp` in `create_app`.
+
+- [ ] **Step 4: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass (isolation suite now covers five more routes).
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): work order API with prefill, transitions, filters; draft-prompt dismiss"
+```
+
+---
+
+### Task 16: Quick replies, digital assets, resolution categories — CRUD, search, short links
+
+**Files:**
+- Create: `server/app/schemas/content.py`, `server/app/domain/assets.py`, `server/app/domain/categories.py`, `server/app/api/quick_replies.py`, `server/app/api/assets.py`, `server/app/api/categories.py`, `server/app/api/short_links.py`, `server/tests/test_content.py`
+- Modify: `server/app/domain/quick_replies.py` (add CRUD + search + `context_for_conversation`), `server/app/__init__.py`
+
+**Interfaces:**
+- Produces: `quick_replies.list(db, property_id, q=None, department_id=None, include_inactive=False) -> list[QuickReplyOut]`; `create/update/delete`; `quick_replies.render(db, property_id, quick_reply_id, conversation_id, agent_user_id) -> RenderedQuickReply` (interpolated body + segment count; bumps `usage_count`); `quick_replies.context_for_conversation(db, property_id, conversation_id, agent_user_id) -> dict`; `assets.list/create/update/delete/get_by_short_code`, `assets.new_short_code(db) -> str` (6 chars, base32, unique); `categories.list_tree/create/update/delete`. Schemas: `QuickReplyIn/Out`, `RenderedQuickReply`, `AssetIn/Out`, `CategoryIn/Out`. Routes: `quick-replies` (`GET ?q=&dept=&includeInactive=`, `POST`, `PATCH /<id>`, `DELETE /<id>`, `POST /<id>/render {conversationId}`), `assets` (`GET/POST/PATCH/DELETE`), `resolution-categories` (`GET/POST/PATCH/DELETE`), public `GET /a/<short_code>` → 302.
+
+- [ ] **Step 1: Write the failing tests**
+
+`server/tests/test_content.py`:
+```python
+from sqlalchemy import select
+
+from app.models import Conversation, DigitalAsset
+from tests.factories import inbound
+
+
+def _cid(database, guest_id):
+    with database.session() as db:
+        return db.scalar(select(Conversation.id).where(Conversation.guest_id == guest_id))
+
+
+def test_quick_reply_crud_search_and_render(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/quick-replies"
+    admin = login("admin@hvh.test")
+    r = admin.post(base, json={"shortcut": "/wifi", "title": "WiFi", "body": "Hi {{guest_first_name}}, WiFi is Harbourview-Guest, room {{room_number}}."})
+    assert r.status_code == 201
+    qr = r.get_json()
+    admin.post(base, json={"shortcut": "/towels", "title": "Towels", "body": "Towels on the way to {{room_number}}.",
+                           "departmentId": fx.dept_housekeeping.id})
+    dup = admin.post(base, json={"shortcut": "/wifi", "title": "x", "body": "y"})
+    assert dup.status_code == 409
+    agent = login("agent@hvh.test")
+    assert [x["shortcut"] for x in agent.get(base + "?q=wif").get_json()] == ["/wifi"]
+    assert [x["shortcut"] for x in agent.get(base + "?q=on the way").get_json()] == ["/towels"]
+    assert agent.post(base, json={"shortcut": "/x", "title": "x", "body": "y"}).status_code == 403
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    rendered = agent.post(f"{base}/{qr['id']}/render", json={"conversationId": cid}).get_json()
+    assert rendered["body"] == "Hi Sarah, WiFi is Harbourview-Guest, room 412."
+    assert rendered["segments"] == 1
+    assert agent.get(base).get_json()[0]["usageCount"] == 1  # sorted by usage desc
+    assert admin.patch(f"{base}/{qr['id']}", json={"active": False}).status_code == 200
+    assert [x["shortcut"] for x in agent.get(base).get_json()] == ["/towels"]
+    assert len(admin.get(base + "?includeInactive=true").get_json()) == 2
+    assert admin.delete(f"{base}/{qr['id']}").status_code == 204
+
+
+def test_assets_crud_short_link_and_send_appends_link(app, fx, client, database, login, worker):
+    base = f"/api/p/{fx.property_a.id}/assets"
+    admin = login("admin@hvh.test")
+    a = admin.post(base, json={"name": "WiFi card", "type": "link", "url": "https://example.test/wifi.pdf",
+                               "category": "Connectivity"}).get_json()
+    assert len(a["shortCode"]) == 6
+    r = client.get(f"/a/{a['shortCode']}")
+    assert r.status_code == 302 and r.headers["Location"] == "https://example.test/wifi.pdf"
+    assert client.get("/a/nope00").status_code == 404
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "wifi?")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    agent = login("agent@hvh.test")
+    m = agent.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages",
+                   json={"body": "Here you go:", "digitalAssetId": a["id"]}).get_json()
+    assert m["body"] == f"Here you go: /a/{a['shortCode']}" and m["digitalAssetId"] == a["id"]
+    with database.session() as db:
+        assert db.get(DigitalAsset, a["id"]).send_count == 1
+    assert admin.patch(f"{base}/{a['id']}", json={"name": "WiFi card v2"}).get_json()["name"] == "WiFi card v2"
+    assert admin.delete(f"{base}/{a['id']}").status_code == 204
+    assert client.get(f"/a/{a['shortCode']}").status_code == 404
+
+
+def test_resolution_categories_tree(app, fx, client, login):
+    base = f"/api/p/{fx.property_a.id}/resolution-categories"
+    admin = login("admin@hvh.test")
+    parent = admin.post(base, json={"name": "Maintenance"}).get_json()
+    child = admin.post(base, json={"name": "HVAC", "parentId": parent["id"]}).get_json()
+    tree = admin.get(base).get_json()
+    assert tree[0]["name"] == "Maintenance" and tree[0]["children"][0]["id"] == child["id"]
+    assert admin.patch(f"{base}/{child['id']}", json={"name": "HVAC / AC"}).get_json()["name"] == "HVAC / AC"
+    assert admin.delete(f"{base}/{parent['id']}").status_code == 409  # has children
+    assert admin.delete(f"{base}/{child['id']}").status_code == 204
+    assert admin.delete(f"{base}/{parent['id']}").status_code == 204
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_content.py -q`
+Expected: FAIL with 404s.
+
+- [ ] **Step 3: Write `app/schemas/content.py`**
+
+```python
+from datetime import datetime
+
+from pydantic import Field
+
+from app.schemas.common import CamelModel
+from app.schemas.enums import AssetType
+
+
+class QuickReplyIn(CamelModel):
+    shortcut: str = Field(min_length=2, max_length=40, pattern=r"^/[a-z0-9_-]+$")
+    title: str = Field(min_length=1, max_length=120)
+    body: str = Field(min_length=1, max_length=1600)
+    category: str | None = None
+    department_id: str | None = None
+    locale: str = "en"
+    active: bool = True
+
+
+class QuickReplyPatch(CamelModel):
+    shortcut: str | None = Field(default=None, pattern=r"^/[a-z0-9_-]+$")
+    title: str | None = None
+    body: str | None = None
+    category: str | None = None
+    department_id: str | None = None
+    active: bool | None = None
+
+
+class QuickReplyOut(CamelModel):
+    id: str
+    shortcut: str
+    title: str
+    body: str
+    category: str | None = None
+    department_id: str | None = None
+    locale: str
+    usage_count: int
+    active: bool
+
+
+class RenderRequest(CamelModel):
+    conversation_id: str
+
+
+class RenderedQuickReply(CamelModel):
+    body: str
+    segments: int
+    characters: int
+
+
+class AssetIn(CamelModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    category: str | None = None
+    type: AssetType = AssetType.link
+    url: str = Field(min_length=1, max_length=1000)
+    thumbnail_url: str | None = None
+    department_id: str | None = None
+    active: bool = True
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+
+
+class AssetPatch(CamelModel):
+    name: str | None = None
+    description: str | None = None
+    category: str | None = None
+    type: AssetType | None = None
+    url: str | None = None
+    thumbnail_url: str | None = None
+    department_id: str | None = None
+    active: bool | None = None
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+
+
+class AssetOut(CamelModel):
+    id: str
+    name: str
+    description: str | None = None
+    category: str | None = None
+    type: AssetType
+    url: str
+    short_code: str
+    thumbnail_url: str | None = None
+    department_id: str | None = None
+    active: bool
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    send_count: int
+
+
+class CategoryIn(CamelModel):
+    name: str = Field(min_length=1, max_length=100)
+    parent_id: str | None = None
+    active: bool = True
+
+
+class CategoryPatch(CamelModel):
+    name: str | None = None
+    parent_id: str | None = None
+    active: bool | None = None
+
+
+class CategoryOut(CamelModel):
+    id: str
+    name: str
+    parent_id: str | None = None
+    active: bool
+    children: list["CategoryOut"] = []
+```
+
+- [ ] **Step 4: Extend `app/domain/quick_replies.py`**
+
+Append (imports: `select, or_, func` from sqlalchemy; `Session`; `Conversation, Guest, Property, QuickReply, Stay, UserAccount`; `Conflict, NotFound`; schemas; `segment_count` from `app.domain.sms`; `conv_domain`):
+```python
+def list(db: Session, property_id: str, q: str | None = None, department_id: str | None = None,
+         include_inactive: bool = False) -> list[QuickReplyOut]:
+    stmt = select(QuickReply).where(QuickReply.property_id == property_id)
+    if not include_inactive:
+        stmt = stmt.where(QuickReply.active.is_(True))
+    if department_id:
+        stmt = stmt.where(or_(QuickReply.department_id == department_id, QuickReply.department_id.is_(None)))
+    if q:
+        like = f"%{q.lower()}%"
+        stmt = stmt.where(or_(func.lower(QuickReply.shortcut).like(like), func.lower(QuickReply.title).like(like),
+                              func.lower(QuickReply.body).like(like)))
+    rows = db.scalars(stmt.order_by(QuickReply.usage_count.desc(), QuickReply.shortcut)).all()
+    return [QuickReplyOut.model_validate(r) for r in rows]
+
+
+def get(db: Session, property_id: str, quick_reply_id: str) -> QuickReply:
+    r = db.scalar(select(QuickReply).where(QuickReply.id == quick_reply_id, QuickReply.property_id == property_id))
+    if r is None:
+        raise NotFound("Quick reply not found")
+    return r
+
+
+def _assert_shortcut_free(db: Session, property_id: str, shortcut: str, exclude_id: str | None = None) -> None:
+    stmt = select(QuickReply.id).where(QuickReply.property_id == property_id, QuickReply.shortcut == shortcut)
+    if exclude_id:
+        stmt = stmt.where(QuickReply.id != exclude_id)
+    if db.scalar(stmt):
+        raise Conflict(f"Shortcut {shortcut} is already in use")
+
+
+def create(db: Session, property_id: str, data: QuickReplyIn) -> QuickReply:
+    _assert_shortcut_free(db, property_id, data.shortcut)
+    r = QuickReply(property_id=property_id, **data.model_dump())
+    db.add(r)
+    db.flush()
+    return r
+
+
+def update(db: Session, property_id: str, quick_reply_id: str, data: QuickReplyPatch) -> QuickReply:
+    r = get(db, property_id, quick_reply_id)
+    changes = data.model_dump(exclude_unset=True)
+    if "shortcut" in changes and changes["shortcut"]:
+        _assert_shortcut_free(db, property_id, changes["shortcut"], exclude_id=r.id)
+    for k, v in changes.items():
+        setattr(r, k, v)
+    db.flush()
+    return r
+
+
+def delete(db: Session, property_id: str, quick_reply_id: str) -> None:
+    db.delete(get(db, property_id, quick_reply_id))
+
+
+def context_for_conversation(db: Session, property_id: str, conversation_id: str, agent_user_id: str | None) -> dict:
+    conv = conv_domain.get(db, property_id, conversation_id)
+    guest = db.get(Guest, conv.guest_id)
+    stay = db.get(Stay, conv.stay_id) if conv.stay_id else None
+    prop = db.get(Property, property_id)
+    agent = db.get(UserAccount, agent_user_id) if agent_user_id else None
+    return {
+        "guest_first_name": guest.first_name,
+        "room_number": stay.room_number if stay else None,
+        "property_name": prop.name,
+        "agent_first_name": agent.first_name if agent else None,
+        "departure_date": stay.departure_date.strftime("%A, %b %d") if stay else None,
+    }
+
+
+def render(db: Session, property_id: str, quick_reply_id: str, conversation_id: str,
+           agent_user_id: str | None) -> RenderedQuickReply:
+    r = get(db, property_id, quick_reply_id)
+    body = interpolate(r.body, context_for_conversation(db, property_id, conversation_id, agent_user_id))
+    r.usage_count += 1
+    return RenderedQuickReply(body=body, segments=segment_count(body), characters=len(body))
+```
+
+- [ ] **Step 5: Write `app/domain/assets.py` and `app/domain/categories.py`**
+
+`assets.py`:
+```python
+from __future__ import annotations
+
+import secrets
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.errors import NotFound
+from app.models import DigitalAsset
+from app.schemas.content import AssetIn, AssetOut, AssetPatch
+
+ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"  # no 0/o/1/l/i
+
+
+def new_short_code(db: Session) -> str:
+    while True:
+        code = "".join(secrets.choice(ALPHABET) for _ in range(6))
+        if not db.scalar(select(DigitalAsset.id).where(DigitalAsset.short_code == code)):
+            return code
+
+
+def list(db: Session, property_id: str, include_inactive: bool = False) -> list[AssetOut]:
+    stmt = select(DigitalAsset).where(DigitalAsset.property_id == property_id)
+    if not include_inactive:
+        stmt = stmt.where(DigitalAsset.active.is_(True))
+    return [AssetOut.model_validate(a) for a in db.scalars(stmt.order_by(DigitalAsset.name)).all()]
+
+
+def get(db: Session, property_id: str, asset_id: str) -> DigitalAsset:
+    a = db.scalar(select(DigitalAsset).where(DigitalAsset.id == asset_id, DigitalAsset.property_id == property_id))
+    if a is None:
+        raise NotFound("Asset not found")
+    return a
+
+
+def get_by_short_code(db: Session, short_code: str) -> DigitalAsset | None:
+    return db.scalar(select(DigitalAsset).where(DigitalAsset.short_code == short_code, DigitalAsset.active.is_(True)))
+
+
+def create(db: Session, property_id: str, data: AssetIn) -> DigitalAsset:
+    a = DigitalAsset(property_id=property_id, short_code=new_short_code(db), **data.model_dump())
+    db.add(a)
+    db.flush()
+    return a
+
+
+def update(db: Session, property_id: str, asset_id: str, data: AssetPatch) -> DigitalAsset:
+    a = get(db, property_id, asset_id)
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(a, k, v)
+    db.flush()
+    return a
+
+
+def delete(db: Session, property_id: str, asset_id: str) -> None:
+    a = get(db, property_id, asset_id)
+    a.active = False  # soft: messages already sent still reference the id; the short link stops resolving
+```
+
+`categories.py`:
+```python
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.errors import Conflict, NotFound
+from app.models import ResolutionCategory
+from app.schemas.content import CategoryIn, CategoryOut, CategoryPatch
+
+
+def list_tree(db: Session, property_id: str) -> list[CategoryOut]:
+    rows = db.scalars(select(ResolutionCategory).where(ResolutionCategory.property_id == property_id)
+                      .order_by(ResolutionCategory.name)).all()
+    nodes = {r.id: CategoryOut(id=r.id, name=r.name, parent_id=r.parent_id, active=r.active, children=[]) for r in rows}
+    roots: list[CategoryOut] = []
+    for r in rows:
+        (nodes[r.parent_id].children if r.parent_id in nodes else roots).append(nodes[r.id])
+    return roots
+
+
+def get(db: Session, property_id: str, category_id: str) -> ResolutionCategory:
+    c = db.scalar(select(ResolutionCategory).where(ResolutionCategory.id == category_id,
+                                                   ResolutionCategory.property_id == property_id))
+    if c is None:
+        raise NotFound("Category not found")
+    return c
+
+
+def create(db: Session, property_id: str, data: CategoryIn) -> ResolutionCategory:
+    if data.parent_id:
+        get(db, property_id, data.parent_id)
+    c = ResolutionCategory(property_id=property_id, **data.model_dump())
+    db.add(c)
+    db.flush()
+    return c
+
+
+def update(db: Session, property_id: str, category_id: str, data: CategoryPatch) -> ResolutionCategory:
+    c = get(db, property_id, category_id)
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(c, k, v)
+    db.flush()
+    return c
+
+
+def delete(db: Session, property_id: str, category_id: str) -> None:
+    c = get(db, property_id, category_id)
+    if db.scalar(select(ResolutionCategory.id).where(ResolutionCategory.parent_id == c.id)):
+        raise Conflict("Delete or move the child categories first")
+    db.delete(c)
+```
+
+- [ ] **Step 6: Write the four blueprints and register them**
+
+`app/api/quick_replies.py`:
+```python
+from flask import Blueprint, g, request
+
+from app.api._util import db_session, no_content, ok, parse_body
+from app.auth.decorators import require_auth, require_capability, require_property
+from app.domain import quick_replies
+from app.schemas.content import QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderRequest
+
+bp = Blueprint("quick_replies", __name__, url_prefix="/api/p/<property_id>/quick-replies")
+
+
+@bp.get("")
+@require_auth
+@require_property
+def list_quick_replies(property_id: str):
+    with db_session() as db:
+        return ok(quick_replies.list(db, g.property_id, q=request.args.get("q"), department_id=request.args.get("dept"),
+                                     include_inactive=request.args.get("includeInactive") in ("1", "true")))
+
+
+@bp.post("")
+@require_auth
+@require_property
+@require_capability("manage_admin")
+def create_quick_reply(property_id: str):
+    with db_session() as db:
+        return ok(QuickReplyOut.model_validate(quick_replies.create(db, g.property_id, parse_body(QuickReplyIn))), 201)
+
+
+@bp.patch("/<quick_reply_id>")
+@require_auth
+@require_property
+@require_capability("manage_admin")
+def update_quick_reply(property_id: str, quick_reply_id: str):
+    with db_session() as db:
+        return ok(QuickReplyOut.model_validate(quick_replies.update(db, g.property_id, quick_reply_id, parse_body(QuickReplyPatch))))
+
+
+@bp.delete("/<quick_reply_id>")
+@require_auth
+@require_property
+@require_capability("manage_admin")
+def delete_quick_reply(property_id: str, quick_reply_id: str):
+    with db_session() as db:
+        quick_replies.delete(db, g.property_id, quick_reply_id)
+    return no_content()
+
+
+@bp.post("/<quick_reply_id>/render")
+@require_auth
+@require_property
+@require_capability("reply")
+def render_quick_reply(property_id: str, quick_reply_id: str):
+    body = parse_body(RenderRequest)
+    with db_session() as db:
+        return ok(quick_replies.render(db, g.property_id, quick_reply_id, body.conversation_id, g.user.id))
+```
+
+`app/api/assets.py` — same shape: `GET ""` (any member; `?includeInactive=`), `POST ""`, `PATCH /<asset_id>`, `DELETE /<asset_id>` all `manage_admin` except GET, url_prefix `/api/p/<property_id>/assets`, using `assets.list/create/update/delete` and `AssetOut`.
+
+`app/api/categories.py` — same shape with url_prefix `/api/p/<property_id>/resolution-categories`, `categories.list_tree/create/update/delete`, `CategoryOut`.
+
+`app/api/short_links.py`:
+```python
+from flask import Blueprint, redirect
+
+from app.api._util import db_session
+from app.domain import assets
+from app.errors import NotFound
+
+bp = Blueprint("short_links", __name__)
+
+
+@bp.get("/a/<short_code>")
+def resolve(short_code: str):
+    with db_session() as db:
+        a = assets.get_by_short_code(db, short_code)
+        if a is None:
+            raise NotFound("Link not found")
+        return redirect(a.url, code=302)
+```
+
+Register all four in `create_app`.
+
+- [ ] **Step 7: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass.
+
+- [ ] **Step 8: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): quick replies with render, digital assets with short links, resolution categories"
+```
+
+---
+
+### Task 17: Users & memberships admin, guest detail
+
+**Files:**
+- Create: `server/app/api/guests.py`, `server/tests/test_users_admin.py`
+- Modify: `server/app/schemas/users.py`, `server/app/domain/users.py`, `server/app/api/users.py`, `server/app/__init__.py`
+
+**Interfaces:**
+- Produces: `users.create_staff(db, property_id, actor_user_id, data: CreateStaffRequest) -> StaffUserOut` (creates the account if the email is new, else adds a membership; hashes password), `users.update_staff(db, property_id, actor_user_id, user_id, data: StaffPatch) -> StaffUserOut` (role, department, status, reset password; audit), `users.remove_membership(db, property_id, actor_user_id, user_id)`; `GET /api/p/<id>/guests/<guest_id>` → `GuestDetail` (guest + stays + conversation ids). Schemas: `CreateStaffRequest`, `StaffPatch`, `GuestDetail`.
+
+- [ ] **Step 1: Write the failing tests**
+
+`server/tests/test_users_admin.py`:
+```python
+def test_admin_creates_updates_and_removes_staff(app, fx, client, login):
+    base = f"/api/p/{fx.property_a.id}/users"
+    admin = login("admin@hvh.test")
+    r = admin.post(base, json={"email": "new@hvh.test", "firstName": "Nora", "lastName": "New",
+                               "password": "Password123!", "role": "dept_staff", "departmentId": fx.dept_housekeeping.id})
+    assert r.status_code == 201
+    u = r.get_json()
+    assert u["role"] == "dept_staff" and u["departmentId"] == fx.dept_housekeeping.id
+    assert login("new@hvh.test").get("/api/auth/me").status_code == 200
+    assert admin.patch(f"{base}/{u['id']}", json={"role": "supervisor"}).get_json()["role"] == "supervisor"
+    assert admin.patch(f"{base}/{u['id']}", json={"status": "disabled"}).get_json()["status"] == "disabled"
+    assert client.post("/api/auth/login", json={"email": "new@hvh.test", "password": "Password123!"}).status_code == 401
+    assert admin.delete(f"{base}/{u['id']}").status_code == 204
+    assert "new@hvh.test" not in {x["email"] for x in admin.get(base).get_json()}
+
+
+def test_existing_account_gets_membership_not_duplicate(app, fx, login):
+    base = f"/api/p/{fx.property_b.id}/users"
+    admin_b = login("admin@lsi.test")
+    r = admin_b.post(base, json={"email": "agent@hvh.test", "firstName": "Ava", "lastName": "Agent", "role": "agent"})
+    assert r.status_code == 201
+    memberships = login("agent@hvh.test").get("/api/auth/me").get_json()["memberships"]
+    assert {m["propertyCode"] for m in memberships} == {"HVH", "LSI"}
+
+
+def test_non_admin_cannot_manage_users(app, fx, login):
+    base = f"/api/p/{fx.property_a.id}/users"
+    mgr = login("manager@hvh.test")
+    assert mgr.post(base, json={"email": "x@hvh.test", "firstName": "x", "lastName": "y", "role": "agent"}).status_code == 403
+
+
+def test_guest_detail(app, fx, client, login):
+    from tests.factories import inbound
+
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
+    d = login("agent@hvh.test").get(f"/api/p/{fx.property_a.id}/guests/{fx.guest_inhouse_a.id}").get_json()
+    assert d["guest"]["firstName"] == "Sarah" and d["stays"][0]["roomNumber"] == "412"
+    assert len(d["conversationIds"]) == 1
+    assert login("agent@hvh.test").get(f"/api/p/{fx.property_a.id}/guests/{fx.guest_b.id}").status_code == 404
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_users_admin.py -q`
+Expected: FAIL with 404/405.
+
+- [ ] **Step 3: Extend schemas, domain, and routes**
+
+Append to `app/schemas/users.py`:
+```python
+from pydantic import EmailStr, Field
+
+from app.schemas.conversations import GuestOut, StayOut
+from app.schemas.enums import UserStatus
+
+
+class CreateStaffRequest(CamelModel):
+    email: EmailStr
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    password: str | None = Field(default=None, min_length=8, max_length=200)
+    role: Role
+    department_id: str | None = None
+    phone: str | None = None
+
+
+class StaffPatch(CamelModel):
+    role: Role | None = None
+    department_id: str | None = None
+    status: UserStatus | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=200)
+    first_name: str | None = None
+    last_name: str | None = None
+
+
+class GuestDetail(CamelModel):
+    guest: GuestOut
+    stays: list[StayOut]
+    conversation_ids: list[str]
+```
+
+Append to `app/domain/users.py` (imports: `hash_password`, `audit`, `Conflict, NotFound, ValidationFailed`, `Department`, `UserStatus`, schemas):
+```python
+def _staff_out(db: Session, property_id: str, user_id: str) -> StaffUserOut:
+    row = db.execute(select(UserAccount, PropertyMembership).join(PropertyMembership, PropertyMembership.user_id == UserAccount.id)
+                     .where(PropertyMembership.property_id == property_id, UserAccount.id == user_id)).first()
+    if row is None:
+        raise NotFound("User is not a member of this property")
+    u, m = row
+    return StaffUserOut(id=u.id, email=u.email, first_name=u.first_name, last_name=u.last_name, avatar_url=u.avatar_url,
+                        role=m.role, department_id=m.department_id, status=u.status.value)
+
+
+def _check_department(db: Session, property_id: str, department_id: str | None) -> None:
+    if department_id and not db.scalar(select(Department.id).where(Department.id == department_id,
+                                                                    Department.property_id == property_id)):
+        raise ValidationFailed("Unknown department")
+
+
+def create_staff(db: Session, property_id: str, actor_user_id: str, data: CreateStaffRequest) -> StaffUserOut:
+    _check_department(db, property_id, data.department_id)
+    user = db.scalar(select(UserAccount).where(UserAccount.email == data.email.lower()))
+    if user is None:
+        if not data.password:
+            raise ValidationFailed("A password is required for a new account")
+        user = UserAccount(email=data.email.lower(), first_name=data.first_name, last_name=data.last_name,
+                           phone=data.phone, password_hash=hash_password(data.password))
+        db.add(user)
+        db.flush()
+    if db.scalar(select(PropertyMembership.id).where(PropertyMembership.user_id == user.id,
+                                                    PropertyMembership.property_id == property_id)):
+        raise Conflict("Already a member of this property")
+    db.add(PropertyMembership(user_id=user.id, property_id=property_id, role=data.role, department_id=data.department_id))
+    db.flush()
+    audit.record(db, property_id, actor_user_id, "membership.created", "user_account", user.id,
+                 after={"role": data.role.value, "department_id": data.department_id})
+    return _staff_out(db, property_id, user.id)
+
+
+def update_staff(db: Session, property_id: str, actor_user_id: str, user_id: str, data: StaffPatch) -> StaffUserOut:
+    m = db.scalar(select(PropertyMembership).where(PropertyMembership.user_id == user_id,
+                                                   PropertyMembership.property_id == property_id))
+    if m is None:
+        raise NotFound("User is not a member of this property")
+    u = db.get(UserAccount, user_id)
+    before = {"role": m.role.value, "department_id": m.department_id, "status": u.status.value}
+    changes = data.model_dump(exclude_unset=True)
+    if "department_id" in changes:
+        _check_department(db, property_id, changes["department_id"])
+        m.department_id = changes["department_id"]
+    if data.role is not None:
+        m.role = data.role
+    if data.status is not None:
+        u.status = data.status
+    if data.password:
+        u.password_hash = hash_password(data.password)
+    if data.first_name:
+        u.first_name = data.first_name
+    if data.last_name:
+        u.last_name = data.last_name
+    db.flush()
+    audit.record(db, property_id, actor_user_id, "membership.updated", "user_account", user_id, before=before,
+                 after={"role": m.role.value, "department_id": m.department_id, "status": u.status.value,
+                        "password_reset": bool(data.password)})
+    return _staff_out(db, property_id, user_id)
+
+
+def remove_membership(db: Session, property_id: str, actor_user_id: str, user_id: str) -> None:
+    m = db.scalar(select(PropertyMembership).where(PropertyMembership.user_id == user_id,
+                                                   PropertyMembership.property_id == property_id))
+    if m is None:
+        raise NotFound("User is not a member of this property")
+    db.delete(m)
+    audit.record(db, property_id, actor_user_id, "membership.removed", "user_account", user_id)
+```
+
+Extend `app/api/users.py` with `POST ""` (201), `PATCH /<user_id>`, `DELETE /<user_id>` (204), each `@require_capability("manage_admin")`, calling the three functions above.
+
+`app/api/guests.py`:
+```python
+from flask import Blueprint, g
+from sqlalchemy import select
+
+from app.api._util import db_session, ok
+from app.auth.decorators import require_auth, require_property
+from app.domain import guests
+from app.errors import NotFound
+from app.models import Conversation, Stay
+from app.schemas.conversations import GuestOut, StayOut
+from app.schemas.users import GuestDetail
+
+bp = Blueprint("guests", __name__, url_prefix="/api/p/<property_id>/guests")
+
+
+@bp.get("/<guest_id>")
+@require_auth
+@require_property
+def get_guest(property_id: str, guest_id: str):
+    with db_session() as db:
+        guest = guests.get(db, g.property_id, guest_id)
+        if guest is None:
+            raise NotFound("Guest not found")
+        stays = db.scalars(select(Stay).where(Stay.guest_id == guest.id).order_by(Stay.arrival_date.desc())).all()
+        conv_ids = [*db.scalars(select(Conversation.id).where(Conversation.guest_id == guest.id)).all()]
+        return ok(GuestDetail(guest=GuestOut.model_validate(guest), stays=[StayOut.model_validate(s) for s in stays],
+                              conversation_ids=conv_ids))
+```
+
+Register `guests.bp`.
+
+- [ ] **Step 4: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): staff/membership administration and guest detail"
+```
+
+---
+
+### Task 18: Analytics
+
+**Files:**
+- Create: `server/app/domain/analytics.py`, `server/app/schemas/analytics.py`, `server/app/api/analytics.py`, `server/tests/test_analytics.py`
+- Modify: `server/app/__init__.py`
+
+**Interfaces:**
+- Produces: `analytics.overview(db, property_id, since, until) -> Overview`; `analytics.agents(db, property_id, since, until) -> list[AgentStats]`; `analytics.percentile(values, p) -> float | None` (nearest-rank). Routes `GET analytics/overview?from=&to=` and `GET analytics/agents?from=&to=` (`view_property_analytics`; `view_own_stats` users get `agents` filtered to themselves). ISO dates or datetimes; default last 7 days.
+
+- [ ] **Step 1: Write the failing tests**
+
+`server/tests/test_analytics.py`:
+```python
+from datetime import timedelta
+
+from app import clock
+from app.domain import analytics, work_orders
+from app.schemas.enums import WorkOrderStatus, WorkOrderType
+from app.schemas.work_orders import CreateWorkOrder
+from tests.factories import inbound
+
+
+def test_percentile_nearest_rank():
+    assert analytics.percentile([], 50) is None
+    assert analytics.percentile([10], 90) == 10
+    assert analytics.percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 50) == 5
+    assert analytics.percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 90) == 9
+
+
+def test_overview_and_agents(app, fx, client, database, login):
+    start = clock.now()
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    inbound(client, fx, fx.guest_nostay_a.phone_e164, "late checkout?")
+    agent = login("agent@hvh.test")
+    from sqlalchemy import select
+
+    from app.models import Conversation
+
+    with database.session() as db:
+        sarah = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+        diego = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_nostay_a.id))
+    clock.advance(minutes=2)
+    agent.post(f"/api/p/{fx.property_a.id}/conversations/{sarah}/messages", json={"body": "On it"})
+    with database.session() as db:
+        wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
+            title="AC", type=WorkOrderType.maintenance, location_ref="412", department_id=fx.dept_engineering.id,
+            source_conversation_id=sarah))
+        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id, WorkOrderStatus.in_progress)
+    clock.advance(minutes=20)
+    with database.session() as db:
+        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id, WorkOrderStatus.complete)
+        from app.queue.handlers.sla import sweep_once
+
+        sweep_once(db)  # Diego is now overdue
+    mgr = login("manager@hvh.test")
+    base = f"/api/p/{fx.property_a.id}/analytics"
+    o = mgr.get(f"{base}/overview?from={start.date()}&to={(start + timedelta(days=1)).date()}").get_json()
+    assert o["conversations"] == 2 and o["inboundMessages"] == 2 and o["outboundMessages"] == 1
+    assert o["firstResponseP50Seconds"] == 120 and o["firstResponseP90Seconds"] == 120
+    assert o["slaBreaches"] == 1
+    assert o["workOrdersCreated"] == 1 and o["workOrdersClosed"] == 1 and o["meanTimeToResolveSeconds"] == 1200
+    assert o["workOrdersFromConversations"] == 1
+    assert sum(b["count"] for b in o["inboundByHour"]) == 2 and len(o["inboundByHour"]) == 24
+    assert o["workOrdersByDepartment"][0]["departmentName"] == "Engineering"
+    a = mgr.get(f"{base}/agents?from={start.date()}&to={(start + timedelta(days=1)).date()}").get_json()
+    ava = [r for r in a if r["userId"] == fx.agent_a.id][0]
+    assert ava["messagesSent"] == 1 and ava["conversationsHandled"] == 1 and ava["workOrdersCreated"] == 1
+    assert ava["firstResponseP50Seconds"] == 120
+
+
+def test_agent_sees_only_own_stats_and_no_overview(app, fx, client, login):
+    base = f"/api/p/{fx.property_a.id}/analytics"
+    agent = login("agent@hvh.test")
+    assert agent.get(f"{base}/overview").status_code == 403
+    rows = agent.get(f"{base}/agents").get_json()
+    assert [r["userId"] for r in rows] == [fx.agent_a.id]
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_analytics.py -q`
+Expected: FAIL with `ModuleNotFoundError`.
+
+- [ ] **Step 3: Write schemas, domain, route**
+
+`app/schemas/analytics.py`:
+```python
+from datetime import datetime
+
+from app.schemas.common import CamelModel
+
+
+class HourBucket(CamelModel):
+    hour: int
+    count: int
+
+
+class DayBucket(CamelModel):
+    day: str
+    count: int
+
+
+class DepartmentBucket(CamelModel):
+    department_id: str | None = None
+    department_name: str
+    closed: int
+    mean_time_to_resolve_seconds: int | None = None
+
+
+class ResponseBucket(CamelModel):
+    label: str
+    count: int
+    share: float
+
+
+class Overview(CamelModel):
+    since: datetime
+    until: datetime
+    conversations: int
+    inbound_messages: int
+    outbound_messages: int
+    first_response_p50_seconds: int | None = None
+    first_response_p90_seconds: int | None = None
+    sla_breaches: int
+    sla_breach_rate: float
+    work_orders_created: int
+    work_orders_closed: int
+    work_orders_from_conversations: int
+    mean_time_to_resolve_seconds: int | None = None
+    inbound_by_hour: list[HourBucket]
+    inbound_by_day: list[DayBucket]
+    first_response_distribution: list[ResponseBucket]
+    work_orders_by_department: list[DepartmentBucket]
+
+
+class AgentStats(CamelModel):
+    user_id: str
+    name: str
+    conversations_handled: int
+    messages_sent: int
+    first_response_p50_seconds: int | None = None
+    first_response_p90_seconds: int | None = None
+    sla_breaches: int
+    quick_reply_share: float | None = None
+    work_orders_created: int
+```
+
+`app/domain/analytics.py`:
+```python
+"""Aggregations are computed in Python from narrow selects so they run identically on SQLite and Postgres."""
+from __future__ import annotations
+
+import math
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app import clock
+from app.models import Conversation, Department, Message, PropertyMembership, UserAccount, WorkOrder
+from app.schemas.analytics import (AgentStats, DayBucket, DepartmentBucket, HourBucket, Overview, ResponseBucket)
+from app.schemas.enums import AuthorType, Direction, WorkOrderStatus
+
+CLOSED = (WorkOrderStatus.complete, WorkOrderStatus.verified)
+BUCKETS = [("< 2 min", 0, 120), ("2–5 min", 120, 300), ("5–15 min", 300, 900), ("15–30 min", 900, 1800),
+           ("30+ min", 1800, 10**9)]
+
+
+def percentile(values: list[float], p: float) -> float | None:
+    if not values:
+        return None
+    xs = sorted(values)
+    k = max(1, math.ceil(p / 100 * len(xs)))
+    return xs[k - 1]
+
+
+def default_range(since: datetime | None, until: datetime | None) -> tuple[datetime, datetime]:
+    until = until or clock.now()
+    since = since or (until - timedelta(days=7))
+    return since, until
+
+
+def overview(db: Session, property_id: str, since: datetime | None = None, until: datetime | None = None) -> Overview:
+    since, until = default_range(since, until)
+    convs = db.scalars(select(Conversation).where(Conversation.property_id == property_id,
+                                                  Conversation.created_at >= since, Conversation.created_at < until)).all()
+    msgs = db.execute(select(Message.direction, Message.sent_at, Message.author_type).where(
+        Message.property_id == property_id, Message.sent_at >= since, Message.sent_at < until)).all()
+    inbound = [m for m in msgs if m.direction == Direction.inbound]
+    outbound = [m for m in msgs if m.direction == Direction.outbound and m.author_type == AuthorType.staff]
+    frs = [c.first_response_seconds for c in convs if c.first_response_seconds is not None]
+    breaches = sum(1 for c in convs if c.sla_breach_notified_at is not None)
+    by_hour = Counter(m.sent_at.hour for m in inbound)
+    by_day = Counter(m.sent_at.date().isoformat() for m in inbound)
+    dist = [ResponseBucket(label=label, count=sum(1 for v in frs if lo <= v < hi),
+                           share=(sum(1 for v in frs if lo <= v < hi) / len(frs)) if frs else 0.0)
+            for label, lo, hi in BUCKETS]
+    wos_created = db.scalars(select(WorkOrder).where(WorkOrder.property_id == property_id,
+                                                     WorkOrder.created_at >= since, WorkOrder.created_at < until)).all()
+    wos_closed = db.scalars(select(WorkOrder).where(WorkOrder.property_id == property_id, WorkOrder.status.in_(CLOSED),
+                                                    WorkOrder.completed_at >= since, WorkOrder.completed_at < until)).all()
+    ttr = [(w.completed_at - w.created_at).total_seconds() for w in wos_closed if w.completed_at]
+    dept_names = {d.id: d.name for d in db.scalars(select(Department).where(Department.property_id == property_id)).all()}
+    per_dept: dict[str | None, list[float]] = defaultdict(list)
+    for w in wos_closed:
+        per_dept[w.department_id].append((w.completed_at - w.created_at).total_seconds())
+    dept_rows = sorted(
+        [DepartmentBucket(department_id=d, department_name=dept_names.get(d, "Unassigned"), closed=len(v),
+                          mean_time_to_resolve_seconds=int(sum(v) / len(v)) if v else None) for d, v in per_dept.items()],
+        key=lambda r: -r.closed)
+    return Overview(
+        since=since, until=until, conversations=len(convs), inbound_messages=len(inbound), outbound_messages=len(outbound),
+        first_response_p50_seconds=int(percentile(frs, 50)) if frs else None,
+        first_response_p90_seconds=int(percentile(frs, 90)) if frs else None,
+        sla_breaches=breaches, sla_breach_rate=(breaches / len(convs)) if convs else 0.0,
+        work_orders_created=len(wos_created), work_orders_closed=len(wos_closed),
+        work_orders_from_conversations=sum(1 for w in wos_created if w.source_conversation_id),
+        mean_time_to_resolve_seconds=int(sum(ttr) / len(ttr)) if ttr else None,
+        inbound_by_hour=[HourBucket(hour=h, count=by_hour.get(h, 0)) for h in range(24)],
+        inbound_by_day=[DayBucket(day=d, count=n) for d, n in sorted(by_day.items())],
+        first_response_distribution=dist, work_orders_by_department=dept_rows)
+
+
+def agents(db: Session, property_id: str, since: datetime | None = None, until: datetime | None = None,
+           only_user_id: str | None = None) -> list[AgentStats]:
+    since, until = default_range(since, until)
+    staff = db.execute(select(UserAccount, PropertyMembership).join(PropertyMembership, PropertyMembership.user_id == UserAccount.id)
+                       .where(PropertyMembership.property_id == property_id)).all()
+    sent = db.execute(select(Message.author_user_id, Message.conversation_id, Message.sent_at).where(
+        Message.property_id == property_id, Message.direction == Direction.outbound, Message.author_type == AuthorType.staff,
+        Message.sent_at >= since, Message.sent_at < until)).all()
+    first_reply: dict[str, tuple[datetime, str]] = {}
+    for author, conv_id, at in sorted(sent, key=lambda r: r.sent_at):
+        first_reply.setdefault(conv_id, (at, author))
+    convs = {c.id: c for c in db.scalars(select(Conversation).where(Conversation.property_id == property_id)).all()}
+    wos = Counter(w.reported_by_user_id for w in db.scalars(select(WorkOrder).where(
+        WorkOrder.property_id == property_id, WorkOrder.created_at >= since, WorkOrder.created_at < until)).all())
+    out = []
+    for u, m in staff:
+        if only_user_id and u.id != only_user_id:
+            continue
+        mine = [r for r in sent if r.author_user_id == u.id]
+        handled = {r.conversation_id for r in mine}
+        frs = [convs[cid].first_response_seconds for cid, (_, author) in first_reply.items()
+               if author == u.id and cid in convs and convs[cid].first_response_seconds is not None]
+        out.append(AgentStats(
+            user_id=u.id, name=f"{u.first_name} {u.last_name}", conversations_handled=len(handled),
+            messages_sent=len(mine), first_response_p50_seconds=int(percentile(frs, 50)) if frs else None,
+            first_response_p90_seconds=int(percentile(frs, 90)) if frs else None,
+            sla_breaches=sum(1 for cid in handled if convs.get(cid) and convs[cid].sla_breach_notified_at),
+            quick_reply_share=None, work_orders_created=wos.get(u.id, 0)))
+    return sorted(out, key=lambda a: -a.messages_sent)
+```
+
+(`quick_reply_share` stays `None` in Phase 1 — messages don't record which quick reply produced them; the web plan may add a `quick_reply_id` column later.)
+
+`app/api/analytics.py`:
+```python
+from datetime import datetime, time, timezone
+
+from flask import Blueprint, g, request
+
+from app.api._util import db_session, ok
+from app.auth.decorators import require_auth, require_capability, require_property
+from app.auth.permissions import has_capability
+from app.domain import analytics
+from app.errors import Forbidden, ValidationFailed
+
+bp = Blueprint("analytics", __name__, url_prefix="/api/p/<property_id>/analytics")
+
+
+def _parse(name: str, end_of_day: bool = False) -> datetime | None:
+    raw = request.args.get(name)
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError as e:
+        raise ValidationFailed(f"{name} must be an ISO date or datetime") from e
+    if dt.tzinfo is None:
+        dt = datetime.combine(dt.date(), time.max if end_of_day and len(raw) == 10 else dt.time(), tzinfo=timezone.utc)
+    return dt
+
+
+@bp.get("/overview")
+@require_auth
+@require_property
+@require_capability("view_property_analytics")
+def overview(property_id: str):
+    with db_session() as db:
+        return ok(analytics.overview(db, g.property_id, _parse("from"), _parse("to", end_of_day=True)))
+
+
+@bp.get("/agents")
+@require_auth
+@require_property
+def agents(property_id: str):
+    role = g.membership.role
+    if has_capability(role, "view_property_analytics"):
+        only = None
+    elif has_capability(role, "view_own_stats"):
+        only = g.user.id
+    else:
+        raise Forbidden("Your role cannot view analytics")
+    with db_session() as db:
+        return ok(analytics.agents(db, g.property_id, _parse("from"), _parse("to", end_of_day=True), only_user_id=only))
+```
+
+Register `analytics.bp`.
+
+- [ ] **Step 4: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): analytics overview and per-agent stats"
+```
+
+---
+
+### Task 19: WebSocket endpoint, presence, typing
+
+**Files:**
+- Create: `server/app/realtime/presence.py`, `server/app/realtime/ws.py`, `server/tests/test_presence.py`, `server/tests/test_ws.py`
+- Modify: `server/app/__init__.py`
+
+**Interfaces:**
+- Produces: `PresenceStore` with `update(conversation_id, user, state) -> set[str]` (changed conversation ids; `state ∈ {"viewing","composing"}`; `user = {"id","firstName","avatarUrl"}`), `clear_user(user_id) -> set[str]`, `sweep(now, ttl_seconds=10) -> set[str]`, `snapshot(conversation_id) -> list[dict]`; module singleton `presence.store`; `presence.broadcast_presence(property_id, conversation_ids)`; `ws.sock` (flask-sock `Sock`) with route `/ws`; `ws.start_sweeper(app)` (daemon thread, 5 s). Client → server frames: `{"type":"subscribe","propertyId"}`, `{"type":"presence","conversationId"|null,"state"}`, `{"type":"heartbeat"}`. Server → client: everything `broadcast.deliver` sends plus `{"type":"presence.update","payload":{"conversationId","users":[...]}}` and `{"type":"subscribed"}`.
+
+- [ ] **Step 1: Write the failing tests**
+
+`server/tests/test_presence.py`:
+```python
+from datetime import timedelta
+
+from app import clock
+from app.realtime.presence import PresenceStore
+
+AVA = {"id": "u1", "firstName": "Ava", "avatarUrl": None}
+MARCUS = {"id": "u2", "firstName": "Marcus", "avatarUrl": None}
+
+
+def test_update_and_snapshot():
+    s = PresenceStore()
+    assert s.update("c1", AVA, "viewing") == {"c1"}
+    assert s.update("c1", MARCUS, "composing") == {"c1"}
+    snap = s.snapshot("c1")
+    assert {(u["id"], u["state"]) for u in snap} == {("u1", "viewing"), ("u2", "composing")}
+
+
+def test_moving_conversations_reports_both():
+    s = PresenceStore()
+    s.update("c1", AVA, "viewing")
+    assert s.update("c2", AVA, "viewing") == {"c1", "c2"}
+    assert s.snapshot("c1") == [] and [u["id"] for u in s.snapshot("c2")] == ["u1"]
+
+
+def test_null_conversation_clears():
+    s = PresenceStore()
+    s.update("c1", AVA, "viewing")
+    assert s.update(None, AVA, "viewing") == {"c1"}
+    assert s.snapshot("c1") == []
+
+
+def test_sweep_expires_stale_entries():
+    s = PresenceStore()
+    clock.freeze(clock.now())
+    s.update("c1", AVA, "viewing")
+    clock.advance(seconds=11)
+    s.update("c1", MARCUS, "viewing")
+    assert s.sweep(clock.now()) == {"c1"}
+    assert [u["id"] for u in s.snapshot("c1")] == ["u2"]
+
+
+def test_clear_user():
+    s = PresenceStore()
+    s.update("c1", AVA, "viewing")
+    assert s.clear_user("u1") == {"c1"}
+```
+
+`server/tests/test_ws.py`:
+```python
+"""Drives the real WebSocket route with a dev server in a thread and simple_websocket's client."""
+import json
+import threading
+
+import pytest
+from werkzeug.serving import make_server
+
+
+@pytest.fixture()
+def live_server(app):
+    srv = make_server("127.0.0.1", 0, app, threaded=True)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    yield f"127.0.0.1:{srv.server_port}"
+    srv.shutdown()
+
+
+def _cookie(login):
+    c = login("agent@hvh.test")
+    return "sid=" + c.get_cookie("sid").value
+
+
+def _connect(host, cookie):
+    from simple_websocket import Client
+
+    return Client.connect(f"ws://{host}/ws", headers={"Cookie": cookie})
+
+
+def test_unauthenticated_socket_is_closed(live_server):
+    from simple_websocket import Client, ConnectionClosed
+
+    ws = Client.connect(f"ws://{live_server}/ws")
+    with pytest.raises(ConnectionClosed):
+        ws.receive(timeout=2)
+
+
+def test_subscribe_and_receive_broadcast(app, fx, live_server, login, database):
+    ws = _connect(live_server, _cookie(login))
+    ws.send(json.dumps({"type": "subscribe", "propertyId": fx.property_a.id}))
+    assert json.loads(ws.receive(timeout=2))["type"] == "subscribed"
+    from app.domain import notifications
+
+    with database.session() as db:
+        notifications.create(db, fx.property_a.id, fx.agent_a.id, "t", "Hello over the wire")
+    msg = json.loads(ws.receive(timeout=2))
+    assert msg["type"] == "notification.created" and msg["payload"]["title"] == "Hello over the wire"
+    ws.close()
+
+
+def test_subscribe_to_other_property_is_refused(app, fx, live_server, login):
+    from simple_websocket import ConnectionClosed
+
+    ws = _connect(live_server, _cookie(login))
+    ws.send(json.dumps({"type": "subscribe", "propertyId": fx.property_b.id}))
+    with pytest.raises(ConnectionClosed):
+        ws.receive(timeout=2)
+
+
+def test_presence_is_fanned_out_to_the_property(app, fx, live_server, login):
+    a = _connect(live_server, _cookie(login))
+    b = _connect(live_server, "sid=" + login("agent2@hvh.test").get_cookie("sid").value)
+    for ws in (a, b):
+        ws.send(json.dumps({"type": "subscribe", "propertyId": fx.property_a.id}))
+        assert json.loads(ws.receive(timeout=2))["type"] == "subscribed"
+    a.send(json.dumps({"type": "presence", "conversationId": "c-412", "state": "composing"}))
+    got = json.loads(b.receive(timeout=2))
+    assert got["type"] == "presence.update" and got["payload"]["conversationId"] == "c-412"
+    assert got["payload"]["users"][0]["firstName"] == "Ava" and got["payload"]["users"][0]["state"] == "composing"
+    a.close(); b.close()
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_presence.py tests/test_ws.py -q`
+Expected: FAIL with `ModuleNotFoundError`.
+
+- [ ] **Step 3: Write `app/realtime/presence.py`**
+
+```python
+from __future__ import annotations
+
+import threading
+from dataclasses import dataclass
+from datetime import datetime
+
+from app import clock
+from app.realtime.broadcast import Event, deliver
+
+TTL_SECONDS = 10
+
+
+@dataclass
+class Entry:
+    user: dict
+    state: str
+    seen_at: datetime
+
+
+class PresenceStore:
+    def __init__(self):
+        self._by_conv: dict[str, dict[str, Entry]] = {}
+        self._where: dict[str, str] = {}  # user_id -> conversation_id
+        self._lock = threading.Lock()
+
+    def update(self, conversation_id: str | None, user: dict, state: str) -> set[str]:
+        changed: set[str] = set()
+        uid = user["id"]
+        with self._lock:
+            prev = self._where.get(uid)
+            if prev and prev != conversation_id:
+                self._by_conv.get(prev, {}).pop(uid, None)
+                changed.add(prev)
+            if conversation_id:
+                self._by_conv.setdefault(conversation_id, {})[uid] = Entry(user, state, clock.now())
+                self._where[uid] = conversation_id
+                changed.add(conversation_id)
+            else:
+                self._where.pop(uid, None)
+        return changed
+
+    def clear_user(self, user_id: str) -> set[str]:
+        with self._lock:
+            prev = self._where.pop(user_id, None)
+            if prev:
+                self._by_conv.get(prev, {}).pop(user_id, None)
+                return {prev}
+        return set()
+
+    def sweep(self, now: datetime, ttl_seconds: int = TTL_SECONDS) -> set[str]:
+        changed: set[str] = set()
+        with self._lock:
+            for cid, users in list(self._by_conv.items()):
+                for uid, e in list(users.items()):
+                    if (now - e.seen_at).total_seconds() > ttl_seconds:
+                        users.pop(uid)
+                        self._where.pop(uid, None)
+                        changed.add(cid)
+                if not users:
+                    self._by_conv.pop(cid)
+        return changed
+
+    def snapshot(self, conversation_id: str) -> list[dict]:
+        with self._lock:
+            return [{**e.user, "state": e.state} for e in self._by_conv.get(conversation_id, {}).values()]
+
+
+store = PresenceStore()
+
+
+def broadcast_presence(property_id: str, conversation_ids: set[str]) -> None:
+    for cid in conversation_ids:
+        deliver(Event(property_id=property_id, type="presence.update",
+                      payload={"conversationId": cid, "users": store.snapshot(cid)}))
+```
+
+- [ ] **Step 4: Write `app/realtime/ws.py`**
+
+```python
+from __future__ import annotations
+
+import json
+import logging
+import threading
+
+from flask import Flask, request
+from flask_sock import Sock
+from sqlalchemy import select
+
+from app import clock
+from app.auth.sessions import COOKIE_NAME, load_session
+from app.db import get_db
+from app.models import PropertyMembership, UserAccount
+from app.realtime import presence
+from app.realtime.registry import connections
+
+log = logging.getLogger("ws")
+sock = Sock()
+
+
+@sock.route("/ws")
+def ws_route(ws):
+    token = request.cookies.get(COOKIE_NAME)
+    user = None
+    if token:
+        with get_db().session() as db:
+            s = load_session(db, token)
+            if s:
+                u = db.get(UserAccount, s.user_id)
+                user = {"id": u.id, "firstName": u.first_name, "avatarUrl": u.avatar_url}
+    if user is None:
+        ws.close(4401, "unauthorized")
+        return
+    property_id: str | None = None
+    try:
+        while True:
+            raw = ws.receive()
+            if raw is None:
+                break
+            try:
+                frame = json.loads(raw)
+            except ValueError:
+                continue
+            kind = frame.get("type")
+            if kind == "subscribe":
+                pid = frame.get("propertyId")
+                with get_db().session() as db:
+                    ok = db.scalar(select(PropertyMembership.id).where(PropertyMembership.user_id == user["id"],
+                                                                       PropertyMembership.property_id == pid))
+                if not ok:
+                    ws.close(4403, "no membership")
+                    return
+                if property_id:
+                    connections.remove(ws)
+                property_id = pid
+                connections.add(ws, property_id, user["id"])
+                ws.send(json.dumps({"type": "subscribed", "propertyId": property_id, "at": clock.now().isoformat()}))
+            elif kind == "presence" and property_id:
+                state = frame.get("state") if frame.get("state") in ("viewing", "composing") else "viewing"
+                changed = presence.store.update(frame.get("conversationId"), user, state)
+                presence.broadcast_presence(property_id, changed)
+            elif kind == "heartbeat" and property_id:
+                presence.store.touch(user["id"])  # refresh seen_at without changing state
+    except Exception:  # noqa: BLE001 — connection errors are routine
+        log.debug("ws closed", exc_info=True)
+    finally:
+        connections.remove(ws)
+        if property_id:
+            presence.broadcast_presence(property_id, presence.store.clear_user(user["id"]))
+
+
+def start_sweeper(app: Flask, interval: float = 5.0) -> threading.Thread:
+    stop = threading.Event()
+
+    def loop():
+        while not stop.wait(interval):
+            changed = presence.store.sweep(clock.now())
+            # We don't know each conversation's property here; look them up cheaply.
+            if changed:
+                from app.models import Conversation
+
+                with app.app_context(), get_db().session() as db:
+                    rows = db.execute(select(Conversation.id, Conversation.property_id)
+                                      .where(Conversation.id.in_(list(changed)))).all()
+                by_prop: dict[str, set[str]] = {}
+                for cid, pid in rows:
+                    by_prop.setdefault(pid, set()).add(cid)
+                for pid, cids in by_prop.items():
+                    presence.broadcast_presence(pid, cids)
+
+    t = threading.Thread(target=loop, name="presence-sweeper", daemon=True)
+    t.start()
+    app.extensions["presence_sweeper_stop"] = stop
+    return t
+```
+
+Add the `touch` method to `PresenceStore` (Step 3), after `clear_user`:
+```python
+    def touch(self, user_id: str) -> None:
+        with self._lock:
+            cid = self._where.get(user_id)
+            entry = self._by_conv.get(cid, {}).get(user_id) if cid else None
+            if entry:
+                entry.seen_at = clock.now()
+```
+
+In `create_app`, after blueprints:
+```python
+    from app.realtime.ws import sock, start_sweeper
+
+    sock.init_app(app)
+    if config.START_WORKER and (under_reloader or not app.debug):
+        start_sweeper(app)
+```
+(Reuse the same `under_reloader` guard computed for the worker; order the blocks so `under_reloader` is defined first.)
+
+- [ ] **Step 5: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass. `test_ws.py` needs `simple-websocket` (already in dev extras).
+
+- [ ] **Step 6: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): WebSocket endpoint with membership check, presence store, typing fan-out"
+```
+
+---
+
+### Task 20: PMS adapter interface, MockPmsAdapter, idempotent event handling
+
+**Files:**
+- Create: `server/app/pms/__init__.py`, `server/app/pms/base.py`, `server/app/pms/mock_pms.py`, `server/app/pms/handle_event.py`, `server/app/queue/handlers/pms.py`, `server/tests/test_pms.py`
+
+**Interfaces:**
+- Produces: dataclasses `NormalizedGuest(first_name, last_name, phone_e164, email, loyalty_tier, vip, pms_profile_id)`, `NormalizedStay(pms_reservation_id, room_number, room_type, rate_code, status: StayStatus, arrival_date, departure_date, adults, children, is_return_guest, stay_count)`, `PmsEvent(external_id, type, property_id, guest, stay, raw)`; `PmsAdapter` Protocol (`fetch_in_house(db, property_id)`, `next_events(db, property_id) -> list[PmsEvent]`); `MockPmsAdapter.next_events` (checks in one `reserved` stay arriving today, or checks out one `checked_in` stay departing today, alternating); `handle_event(db, event, integration_key="mock") -> bool` (False when duplicate); recurring handler `pms.tick`; `MockPmsAdapter.event_for(db, property_id, stay_id, type)` for the dev endpoints (Task 21).
+
+- [ ] **Step 1: Write the failing tests**
+
+`server/tests/test_pms.py`:
+```python
+from datetime import date
+
+from sqlalchemy import select
+
+from app import clock
+from app.models import Guest, PmsEvent, Stay
+from app.pms.base import NormalizedGuest, NormalizedStay, PmsEvent as Ev
+from app.pms.handle_event import handle_event
+from app.pms.mock_pms import MockPmsAdapter
+from app.schemas.enums import StayStatus
+
+
+def _event(fx, eid="R-1", type="stay.checked_in", phone="+15553334444", room="515"):
+    today = clock.now().date()
+    return Ev(external_id=eid, type=type, property_id=fx.property_a.id,
+              guest=NormalizedGuest(first_name="Tom", last_name="Becker", phone_e164=phone, email=None,
+                                    loyalty_tier="Silver", vip=False, pms_profile_id="P-9"),
+              stay=NormalizedStay(pms_reservation_id=eid, room_number=room, room_type="Queen", rate_code="BAR",
+                                  status=StayStatus.checked_in, arrival_date=today,
+                                  departure_date=date.fromordinal(today.toordinal() + 2), adults=1, children=0,
+                                  is_return_guest=False, stay_count=1),
+              raw={"source": "test"})
+
+
+def test_check_in_upserts_guest_and_stay(app, fx, database):
+    with database.session() as db:
+        assert handle_event(db, _event(fx)) is True
+        g = db.scalar(select(Guest).where(Guest.phone_e164 == "+15553334444"))
+        assert g.first_name == "Tom" and g.loyalty_tier == "Silver" and g.pms_profile_id == "P-9"
+        s = db.scalar(select(Stay).where(Stay.pms_reservation_id == "R-1"))
+        assert s.status == StayStatus.checked_in and s.room_number == "515" and s.actual_checkin_at is not None
+        assert s.raw_pms == {"source": "test"}
+
+
+def test_duplicate_event_is_ignored(app, fx, database):
+    with database.session() as db:
+        assert handle_event(db, _event(fx)) is True
+        assert handle_event(db, _event(fx)) is False
+        assert len(db.scalars(select(Stay)).all()) == 3  # 2 fixture stays + 1
+        assert len(db.scalars(select(PmsEvent)).all()) == 1
+
+
+def test_check_out_updates_existing_stay_and_does_not_reopen_consent(app, fx, database):
+    with database.session() as db:
+        handle_event(db, _event(fx))
+        ev = _event(fx, eid="R-1", type="stay.checked_out")
+        ev.stay.status = StayStatus.checked_out
+        assert handle_event(db, ev) is True
+        s = db.scalar(select(Stay).where(Stay.pms_reservation_id == "R-1"))
+        assert s.status == StayStatus.checked_out and s.actual_checkout_at is not None
+
+
+def test_mock_adapter_checks_in_arrivals_then_checks_out_departures(app, fx, database):
+    today = clock.now().date()
+    with database.session() as db:
+        g = Guest(property_id=fx.property_a.id, first_name="Arriving", last_name="Guest", phone_e164="+15550009999")
+        db.add(g); db.flush()
+        db.add(Stay(guest_id=g.id, property_id=fx.property_a.id, pms_reservation_id="R-ARR", room_number="222",
+                    status=StayStatus.reserved, arrival_date=today, departure_date=date.fromordinal(today.toordinal() + 1)))
+        fx_stay = db.get(Stay, fx.stay_inhouse_a.id)
+        fx_stay.departure_date = today  # Sarah departs today
+    adapter = MockPmsAdapter()
+    with database.session() as db:
+        events = adapter.next_events(db, fx.property_a.id)
+        assert [e.type for e in events] == ["stay.checked_in"] and events[0].stay.pms_reservation_id == "R-ARR"
+        for e in events:
+            handle_event(db, e)
+    with database.session() as db:
+        events = adapter.next_events(db, fx.property_a.id)
+        assert [e.type for e in events] == ["stay.checked_out"] and events[0].stay.pms_reservation_id == "RES-412"
+        for e in events:
+            handle_event(db, e)
+        assert db.get(Stay, fx.stay_inhouse_a.id).status == StayStatus.checked_out
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_pms.py -q`
+Expected: FAIL with `ModuleNotFoundError: app.pms`.
+
+- [ ] **Step 3: Write `app/pms/base.py`**
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Literal, Protocol
+
+from sqlalchemy.orm import Session
+
+from app.schemas.enums import StayStatus
+
+EventType = Literal["reservation.created", "stay.checked_in", "stay.checked_out", "stay.room_changed"]
+
+
+@dataclass
+class NormalizedGuest:
+    first_name: str | None
+    last_name: str | None
+    phone_e164: str
+    email: str | None = None
+    loyalty_tier: str | None = None
+    vip: bool = False
+    pms_profile_id: str | None = None
+
+
+@dataclass
+class NormalizedStay:
+    pms_reservation_id: str
+    room_number: str | None
+    room_type: str | None
+    rate_code: str | None
+    status: StayStatus
+    arrival_date: date
+    departure_date: date
+    adults: int = 1
+    children: int = 0
+    is_return_guest: bool = False
+    stay_count: int = 1
+
+
+@dataclass
+class PmsEvent:
+    external_id: str
+    type: EventType
+    property_id: str
+    guest: NormalizedGuest
+    stay: NormalizedStay
+    raw: dict = field(default_factory=dict)
+
+
+class PmsAdapter(Protocol):
+    integration_key: str
+
+    def fetch_in_house(self, db: Session, property_id: str) -> list[NormalizedStay]: ...
+
+    def next_events(self, db: Session, property_id: str) -> list[PmsEvent]: ...
+```
+
+- [ ] **Step 4: Write `app/pms/handle_event.py`**
+
+```python
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app import clock
+from app.domain import audit, guests
+from app.models import PmsEvent as PmsEventRow
+from app.models import Stay
+from app.pms.base import PmsEvent
+from app.realtime.broadcast import queue_event
+from app.schemas.enums import StayStatus
+
+
+def handle_event(db: Session, event: PmsEvent, integration_key: str = "mock") -> bool:
+    """Idempotent on (integration_key, external_id, event_type). Returns False for a duplicate."""
+    dup = db.scalar(select(PmsEventRow.id).where(PmsEventRow.integration_key == integration_key,
+                                                 PmsEventRow.external_id == event.external_id,
+                                                 PmsEventRow.event_type == event.type))
+    if dup:
+        return False
+    row = PmsEventRow(integration_key=integration_key, external_id=event.external_id, event_type=event.type,
+                      payload=event.raw)
+    db.add(row)
+
+    guest, created = guests.find_or_create_by_phone(db, event.property_id, event.guest.phone_e164)
+    for attr in ("first_name", "last_name", "email", "loyalty_tier", "vip", "pms_profile_id"):
+        value = getattr(event.guest, attr)
+        if value is not None:
+            setattr(guest, attr, value)
+
+    stay = db.scalar(select(Stay).where(Stay.property_id == event.property_id,
+                                        Stay.pms_reservation_id == event.stay.pms_reservation_id))
+    if stay is None:
+        stay = Stay(guest_id=guest.id, property_id=event.property_id, pms_reservation_id=event.stay.pms_reservation_id,
+                    arrival_date=event.stay.arrival_date, departure_date=event.stay.departure_date)
+        db.add(stay)
+    for attr in ("room_number", "room_type", "rate_code", "status", "arrival_date", "departure_date", "adults",
+                 "children", "is_return_guest", "stay_count"):
+        setattr(stay, attr, getattr(event.stay, attr))
+    stay.raw_pms = event.raw
+    now = clock.now()
+    if event.type == "stay.checked_in" and stay.actual_checkin_at is None:
+        stay.actual_checkin_at = now
+    if event.type == "stay.checked_out":
+        stay.status = StayStatus.checked_out
+        stay.actual_checkout_at = stay.actual_checkout_at or now
+    db.flush()
+    row.processed_at = now
+    audit.record(db, event.property_id, None, f"pms.{event.type}", "stay", stay.id,
+                 after={"external_id": event.external_id, "room": stay.room_number})
+    queue_event(db, event.property_id, "stay.updated", {"stayId": stay.id, "guestId": guest.id, "status": stay.status.value})
+    return True
+```
+
+- [ ] **Step 5: Write `app/pms/mock_pms.py` and the handler**
+
+`mock_pms.py`:
+```python
+"""Drives seeded stays through check-in and check-out so the inbox has a living hotel behind it."""
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app import clock
+from app.models import Guest, Stay
+from app.pms.base import NormalizedGuest, NormalizedStay, PmsEvent
+from app.schemas.enums import StayStatus
+
+
+class MockPmsAdapter:
+    integration_key = "mock"
+
+    def __init__(self):
+        self._flip = False
+
+    @staticmethod
+    def _event(stay: Stay, guest: Guest, type: str, status: StayStatus) -> PmsEvent:
+        return PmsEvent(
+            external_id=stay.pms_reservation_id or stay.id, type=type, property_id=stay.property_id,
+            guest=NormalizedGuest(first_name=guest.first_name, last_name=guest.last_name, phone_e164=guest.phone_e164,
+                                  email=guest.email, loyalty_tier=guest.loyalty_tier, vip=guest.vip,
+                                  pms_profile_id=guest.pms_profile_id),
+            stay=NormalizedStay(pms_reservation_id=stay.pms_reservation_id or stay.id, room_number=stay.room_number,
+                                room_type=stay.room_type, rate_code=stay.rate_code, status=status,
+                                arrival_date=stay.arrival_date, departure_date=stay.departure_date, adults=stay.adults,
+                                children=stay.children, is_return_guest=stay.is_return_guest, stay_count=stay.stay_count),
+            raw={"mock": True, "emitted_at": clock.now().isoformat()})
+
+    def event_for(self, db: Session, property_id: str, stay_id: str, type: str) -> PmsEvent | None:
+        stay = db.scalar(select(Stay).where(Stay.id == stay_id, Stay.property_id == property_id))
+        if stay is None:
+            return None
+        status = StayStatus.checked_in if type == "stay.checked_in" else StayStatus.checked_out
+        return self._event(stay, db.get(Guest, stay.guest_id), type, status)
+
+    def fetch_in_house(self, db: Session, property_id: str) -> list[NormalizedStay]:
+        rows = db.scalars(select(Stay).where(Stay.property_id == property_id, Stay.status == StayStatus.checked_in)).all()
+        return [self._event(s, db.get(Guest, s.guest_id), "stay.checked_in", StayStatus.checked_in).stay for s in rows]
+
+    def next_events(self, db: Session, property_id: str) -> list[PmsEvent]:
+        today = clock.now().date()
+        arrival = db.scalar(select(Stay).where(Stay.property_id == property_id, Stay.status == StayStatus.reserved,
+                                               Stay.arrival_date <= today).order_by(Stay.arrival_date).limit(1))
+        departure = db.scalar(select(Stay).where(Stay.property_id == property_id, Stay.status == StayStatus.checked_in,
+                                                 Stay.departure_date <= today).order_by(Stay.departure_date).limit(1))
+        self._flip = not self._flip
+        order = [arrival, departure] if self._flip else [departure, arrival]
+        for stay in order:
+            if stay is None:
+                continue
+            guest = db.get(Guest, stay.guest_id)
+            if stay.status == StayStatus.reserved:
+                return [self._event(stay, guest, "stay.checked_in", StayStatus.checked_in)]
+            return [self._event(stay, guest, "stay.checked_out", StayStatus.checked_out)]
+        return []
+```
+
+`app/queue/handlers/pms.py`:
+```python
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import Property
+from app.pms.handle_event import handle_event
+from app.pms.mock_pms import MockPmsAdapter
+from app.queue.handlers import handler
+
+adapter = MockPmsAdapter()
+
+
+@handler("pms.tick")
+def pms_tick(db: Session, payload: dict) -> None:
+    for pid in db.scalars(select(Property.id)).all():
+        for event in adapter.next_events(db, pid):
+            handle_event(db, event, integration_key=adapter.integration_key)
+```
+
+Register the adapter on the app in `create_app`: `from app.queue.handlers import pms as pms_handler; app.extensions["pms_adapter"] = pms_handler.adapter` (import after `load_all()` has run inside `Worker.__init__`, or simply import the module directly — it is safe to import before the worker exists).
+
+- [ ] **Step 6: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass.
+
+- [ ] **Step 7: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): PMS adapter interface, mock PMS driving check-ins/outs, idempotent event handling"
+```
+
+---
+
+### Task 21: Dev-only endpoints for the phone simulator and mock PMS
+
+**Files:**
+- Create: `server/app/api/dev.py`, `server/app/schemas/dev.py`, `server/tests/test_dev.py`
+- Modify: `server/app/__init__.py`
+
+**Interfaces:**
+- Produces (registered only when `not config.is_production`): `GET /api/dev/sim/guests` → `list[SimGuest]` (seeded guests across properties with phone, name, room, consent, property sms number, `willFail` flag for `…0000` numbers); `GET /api/dev/sim/thread?phone=&propertyId=` → `GuestThread`; `GET /api/dev/sim/events?since=` → last 100 realtime events the server delivered (ring buffer fed by a `broadcast` listener) as `list[SimEvent]`; `POST /api/dev/pms/check-in/<stay_id>` and `POST /api/dev/pms/check-out/<stay_id>` → 204. Dev routes require no login (they are for the simulator page in development) but are absent in production.
+
+- [ ] **Step 1: Write the failing tests**
+
+`server/tests/test_dev.py`:
+```python
+from app import create_app
+from app.config import Config
+from tests.factories import inbound
+
+
+def test_dev_routes_absent_in_production(template_db_path, tmp_path):
+    import shutil
+
+    p = tmp_path / "prod.db"
+    shutil.copy(template_db_path, p)
+    app = create_app(Config(DATABASE_URL=f"sqlite:///{p.as_posix()}", ENV="production", TESTING=True))
+    assert app.test_client().get("/api/dev/sim/guests").status_code == 404
+    app.extensions["db"].engine.dispose()
+
+
+def test_sim_guests_and_thread(app, fx, client):
+    guests = client.get("/api/dev/sim/guests").get_json()
+    sarah = [g for g in guests if g["phone"] == fx.guest_inhouse_a.phone_e164][0]
+    assert sarah["roomNumber"] == "412" and sarah["propertyId"] == fx.property_a.id and sarah["willFail"] is False
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hello")
+    t = client.get(f"/api/dev/sim/thread?phone={fx.guest_inhouse_a.phone_e164}&propertyId={fx.property_a.id}").get_json()
+    assert [m["body"] for m in t["messages"]] == ["hello"] and "notes" not in t
+
+
+def test_sim_events_ring_buffer(app, fx, client):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hello")
+    events = client.get("/api/dev/sim/events").get_json()
+    assert any(e["type"] == "message.created" for e in events)
+    assert all({"type", "propertyId", "at", "payload"} <= set(e) for e in events)
+
+
+def test_dev_pms_endpoints(app, fx, client, database):
+    from sqlalchemy import select
+
+    from app.models import Stay
+    from app.schemas.enums import StayStatus
+
+    assert client.post(f"/api/dev/pms/check-out/{fx.stay_inhouse_a.id}").status_code == 204
+    with database.session() as db:
+        assert db.get(Stay, fx.stay_inhouse_a.id).status == StayStatus.checked_out
+    assert client.post("/api/dev/pms/check-in/nope").status_code == 404
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_dev.py -q`
+Expected: FAIL with 404s on `/api/dev/...` in the non-production app.
+
+- [ ] **Step 3: Write the schema and blueprint**
+
+`app/schemas/dev.py`:
+```python
+from datetime import datetime
+from typing import Any
+
+from app.schemas.common import CamelModel
+from app.schemas.enums import SmsConsentStatus
+
+
+class SimGuest(CamelModel):
+    property_id: str
+    property_name: str
+    property_sms_number: str | None = None
+    guest_id: str
+    name: str
+    phone: str
+    room_number: str | None = None
+    in_house: bool
+    sms_consent_status: SmsConsentStatus
+    will_fail: bool
+
+
+class SimEvent(CamelModel):
+    type: str
+    property_id: str
+    at: datetime
+    payload: dict[str, Any]
+```
+
+`app/api/dev.py`:
+```python
+from __future__ import annotations
+
+from collections import deque
+
+from flask import Blueprint, request
+from sqlalchemy import select
+
+from app.api._util import db_session, no_content, ok
+from app.channels.mock_sms import FAIL_SUFFIX
+from app.domain import conversations
+from app.errors import NotFound, ValidationFailed
+from app.models import Guest, Property, Stay
+from app.pms.handle_event import handle_event
+from app.queue.handlers.pms import adapter as pms_adapter
+from app.realtime import broadcast
+from app.schemas.dev import SimEvent, SimGuest
+from app.schemas.enums import StayStatus
+
+bp = Blueprint("dev", __name__, url_prefix="/api/dev")
+_events: deque[broadcast.Event] = deque(maxlen=100)
+
+
+def _record(ev: broadcast.Event) -> None:
+    _events.append(ev)
+
+
+def install_event_recorder() -> None:
+    broadcast.remove_listener(_record)
+    broadcast.add_listener(_record)
+
+
+@bp.get("/sim/guests")
+def sim_guests():
+    with db_session() as db:
+        rows = db.execute(select(Guest, Property).join(Property, Property.id == Guest.property_id)
+                          .order_by(Property.name, Guest.last_name)).all()
+        in_house = {s.guest_id: s for s in db.scalars(select(Stay).where(Stay.status == StayStatus.checked_in)).all()}
+        out = []
+        for g, p in rows:
+            stay = in_house.get(g.id)
+            out.append(SimGuest(property_id=p.id, property_name=p.name, property_sms_number=p.sms_number, guest_id=g.id,
+                                name=f"{g.first_name or ''} {g.last_name or ''}".strip() or "Unknown", phone=g.phone_e164,
+                                room_number=stay.room_number if stay else None, in_house=stay is not None,
+                                sms_consent_status=g.sms_consent_status, will_fail=g.phone_e164.endswith(FAIL_SUFFIX)))
+        return ok(out)
+
+
+@bp.get("/sim/thread")
+def sim_thread():
+    phone, property_id = request.args.get("phone"), request.args.get("propertyId")
+    if not phone or not property_id:
+        raise ValidationFailed("phone and propertyId are required")
+    with db_session() as db:
+        if db.get(Property, property_id) is None:
+            raise NotFound("Property not found")
+        return ok(conversations.guest_thread(db, property_id, phone))
+
+
+@bp.get("/sim/events")
+def sim_events():
+    return ok([SimEvent(type=e.type, property_id=e.property_id, at=e.at, payload=e.payload) for e in list(_events)])
+
+
+def _pms(stay_id: str, type: str):
+    with db_session() as db:
+        stay = db.get(Stay, stay_id)
+        if stay is None:
+            raise NotFound("Stay not found")
+        event = pms_adapter.event_for(db, stay.property_id, stay_id, type)
+        handle_event(db, event, integration_key=pms_adapter.integration_key)
+    return no_content()
+
+
+@bp.post("/pms/check-in/<stay_id>")
+def pms_check_in(stay_id: str):
+    return _pms(stay_id, "stay.checked_in")
+
+
+@bp.post("/pms/check-out/<stay_id>")
+def pms_check_out(stay_id: str):
+    return _pms(stay_id, "stay.checked_out")
+```
+
+In `create_app`:
+```python
+    if not config.is_production:
+        from app.api import dev
+
+        dev.install_event_recorder()
+        app.register_blueprint(dev.bp)
+```
+
+Note: `handle_event` for a `stay.checked_out` of an already-processed `external_id` is deduplicated by `(integration_key, external_id, event_type)`, so pressing "check out" twice is a no-op — intended.
+
+- [ ] **Step 4: Run the tests**
+
+Run: `python -m pytest -q`
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): dev-only simulator and mock PMS endpoints"
+```
+
+---
+
+### Task 22: Seed script and CLI
+
+**Files:**
+- Create: `server/seed/__init__.py`, `server/seed/data.py`, `server/seed/seed.py`, `server/app/cli.py`, `server/tests/test_seed.py`
+- Modify: `server/app/__init__.py` (register CLI)
+
+**Interfaces:**
+- Produces: `seed.seed.run(database_url: str, *, reset: bool = True) -> SeedSummary` (dataclass with counts); `flask --app app seed` command (also `python -m seed.seed`); deterministic via `random.Random(42)`; matches spec §8 exactly (properties, 12 staff, 85 in-house stays, 10 arriving, 10 departing, 8 checked out, 30 conversations in the stated mix, 15 open work orders with 6 linked, ~15 quick replies, 8 assets, category tree, recurring jobs).
+
+- [ ] **Step 1: Write the failing test**
+
+`server/tests/test_seed.py`:
+```python
+from sqlalchemy import func, select
+
+from app.db import Database
+from app.models import (Conversation, DigitalAsset, DraftPrompt, Guest, Message, Property, PropertyMembership,
+                        QuickReply, ResolutionCategory, Stay, UserAccount, WorkOrder)
+from app.schemas.enums import ConversationStatus, DeliveryStatus, SmsConsentStatus, StayStatus, WorkOrderStatus
+from seed.seed import run
+
+
+def test_seed_matches_spec_counts(tmp_path):
+    url = f"sqlite:///{(tmp_path / 'seed.db').as_posix()}"
+    summary = run(url, reset=True)
+    db_ = Database(url)
+    with db_.session() as db:
+        count = lambda model, *where: db.scalar(select(func.count()).select_from(model).where(*where))  # noqa: E731
+        hvh = db.scalar(select(Property).where(Property.code == "HVH"))
+        lsi = db.scalar(select(Property).where(Property.code == "LSI"))
+        assert hvh and lsi
+        assert count(PropertyMembership, PropertyMembership.property_id == hvh.id) == 12
+        assert count(Stay, Stay.property_id == hvh.id, Stay.status == StayStatus.checked_in) == 85
+        assert count(Stay, Stay.property_id == hvh.id, Stay.status == StayStatus.reserved) == 10
+        assert count(Stay, Stay.property_id == hvh.id, Stay.status == StayStatus.checked_out) == 8
+        assert count(Conversation, Conversation.property_id == hvh.id) == 30
+        assert count(Conversation, Conversation.property_id == hvh.id, Conversation.status == ConversationStatus.archived) == 5
+        assert count(DraftPrompt) == 2
+        assert count(Guest, Guest.sms_consent_status == SmsConsentStatus.opted_out) == 1
+        assert count(Message, Message.redacted.is_(True)) == 1
+        assert count(WorkOrder, WorkOrder.property_id == hvh.id,
+                     WorkOrder.status.in_([WorkOrderStatus.open, WorkOrderStatus.assigned, WorkOrderStatus.in_progress,
+                                           WorkOrderStatus.blocked, WorkOrderStatus.complete])) == 15
+        assert count(WorkOrder, WorkOrder.source_conversation_id.isnot(None)) >= 6
+        assert count(QuickReply, QuickReply.property_id == hvh.id) >= 15
+        assert count(DigitalAsset, DigitalAsset.property_id == hvh.id) == 8
+        assert count(ResolutionCategory, ResolutionCategory.property_id == hvh.id) >= 10
+        assert count(Message, Message.delivery_status == DeliveryStatus.failed) >= 1
+        assert db.scalar(select(UserAccount).where(UserAccount.email == "ava@hvh.test")) is not None
+    db_.engine.dispose()
+    assert summary.conversations == 30
+
+    # Deterministic: running again yields identical guest phone numbers.
+    url2 = f"sqlite:///{(tmp_path / 'seed2.db').as_posix()}"
+    run(url2, reset=True)
+    a, b = Database(url), Database(url2)
+    with a.session() as da, b.session() as dbb:
+        pa = sorted(da.scalars(select(Guest.phone_e164)).all())
+        pb = sorted(dbb.scalars(select(Guest.phone_e164)).all())
+    assert pa == pb
+    a.engine.dispose(); b.engine.dispose()
+
+
+def test_seeded_users_can_log_in(tmp_path):
+    from app import create_app
+    from app.config import Config
+
+    url = f"sqlite:///{(tmp_path / 'seed.db').as_posix()}"
+    run(url, reset=True)
+    app = create_app(Config(DATABASE_URL=url, TESTING=True))
+    c = app.test_client()
+    assert c.post("/api/auth/login", json={"email": "ava@hvh.test", "password": "Password123!"}).status_code == 200
+    body = c.get("/api/auth/me").get_json()
+    assert body["memberships"][0]["role"] == "agent"
+    app.extensions["db"].engine.dispose()
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_seed.py -q`
+Expected: FAIL with `ModuleNotFoundError: seed`.
+
+- [ ] **Step 3: Write `seed/data.py` — the static vocabulary**
+
+```python
+"""Static content for the seed. Names, message templates, quick replies, assets, categories."""
+
+FIRST_NAMES = ["Sarah", "Diego", "Nia", "Priya", "Tom", "Lena", "Omar", "Grace", "Hiro", "Amara", "Luca", "Maya",
+               "Jonas", "Zara", "Felix", "Ines", "Kwame", "Elena", "Rafael", "Yuki", "Noor", "Mateo", "Ivy", "Tariq",
+               "Chloe", "Dmitri", "Aisha", "Ben", "Sofia", "Arjun"]
+LAST_NAMES = ["Chen", "Ruiz", "Okafor", "Nair", "Becker", "Park", "Haddad", "Mensah", "Tanaka", "Silva", "Rossi",
+              "Novak", "Dubois", "Khan", "Andersen", "Moreno", "Boateng", "Petrova", "Costa", "Sato", "Rahman",
+              "Alvarez", "Walsh", "Hassan", "Martin", "Volkov", "Diallo", "Cohen", "Ferreira", "Iyer"]
+ROOM_TYPES = ["King", "Queen", "Double Queen", "Suite", "Accessible King"]
+RATE_CODES = ["BAR", "AAA", "CORP", "PKG", "GOV"]
+LOYALTY = [None, None, None, "Silver", "Silver", "Gold", "Gold", "Platinum"]
+
+# (guest message, department type for a linked work order or None, negative sentiment?)
+GUEST_OPENERS = [
+    ("Hi, the AC in our room isn't working at all, it's really warm in here.", "engineering", True),
+    ("Can we get a late checkout tomorrow? Flight isn't until 4.", "front_desk", False),
+    ("Extra towels please, and is the pool open late?", "housekeeping", False),
+    ("What time does breakfast start?", None, False),
+    ("The shower drain is really slow and water is pooling.", "engineering", True),
+    ("Is there parking on site and how much is it?", None, False),
+    ("Room hasn't been serviced today and it's 4pm.", "housekeeping", True),
+    ("Could someone bring up two more pillows?", "housekeeping", False),
+    ("TV remote isn't pairing with the TV in 509.", "engineering", False),
+    ("Hi! Just checked in. Where's the gym?", None, False),
+    ("There's a strange noise from the ceiling vent.", "engineering", True),
+    ("Can I get a wake-up call at 5:30am?", "front_desk", False),
+    ("Arriving around 9pm tonight, is that ok?", None, False),
+    ("The wifi keeps dropping in our room.", "engineering", False),
+    ("Do you have a shuttle to the airport?", None, False),
+    ("Our toilet is running constantly.", "engineering", True),
+    ("Is the restaurant open for dinner tonight?", None, False),
+    ("Could we have the room made up while we're at lunch?", "housekeeping", False),
+    ("Bill shows a minibar charge we didn't use.", "front_desk", True),
+    ("Love the view! Thank you for the upgrade.", None, False),
+]
+STAFF_REPLIES = [
+    "So sorry about that — I'm sending someone up now, they'll knock within 15 minutes.",
+    "Absolutely, I've noted that for you. Anything else you need?",
+    "On its way! Housekeeping will be up shortly.",
+    "Breakfast is 6:30–10:30 in the Harbour Room on level 2.",
+    "Self-parking is $28/night in the garage on Front St; valet is $45.",
+    "Done — your checkout is extended to 2 PM at no charge.",
+    "The pool and hot tub are open 7 AM–10 PM.",
+    "Thank you, Sarah — we're so glad you're enjoying it!",
+]
+NOTES = ["Gold member, 4th stay — offer 518 if not fixed by 7:30.", "Prefers high floor, away from elevator.",
+         "Feather allergy — hypoallergenic pillows pre-set.", "Travelling with infant; crib delivered.",
+         "Complained last stay about noise — proactive check-in done."]
+
+WORK_ORDERS = [
+    ("AC not cooling", "maintenance", "urgent", "engineering"), ("Toilet running constantly", "maintenance", "normal", "engineering"),
+    ("Bathroom faucet dripping", "maintenance", "normal", "engineering"), ("Hallway light out near 512", "maintenance", "low", "engineering"),
+    ("TV remote not pairing", "maintenance", "low", "engineering"), ("Ice machine 3F not dispensing", "maintenance", "normal", "engineering"),
+    ("Pool pump pressure low", "maintenance", "high", "engineering"), ("Elevator B intermittent door fault", "maintenance", "urgent", "engineering"),
+    ("Door closer slams", "maintenance", "low", "engineering"), ("Extra towels + pillows", "guest_request", "normal", "housekeeping"),
+    ("Deep clean after checkout — mattress rotation", "housekeeping", "normal", "housekeeping"),
+    ("Carpet stain, coffee", "housekeeping", "normal", "housekeeping"), ("Room not serviced by 4pm", "housekeeping", "high", "housekeeping"),
+    ("Late checkout request — 2 PM", "guest_request", "normal", "front_desk"), ("Wake-up call 5:30am", "guest_request", "low", "front_desk"),
+    ("Shower drain slow", "maintenance", "normal", "engineering"), ("Bedside lamp bulb", "maintenance", "low", "engineering"),
+]
+
+QUICK_REPLIES = [
+    ("/wifi", "WiFi details", "Hi {{guest_first_name}} — the network is Harbourview-Guest, no password needed. If it drops, toggle WiFi off and on.", None),
+    ("/checkout", "Checkout time", "Checkout is 11 AM. Reply LATE if you'd like to request a later time and we'll do our best.", "front_desk"),
+    ("/late", "Late checkout granted", "Done — {{guest_first_name}}, your checkout is extended to 2 PM at no charge.", "front_desk"),
+    ("/towels", "Towels on the way", "Fresh towels are on their way to {{room_number}} — about 15 minutes.", "housekeeping"),
+    ("/eng", "Engineering dispatched", "So sorry about that. Engineering is on the way to {{room_number}} and will knock within 15 minutes.", None),
+    ("/parking", "Parking", "Self-parking is $28/night in the garage on Front St; valet is $45 with in-and-out privileges.", "front_desk"),
+    ("/breakfast", "Breakfast hours", "Breakfast is 6:30–10:30 in the Harbour Room, level 2.", None),
+    ("/pool", "Pool hours", "The pool and hot tub are open 7 AM–10 PM. Towels are poolside.", None),
+    ("/gym", "Fitness centre", "The fitness centre is on level 3, open 24 hours with your room key.", None),
+    ("/shuttle", "Airport shuttle", "The shuttle runs on the hour from 5 AM to 11 PM from the Front St entrance.", "front_desk"),
+    ("/sorry", "Apology", "I'm so sorry, {{guest_first_name}}. That's not the experience we want for you — let me fix it.", None),
+    ("/thanks", "Thanks", "Thank you, {{guest_first_name}} — it's a pleasure having you at {{property_name}}.", None),
+    ("/housekeeping", "Housekeeping timing", "Housekeeping services rooms between 9 AM and 3 PM. Want us to come at a specific time?", "housekeeping"),
+    ("/bill", "Folio question", "Happy to check your folio — I'll review it and text you back within 10 minutes.", "front_desk"),
+    ("/restaurant", "Restaurant hours", "The Quay is open for dinner 5:30–10 PM; the bar until midnight.", None),
+]
+
+ASSETS = [
+    ("WiFi card", "link", "https://example.test/harbourview/wifi.pdf", "Connectivity"),
+    ("Property map", "map", "https://example.test/harbourview/map.pdf", "Wayfinding"),
+    ("Breakfast menu", "menu", "https://example.test/harbourview/breakfast.pdf", "Dining"),
+    ("Dinner menu — The Quay", "menu", "https://example.test/harbourview/quay.pdf", "Dining"),
+    ("Spa menu", "menu", "https://example.test/harbourview/spa.pdf", "Wellness"),
+    ("Local guide", "link", "https://example.test/harbourview/local.pdf", "Explore"),
+    ("Express checkout", "form", "https://example.test/harbourview/checkout", "Stay"),
+    ("Shuttle schedule", "file", "https://example.test/harbourview/shuttle.pdf", "Transport"),
+]
+
+CATEGORIES = {
+    "Maintenance": ["HVAC", "Plumbing", "Electrical", "Elevator"],
+    "Service": ["Housekeeping delay", "Front desk", "F&B"],
+    "Billing": ["Disputed charge", "Rate question"],
+    "Praise": [],
+    "Question": ["Hours", "Amenities", "Directions"],
+}
+```
+
+- [ ] **Step 4: Write `seed/seed.py`**
+
+```python
+"""Deterministic development seed. `flask seed` or `python -m seed.seed`. Matches spec §8."""
+from __future__ import annotations
+
+import random
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+
+from sqlalchemy import select
+
+from app.auth.passwords import hash_password
+from app.db import Database, run_migrations
+from app.domain.assets import new_short_code
+from app.models import (Conversation, Department, DigitalAsset, DraftPrompt, Guest, InternalNote, Message, Property,
+                        PropertyMembership, QuickReply, ResolutionCategory, Stay, UserAccount, WorkOrder,
+                        WorkOrderEvent)
+from app.queue import jobs
+from app.schemas.enums import (AssetType, AuthorType, Channel, ConversationStatus, DeliveryStatus, DepartmentType,
+                               Direction, DraftPromptStatus, Priority, Role, SmsConsentStatus, StayStatus,
+                               WorkOrderEventType, WorkOrderStatus, WorkOrderType)
+from seed import data
+
+PASSWORD = "Password123!"
+
+
+@dataclass
+class SeedSummary:
+    properties: int
+    users: int
+    guests: int
+    stays: int
+    conversations: int
+    messages: int
+    work_orders: int
+
+
+def _phone(rng: random.Random, used: set[str]) -> str:
+    while True:
+        p = f"+1555{rng.randint(1000000, 9999999)}"
+        if p not in used and not p.endswith("0000"):
+            used.add(p)
+            return p
+
+
+def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -> SeedSummary:
+    now = now or datetime.now(timezone.utc)
+    today = now.date()
+    rng = random.Random(42)
+    if reset and database_url.startswith("sqlite:///"):
+        path = Path(database_url.removeprefix("sqlite:///"))
+        for suffix in ("", "-wal", "-shm"):
+            p = Path(str(path) + suffix)
+            if p.exists():
+                p.unlink()
+        path.parent.mkdir(parents=True, exist_ok=True)
+    run_migrations(database_url)
+    database = Database(database_url)
+    used_phones: set[str] = set()
+
+    with database.session() as db:
+        # ---- properties & departments
+        hvh = Property(name="Harbourview Hotel", code="HVH", timezone="America/New_York", sms_number="+15550100",
+                       address="1 Harbour St", currency="USD", primary_color="#f0b323",
+                       settings={"sla_minutes": 15, "auto_resolve_hours": 4,
+                                 "help_text": "Harbourview Hotel: text us anytime, or call +1 555 0100."})
+        lsi = Property(name="Lakeside Inn", code="LSI", timezone="America/Chicago", sms_number="+15550200",
+                       settings={"sla_minutes": 15, "auto_resolve_hours": 4, "help_text": "Lakeside Inn: call +1 555 0200."})
+        db.add_all([hvh, lsi]); db.flush()
+        depts = {}
+        for name, typ in [("Front Desk", DepartmentType.front_desk), ("Housekeeping", DepartmentType.housekeeping),
+                          ("Engineering", DepartmentType.engineering)]:
+            d = Department(property_id=hvh.id, name=name, type=typ); db.add(d); depts[typ.value] = d
+        lsi_fd = Department(property_id=lsi.id, name="Front Desk", type=DepartmentType.front_desk); db.add(lsi_fd)
+        db.flush()
+
+        # ---- staff (12 at HVH + 2 at LSI)
+        pw = hash_password(PASSWORD, rounds=10)
+
+        def user(email, first, last):
+            u = UserAccount(email=email, first_name=first, last_name=last, password_hash=pw); db.add(u); db.flush(); return u
+
+        def member(u, prop, role, dept=None):
+            db.add(PropertyMembership(user_id=u.id, property_id=prop.id, role=role, department_id=dept.id if dept else None))
+
+        staff = {
+            "ava": user("ava@hvh.test", "Ava", "Agent"), "marcus": user("marcus@hvh.test", "Marcus", "Reyes"),
+            "jordan": user("jordan@hvh.test", "Jordan", "Tate"), "hana": user("hana@hvh.test", "Hana", "Keeper"),
+            "rosa": user("rosa@hvh.test", "Rosa", "Lima"), "eli": user("eli@hvh.test", "Eli", "Engineer"),
+            "noah": user("noah@hvh.test", "Noah", "Fix"), "hk_sup": user("hk.supervisor@hvh.test", "Grace", "Osei"),
+            "sam": user("sam@hvh.test", "Sam", "Super"), "morgan": user("morgan@hvh.test", "Morgan", "Manager"),
+            "alex": user("alex@hvh.test", "Alex", "Admin"), "casey": user("casey@group.test", "Casey", "Corp"),
+        }
+        member(staff["ava"], hvh, Role.agent, depts["front_desk"]); member(staff["marcus"], hvh, Role.agent, depts["front_desk"])
+        member(staff["jordan"], hvh, Role.agent, depts["front_desk"])
+        member(staff["hana"], hvh, Role.dept_staff, depts["housekeeping"]); member(staff["rosa"], hvh, Role.dept_staff, depts["housekeeping"])
+        member(staff["eli"], hvh, Role.dept_staff, depts["engineering"]); member(staff["noah"], hvh, Role.dept_staff, depts["engineering"])
+        member(staff["hk_sup"], hvh, Role.supervisor, depts["housekeeping"]); member(staff["sam"], hvh, Role.supervisor, depts["engineering"])
+        member(staff["morgan"], hvh, Role.manager); member(staff["alex"], hvh, Role.admin); member(staff["casey"], hvh, Role.corporate)
+        blake = user("blake@lsi.test", "Blake", "Admin"); member(blake, lsi, Role.admin)
+        bea = user("bea@lsi.test", "Bea", "Agent"); member(bea, lsi, Role.agent, lsi_fd)
+        member(staff["casey"], lsi, Role.corporate)
+
+        # ---- rooms, guests, stays
+        rooms = [f"{f}{n:02d}" for f in range(1, 7) for n in range(1, 21)]
+        rng.shuffle(rooms)
+        guests: list[Guest] = []
+        stays: list[Stay] = []
+
+        def make_guest(prop, first=None, last=None, phone=None, tier=None, consent=SmsConsentStatus.opted_in):
+            g = Guest(property_id=prop.id, first_name=first or rng.choice(data.FIRST_NAMES),
+                      last_name=last or rng.choice(data.LAST_NAMES), phone_e164=phone or _phone(rng, used_phones),
+                      loyalty_tier=tier if tier is not None else rng.choice(data.LOYALTY),
+                      vip=rng.random() < 0.05, sms_consent_status=consent,
+                      sms_consent_at=now - timedelta(days=rng.randint(1, 400)), sms_consent_source="pms")
+            db.add(g); db.flush(); guests.append(g); return g
+
+        def make_stay(g, room, status, arrival, nights, res_id=None):
+            s = Stay(guest_id=g.id, property_id=g.property_id, pms_reservation_id=res_id or f"RES-{room}-{rng.randint(1000, 9999)}",
+                     room_number=room, room_type=rng.choice(data.ROOM_TYPES), rate_code=rng.choice(data.RATE_CODES),
+                     status=status, arrival_date=arrival, departure_date=arrival + timedelta(days=nights),
+                     adults=rng.choice([1, 2, 2, 2, 3]), children=rng.choice([0, 0, 0, 1, 2]),
+                     is_return_guest=rng.random() < 0.3, stay_count=rng.randint(1, 6),
+                     actual_checkin_at=(datetime.combine(arrival, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=15))
+                     if status != StayStatus.reserved else None,
+                     actual_checkout_at=now - timedelta(hours=rng.randint(20, 40)) if status == StayStatus.checked_out else None,
+                     raw_pms={"seed": True})
+            db.add(s); db.flush(); stays.append(s); return s
+
+        sarah = make_guest(hvh, "Sarah", "Chen", "+15551234567", "Gold")
+        make_stay(sarah, "412", StayStatus.checked_in, today - timedelta(days=1), 3, res_id="RES-412")
+        tom = make_guest(hvh, "Tom", "Becker", "+15552000000", "Silver")  # fails delivery on purpose
+        make_stay(tom, "516", StayStatus.checked_in, today, 2)
+        room_iter = iter(r for r in rooms if r not in ("412", "516"))
+        for _ in range(83):
+            g = make_guest(hvh); make_stay(g, next(room_iter), StayStatus.checked_in, today - timedelta(days=rng.randint(0, 4)), rng.randint(1, 5))
+        for _ in range(10):
+            g = make_guest(hvh); make_stay(g, next(room_iter), StayStatus.reserved, today, rng.randint(1, 4))
+        departing = [s for s in stays if s.status == StayStatus.checked_in][2:12]
+        for s in departing:
+            s.departure_date = today
+        for _ in range(7):  # + Lena below = 8 checked out
+            g = make_guest(hvh); make_stay(g, rng.choice(rooms), StayStatus.checked_out, today - timedelta(days=3), 2)
+        lena = make_guest(hvh, "Lena", "Park", "+15553104411", None, SmsConsentStatus.opted_out)
+        lena.sms_consent_source = "sms_keyword"
+        make_stay(lena, "301", StayStatus.checked_out, today - timedelta(days=4), 2)
+        for _ in range(3):
+            g = make_guest(lsi); make_stay(g, str(rng.randint(101, 140)), StayStatus.checked_in, today, 2)
+
+        # ---- content
+        for shortcut, title, body, dept in data.QUICK_REPLIES:
+            db.add(QuickReply(property_id=hvh.id, shortcut=shortcut, title=title, body=body,
+                              department_id=depts[dept].id if dept else None, usage_count=rng.randint(0, 220)))
+        db.add(QuickReply(property_id=hvh.id, shortcut="/oldshuttle", title="Old shuttle", body="Retired.", active=False))
+        for name, typ, url, cat in data.ASSETS:
+            db.add(DigitalAsset(property_id=hvh.id, name=name, type=AssetType(typ), url=url, category=cat,
+                                short_code=new_short_code(db), send_count=rng.randint(0, 80)))
+        cats = {}
+        for parent, children in data.CATEGORIES.items():
+            p = ResolutionCategory(property_id=hvh.id, name=parent); db.add(p); db.flush(); cats[parent] = p
+            for c in children:
+                db.add(ResolutionCategory(property_id=hvh.id, name=c, parent_id=p.id))
+        db.flush()
+
+        # ---- conversations (30) + work orders
+        in_house = [s for s in stays if s.property_id == hvh.id and s.status == StayStatus.checked_in]
+        agents = [staff["ava"], staff["marcus"], staff["jordan"]]
+        eng_staff = [staff["eli"], staff["noah"]]
+        hk_staff = [staff["hana"], staff["rosa"]]
+        convs: list[Conversation] = []
+        messages = 0
+        work_orders: list[WorkOrder] = []
+
+        def add_msg(c, direction, body, at, author=None, status=DeliveryStatus.delivered, redacted=False, author_type=None):
+            nonlocal messages
+            m = Message(conversation_id=c.id, property_id=c.property_id, direction=direction,
+                        author_type=author_type or (AuthorType.guest if direction == Direction.inbound else AuthorType.staff),
+                        author_user_id=author.id if author else None, channel=Channel.sms, body=body, delivery_status=status,
+                        provider_message_id=f"seed-{rng.randint(10**8, 10**9)}", redacted=redacted, sent_at=at,
+                        delivered_at=at if status == DeliveryStatus.delivered else None,
+                        provider_error_code="30007" if status == DeliveryStatus.failed else None,
+                        provider_error_message="Carrier violation (mock)" if status == DeliveryStatus.failed else None)
+            db.add(m); messages += 1; return m
+
+        def add_wo(title, typ, prio, dept_type, status, conv=None, assignee=None, created=None):
+            created = created or now - timedelta(minutes=rng.randint(10, 600))
+            wo = WorkOrder(property_id=hvh.id, title=title, type=WorkOrderType(typ), priority=Priority(prio), status=status,
+                           location_ref=(conv.stay.room_number if conv and conv.stay else rng.choice(rooms)),
+                           department_id=depts[dept_type].id, assigned_user_id=assignee.id if assignee else None,
+                           reported_by_user_id=rng.choice(agents).id, source_conversation_id=conv.id if conv else None,
+                           created_at=created, updated_at=created,
+                           started_at=created + timedelta(minutes=5) if status in (WorkOrderStatus.in_progress, WorkOrderStatus.blocked, WorkOrderStatus.complete) else None,
+                           completed_at=created + timedelta(minutes=rng.randint(10, 60)) if status == WorkOrderStatus.complete else None)
+            db.add(wo); db.flush()
+            db.add(WorkOrderEvent(work_order_id=wo.id, property_id=hvh.id, user_id=wo.reported_by_user_id,
+                                  type=WorkOrderEventType.created, to_value="open", created_at=created))
+            work_orders.append(wo); return wo
+
+        # 30 conversations incl. Tom's below: 7 fresh unassigned, 6 answered+assigned, 5 overdue,
+        # 4 resolved-eligible, 5 archived, 2 with prompts (= 29) + Tom's failed-delivery conversation.
+        openers = list(data.GUEST_OPENERS); rng.shuffle(openers)
+        plan = (["fresh"] * 7 + ["answered"] * 6 + ["overdue"] * 5 + ["resolved"] * 4 + ["archived"] * 5 + ["prompt"] * 2)
+        conv_stays = [s for s in in_house if s.room_number not in ("412", "516")]
+        rng.shuffle(conv_stays)
+        for i, kind in enumerate(plan):
+            stay = conv_stays[i]
+            guest = db.get(Guest, stay.guest_id)
+            opener, dept_type, _neg = openers[i % len(openers)]
+            c = Conversation(property_id=hvh.id, guest_id=guest.id, stay_id=stay.id, status=ConversationStatus.open,
+                             channel_primary=Channel.sms)
+            db.add(c); db.flush(); c.stay = stay
+            if kind == "fresh":
+                at = now - timedelta(minutes=rng.randint(1, 12))
+                add_msg(c, Direction.inbound, opener, at)
+                c.last_guest_message_at = at; c.sla_due_at = at + timedelta(minutes=15)
+            elif kind == "answered":
+                at = now - timedelta(minutes=rng.randint(20, 180)); agent = rng.choice(agents)
+                add_msg(c, Direction.inbound, opener, at)
+                add_msg(c, Direction.outbound, rng.choice(data.STAFF_REPLIES), at + timedelta(minutes=2), agent)
+                c.last_guest_message_at = at; c.last_staff_message_at = at + timedelta(minutes=2)
+                c.first_response_seconds = 120; c.assigned_user_id = agent.id
+                dt = dept_type or "front_desk"  # every answered conversation gets a linked WO (spec: 6 linked)
+                pool_for = [w for w in data.WORK_ORDERS if w[3] == dt]
+                add_wo(rng.choice(pool_for)[0], "maintenance" if dt == "engineering" else "guest_request",
+                       "normal", dt, WorkOrderStatus.assigned, conv=c,
+                       assignee=rng.choice(eng_staff if dt == "engineering" else hk_staff if dt == "housekeeping" else agents))
+            elif kind == "overdue":
+                at = now - timedelta(minutes=rng.randint(20, 90))
+                add_msg(c, Direction.inbound, opener, at)
+                c.last_guest_message_at = at; c.sla_due_at = at + timedelta(minutes=15); c.sla_breach_notified_at = at + timedelta(minutes=16)
+                c.assigned_department_id = depts[dept_type or "front_desk"].id
+            elif kind == "resolved":
+                at = now - timedelta(hours=rng.randint(5, 20)); agent = rng.choice(agents)
+                add_msg(c, Direction.inbound, opener, at)
+                add_msg(c, Direction.outbound, rng.choice(data.STAFF_REPLIES), at + timedelta(minutes=4), agent)
+                c.last_guest_message_at = at; c.last_staff_message_at = at + timedelta(minutes=4); c.first_response_seconds = 240
+            elif kind == "archived":
+                at = now - timedelta(days=rng.randint(1, 3)); agent = rng.choice(agents)
+                add_msg(c, Direction.inbound, opener, at)
+                add_msg(c, Direction.outbound, rng.choice(data.STAFF_REPLIES), at + timedelta(minutes=3), agent)
+                c.last_guest_message_at = at; c.last_staff_message_at = at + timedelta(minutes=3); c.first_response_seconds = 180
+                c.status = ConversationStatus.archived; c.archived_at = at + timedelta(hours=5)
+                c.resolution_category_id = rng.choice(list(cats.values())).id
+            elif kind == "prompt":
+                at = now - timedelta(minutes=rng.randint(30, 60)); agent = rng.choice(agents)
+                add_msg(c, Direction.inbound, opener, at)
+                add_msg(c, Direction.outbound, data.STAFF_REPLIES[0], at + timedelta(minutes=3), agent)
+                c.last_guest_message_at = at; c.last_staff_message_at = at + timedelta(minutes=3); c.first_response_seconds = 180
+                c.assigned_user_id = agent.id
+                wo = add_wo("AC not cooling" if i % 2 == 0 else "Shower drain slow", "maintenance", "urgent", "engineering",
+                            WorkOrderStatus.complete, conv=c, assignee=staff["eli"], created=at + timedelta(minutes=1))
+                db.add(DraftPrompt(property_id=hvh.id, conversation_id=c.id, work_order_id=wo.id, status=DraftPromptStatus.pending,
+                                   body=f"Hi {guest.first_name} — our team has taken care of \"{wo.title.lower()}\" in {stay.room_number}. Please text us if anything still isn't right."))
+            if i % 6 == 0:
+                db.add(InternalNote(conversation_id=c.id, property_id=hvh.id, author_user_id=rng.choice(agents).id,
+                                    body=rng.choice(data.NOTES), mentions=[]))
+            convs.append(c)
+
+        # Sarah's showcase conversation is one of the 30: make conversation 0 hers instead of a random stay.
+        # (Simplest: rewire conv[0].) Replace its guest/stay with Sarah's and give it the AC story.
+        showcase = convs[0]
+        sarah_stay = next(s for s in stays if s.guest_id == sarah.id)
+        showcase.guest_id = sarah.id; showcase.stay_id = sarah_stay.id; showcase.stay = sarah_stay
+        for m in db.scalars(select(Message).where(Message.conversation_id == showcase.id)).all():
+            db.delete(m)
+        db.flush()
+        t0 = now - timedelta(minutes=23)
+        add_msg(showcase, Direction.outbound, "Welcome to Harbourview, Sarah. You're in 412. WiFi: Harbourview-Guest, no password. Text us anytime.",
+                t0 - timedelta(hours=3), author_type=AuthorType.automation)
+        add_msg(showcase, Direction.inbound, "Hi, the AC in our room isn't working at all, it's really warm in here. We tried turning it off and on.", t0)
+        add_msg(showcase, Direction.outbound, "So sorry about that, Sarah. I'm sending engineering up to 412 now — they'll knock in the next 15 minutes.",
+                t0 + timedelta(minutes=3), staff["ava"])
+        add_msg(showcase, Direction.inbound, "Thank you, someone just came by", t0 + timedelta(minutes=17))
+        showcase.last_guest_message_at = t0 + timedelta(minutes=17); showcase.last_staff_message_at = t0 + timedelta(minutes=3)
+        showcase.first_response_seconds = 180; showcase.assigned_user_id = staff["ava"].id
+        showcase.sla_due_at = t0 + timedelta(minutes=32); showcase.status = ConversationStatus.open; showcase.archived_at = None
+        db.add(InternalNote(conversation_id=showcase.id, property_id=hvh.id, author_user_id=staff["ava"].id,
+                            body="Raised WO to Engineering, urgent. Sarah is Gold, 4th stay; if it's not fixed by 7:30 offer 518.", mentions=[]))
+
+        # A failed outbound to Tom (…0000) and a redacted card message from another guest.
+        tom_conv = Conversation(property_id=hvh.id, guest_id=tom.id, stay_id=next(s.id for s in stays if s.guest_id == tom.id),
+                                status=ConversationStatus.open, channel_primary=Channel.sms)
+        db.add(tom_conv); db.flush()
+        add_msg(tom_conv, Direction.inbound, "Is late checkout possible?", now - timedelta(minutes=50))
+        add_msg(tom_conv, Direction.outbound, "Of course — extended to 1 PM.", now - timedelta(minutes=48), staff["marcus"], status=DeliveryStatus.failed)
+        tom_conv.last_guest_message_at = now - timedelta(minutes=50); tom_conv.last_staff_message_at = now - timedelta(minutes=48)
+        tom_conv.first_response_seconds = 120; tom_conv.assigned_user_id = staff["marcus"].id
+        card_conv = convs[3]
+        add_msg(card_conv, Direction.inbound, "you can charge it to **** **** **** 4242", now - timedelta(minutes=5), redacted=True)
+        db.flush()
+
+        # Fill remaining open work orders to reach 15 active (not verified/cancelled).
+        active = [w for w in work_orders if w.status in (WorkOrderStatus.open, WorkOrderStatus.assigned, WorkOrderStatus.in_progress,
+                                                            WorkOrderStatus.blocked, WorkOrderStatus.complete)]
+        pool = [w for w in data.WORK_ORDERS if w[0] not in {x.title for x in active}]
+        statuses = [WorkOrderStatus.open, WorkOrderStatus.assigned, WorkOrderStatus.in_progress, WorkOrderStatus.blocked, WorkOrderStatus.open]
+        j = 0
+        while len(active) < 15:
+            title, typ, prio, dept_type = pool[j % len(pool)]; j += 1
+            st = statuses[j % len(statuses)]
+            assignee = None if st == WorkOrderStatus.open else rng.choice(eng_staff if dept_type == "engineering" else hk_staff)
+            active.append(add_wo(title, typ, prio, dept_type, st, assignee=assignee))
+        # A few closed ones for analytics history.
+        for k in range(6):
+            title, typ, prio, dept_type = data.WORK_ORDERS[k]
+            add_wo(title, typ, prio, dept_type, WorkOrderStatus.verified, assignee=rng.choice(eng_staff), created=now - timedelta(days=rng.randint(1, 6)))
+
+        # ---- recurring jobs
+        for job_type in ("sla.sweep", "snooze.wake", "pms.tick"):
+            jobs.ensure_recurring(db, job_type)
+
+        summary = SeedSummary(properties=2, users=len(staff) + 2, guests=len(guests), stays=len(stays),
+                              conversations=len(convs), messages=messages, work_orders=len(work_orders))
+    database.engine.dispose()
+    return summary
+
+
+if __name__ == "__main__":
+    import os
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    print(run(os.getenv("DATABASE_URL", "sqlite:///data/app.db")))
+```
+
+Counts the test pins: 29 planned conversations + Tom's = 30; 7 random checked-out stays + Lena = 8; the six `verified` work orders are added after `active` reaches 15 so they never count toward it.
+
+- [ ] **Step 5: Write `app/cli.py` and register it**
+
+```python
+import click
+from flask import current_app
+from flask.cli import with_appcontext
+
+
+@click.command("seed")
+@click.option("--no-reset", is_flag=True, help="Do not delete the existing SQLite file first.")
+@with_appcontext
+def seed_command(no_reset: bool) -> None:
+    from seed.seed import run
+
+    cfg = current_app.config["APP"]
+    summary = run(cfg.DATABASE_URL, reset=not no_reset)
+    click.echo(f"Seeded {summary.properties} properties, {summary.users} users, {summary.guests} guests, "
+               f"{summary.stays} stays, {summary.conversations} conversations, {summary.messages} messages, "
+               f"{summary.work_orders} work orders.")
+```
+
+In `create_app`: `from app.cli import seed_command; app.cli.add_command(seed_command)`.
+
+- [ ] **Step 6: Run the tests and the real seed**
+
+Run: `python -m pytest -q` → all pass.
+Run from `server/`: `python -m seed.seed` → prints a `SeedSummary(...)` line; `ls data/` shows `app.db`.
+
+- [ ] **Step 7: Commit**
+
+```bash
+cd ..
+git add server
+git commit -m "feat(server): deterministic seed script and flask seed command"
+```
+
+---
+
+### Task 23: JSON Schema export for the frontend
+
+**Files:**
+- Create: `server/app/schemas/export_json_schema.py`, `server/tests/test_schema_export.py`, `web/src/api/schema.json` (generated)
+
+**Interfaces:**
+- Produces: `export_json_schema.build() -> dict` (one JSON Schema document with every request/response model under `$defs`, keyed by class name); `python -m app.schemas.export_json_schema [out_path]` writes it (default `../web/src/api/schema.json`); the test fails when the committed file is stale. Consumed by the web plan's `npm run gen:types`.
+
+- [ ] **Step 1: Write the failing test**
+
+`server/tests/test_schema_export.py`:
+```python
+import json
+from pathlib import Path
+
+from app.schemas.export_json_schema import DEFAULT_OUT, build
+
+
+def test_export_contains_the_public_models():
+    schema = build()
+    defs = schema["$defs"]
+    for name in ("SessionOut", "ConversationSummary", "ConversationDetail", "GuestThread", "MessageOut",
+                 "WorkOrderOut", "WorkOrderDetail", "WorkOrderPrefill", "QuickReplyOut", "AssetOut", "CategoryOut",
+                 "NotificationOut", "Overview", "AgentStats", "StaffUserOut", "DepartmentOut", "SimGuest"):
+        assert name in defs, name
+    assert defs["GuestThread"]["additionalProperties"] is False
+    assert "notes" not in defs["GuestThread"]["properties"]
+
+
+def test_committed_schema_is_current():
+    path = Path(DEFAULT_OUT)
+    assert path.exists(), f"run: python -m app.schemas.export_json_schema  (writes {path})"
+    committed = json.loads(path.read_text(encoding="utf-8"))
+    assert committed == build(), "web/src/api/schema.json is stale — re-run python -m app.schemas.export_json_schema"
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/test_schema_export.py -q`
+Expected: FAIL with `ModuleNotFoundError`.
+
+- [ ] **Step 3: Write the exporter**
+
+`app/schemas/export_json_schema.py`:
+```python
+"""Exports every API model as one JSON Schema document for the React client (web/src/api/schema.json)."""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+from pydantic import BaseModel
+from pydantic.json_schema import models_json_schema
+
+from app.schemas import analytics, auth, content, conversations, dev, notifications, users, work_orders
+
+MODULES = (auth, users, conversations, work_orders, content, notifications, analytics, dev)
+DEFAULT_OUT = str(Path(__file__).resolve().parents[3] / "web" / "src" / "api" / "schema.json")
+
+
+def _models() -> list[type[BaseModel]]:
+    seen: dict[str, type[BaseModel]] = {}
+    for mod in MODULES:
+        for name, obj in vars(mod).items():
+            if isinstance(obj, type) and issubclass(obj, BaseModel) and obj.__module__ == mod.__name__:
+                seen[name] = obj
+    return [seen[k] for k in sorted(seen)]
+
+
+def build() -> dict:
+    _, schema = models_json_schema([(m, "serialization") for m in _models()], ref_template="#/$defs/{model}",
+                                   title="Concierge API")
+    schema.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
+    return schema
+
+
+def main(out: str | None = None) -> None:
+    path = Path(out or DEFAULT_OUT)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(build(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"wrote {path}")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1] if len(sys.argv) > 1 else None)
+```
+
+Serialization mode is used so `datetime` fields export as `format: date-time` strings and aliases are camelCase — exactly what the client receives. Request models (`LoginRequest`, `CreateWorkOrder`, …) are exported in the same pass; their camelCase aliases are what the client sends.
+
+- [ ] **Step 4: Generate, then run the tests**
+
+Run from `server/`: `python -m app.schemas.export_json_schema` → `wrote …/web/src/api/schema.json`.
+Run: `python -m pytest -q` → all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd ..
+git add server web/src/api/schema.json
+git commit -m "feat(server): export API models as JSON Schema for the web client"
+```
+
+---
+
+### Task 24: Dev entrypoint, root scripts, README, final verification
+
+**Files:**
+- Create: `server/.env.example`, `package.json` (root), `README.md`
+- Modify: `server/run.py`, `server/app/__init__.py` (CORS for the Vite dev server)
+
+**Interfaces:**
+- Produces: `npm run server` (Flask dev server on :5000 with worker), `npm run seed`, `npm run test:server`; README with setup, seeded credentials, simulator instructions, Postgres switch. (`npm run dev` and `npm run web` are added by the web plan.)
+
+- [ ] **Step 1: CORS for the SPA dev server**
+
+Vite proxies `/api` and `/ws` to Flask, so no CORS is needed in the intended setup. Add a guard anyway for anyone hitting the API directly from `http://localhost:5173`: in `create_app`, after blueprints:
+```python
+    @app.after_request
+    def _cors(resp):
+        origin = request.headers.get("Origin")
+        if origin and origin == config.CORS_ORIGIN:
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Access-Control-Allow-Credentials"] = "true"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Mock-Secret"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
+        return resp
+```
+with `from flask import request` at the top of `app/__init__.py`.
+
+- [ ] **Step 2: Finish `run.py` and add `.env.example`**
+
+`server/run.py`:
+```python
+"""Development entrypoint. Production: gunicorn -k gthread -w 1 --threads 16 'app:create_app()'"""
+import os
+
+from app import create_app
+from app.config import Config
+
+if __name__ == "__main__":
+    os.environ.setdefault("START_WORKER", "1")
+    cfg = Config.from_env()
+    app = create_app(cfg)
+    app.run(host="127.0.0.1", port=int(os.getenv("PORT", "5000")), debug=not cfg.is_production, threaded=True)
+```
+
+`server/.env.example`:
+```
+FLASK_ENV=development
+PORT=5000
+DATABASE_URL=sqlite:///data/app.db
+SESSION_SECRET=change-me-in-production
+MOCK_SMS_SECRET=dev
+SMS_ADAPTER=mock
+PMS_TICK_SECONDS=90
+START_WORKER=1
+CORS_ORIGIN=http://localhost:5173
+```
+
+- [ ] **Step 3: Root `package.json`**
+
+```json
+{
+  "name": "concierge",
+  "private": true,
+  "scripts": {
+    "server": "cd server && python run.py",
+    "seed": "cd server && python -m seed.seed",
+    "test:server": "cd server && python -m pytest -q",
+    "schema": "cd server && python -m app.schemas.export_json_schema"
+  }
+}
+```
+(These assume the venv is activated in the shell running npm; the README says so. The web plan adds `web`, `dev` via `concurrently`, and `gen:types`.)
+
+- [ ] **Step 4: README**
+
+`README.md`:
+```markdown
+# Concierge — hotel guest engagement & operations (Phase 1)
+
+One codebase, one database: guests text the hotel; staff answer from a shared inbox; problems become work
+orders; when the work order closes, the agent is prompted to tell the guest. Spec: `docs/design.md`.
+Phase 1 scope and stack decisions: `docs/superpowers/specs/2026-09-10-hotel-engagement-phase1-design.md`.
+Approved screens: `docs/mockups/` (Night Shift direction).
+
+## Stack
+Python 3.12+ · Flask 3 · SQLAlchemy 2 · Alembic · Pydantic v2 · flask-sock · pytest — SQLite now, PostgreSQL by
+changing `DATABASE_URL`. Frontend: Vite + React + TypeScript (see the web plan).
+
+## Setup (Windows / macOS / Linux)
+```bash
+python -m venv .venv
+# Windows Git Bash: . .venv/Scripts/activate   PowerShell: .venv\Scripts\Activate.ps1   macOS/Linux: . .venv/bin/activate
+cd server && pip install -e ".[dev]" && cd ..
+cp server/.env.example server/.env
+npm run seed          # creates server/data/app.db with realistic data
+npm run server        # http://127.0.0.1:5000  (API + WebSocket + job worker)
+npm run test:server   # pytest, including the §11.1 acceptance suite
+```
+Note: npm ≥ 11.19 blocks package install scripts by default; the server has no native dependencies, so this
+does not affect the Python side. If a Node package needs its install script, run `npm install-scripts approve <pkg>`.
+
+## Seeded logins (password for all: `Password123!`)
+| Email | Role | Lands on |
+|---|---|---|
+| ava@hvh.test, marcus@hvh.test, jordan@hvh.test | agent | Inbox |
+| eli@hvh.test, noah@hvh.test | dept_staff (Engineering) | Board · mine |
+| hana@hvh.test, rosa@hvh.test | dept_staff (Housekeeping) | Board · mine |
+| sam@hvh.test (Engineering), hk.supervisor@hvh.test (Housekeeping) | supervisor | Board |
+| morgan@hvh.test | manager | Analytics |
+| alex@hvh.test | admin | Analytics |
+| casey@group.test | corporate (HVH + LSI) | Analytics |
+| blake@lsi.test / bea@lsi.test | Lakeside Inn admin / agent | — |
+
+## Texting the hotel without Twilio
+The SMS wire is mocked (`SMS_ADAPTER=mock`). Send an inbound text exactly as Twilio would:
+```bash
+curl -X POST http://127.0.0.1:5000/api/hooks/sms/inbound -H "X-Mock-Secret: dev" \
+  -d From=+15551234567 -d To=+15550100 -d "Body=The AC in 412 is broken" -d MessageSid=SM123
+```
+Numbers ending in `0000` fail delivery with error `30007` so you can exercise the retry path. `STOP`, `START`
+and `HELP` behave per TCPA. The React phone simulator (web plan) wraps this in a UI.
+
+## API in one minute
+`POST /api/auth/login` → cookie `sid`. Everything staff-facing lives under `/api/p/<propertyId>/…`:
+`conversations`, `work-orders`, `quick-replies`, `assets`, `resolution-categories`, `users`, `departments`,
+`notifications`, `analytics`, `guests`. WebSocket at `/ws` (send `{"type":"subscribe","propertyId":…}`).
+Dev only: `/api/dev/sim/*`, `/api/dev/pms/*`. Models: `web/src/api/schema.json`.
+
+## Moving to PostgreSQL
+`pip install "psycopg[binary]"`, set `DATABASE_URL=postgresql+psycopg://…`, run `cd server && alembic upgrade head`.
+Migrations use portable types; nothing else changes. Run one web process (`gunicorn -w 1 --threads 16`) because
+presence and the realtime registry are in-memory.
+```
+
+- [ ] **Step 5: Full verification**
+
+Run from `server/`:
+```bash
+python -m pytest -q
+ruff check .
+python -m seed.seed
+START_WORKER=1 python run.py &
+sleep 3
+curl -s http://127.0.0.1:5000/api/health
+curl -s -X POST http://127.0.0.1:5000/api/hooks/sms/inbound -H "X-Mock-Secret: dev" -d From=+15559876543 -d To=+15550100 -d "Body=Testing from curl" -d MessageSid=SM-curl-1 -o /dev/null -w "%{http_code}\n"
+```
+Expected: all tests pass; ruff reports no errors; health returns `{"status":"ok"}`; the webhook returns `204`. Log in as `ava@hvh.test` with curl (`-c cookies.txt`) and `GET /api/p/<HVH id>/conversations` to see the new conversation at the top. Stop the server.
+
+- [ ] **Step 6: Commit**
+
+```bash
+cd ..
+git add README.md package.json server
+git commit -m "chore: dev entrypoint, root scripts, README with setup and seeded logins"
+```
+
+---
+
+## Self-review notes (kept for the executor)
+
+- **Spec coverage.** §4.1 domain table → Tasks 6, 7, 10–18. §4.2 channels → 9, 11. §4.3 PMS → 20. §4.4 queue → 8. §4.5 realtime → 7, 19. §4.6 auth → 4, 5. §4.7 API → 5, 7, 11, 12, 15, 16, 17, 18, 21. §4.8 type export → 23. §6 compliance → 6 (redaction), 10 (consent), 11 (send path/keywords), 4 (audit). §7 tests: criteria 1, 2, 5 → Task 11; 4 → 9 and 12; 6, 7 → 14; 8 → 13; 9 → 5; 10 → 12; 3 is the E2E in the web plan. §8 seed → 22. §9 config → 1, 24. §11 Postgres → 24 README.
+- **Deliberate deviations from the spec text:** `app/clock.py` module instead of `app.clock` attribute (same purpose, thread-safe from the worker); the session table is `user_session`; `ChannelAdapter.send` takes `db` so the mock can enqueue delivery jobs; per-test DB copies instead of per-module (cheaper and simpler).
+- **Names that must match across tasks:** `db_session`, `ok`, `parse_body`, `parse_query`, `no_content`, `client_meta` (Task 4); `queue_event`, `deliver`, `add_listener` (7); `jobs.enqueue`, `Worker.tick` (8); `messages.send/record_inbound/retry/update_delivery_status` (9, 11); `conversations.get/find_or_create_for_guest/list/detail/patch/guest_thread/touch_updated/assert_viewer_can_see` (11, 12); `work_orders.create/transition/assign/comment/set_priority/prefill_from_conversation/list/detail` (14, 15); `draft_prompts.create_for_completion/dismiss` (14, 15); `notifications.create/notify_user_or_department` (7); `users.list_departments/list_staff/members_of_department/create_staff/update_staff/remove_membership` (5, 17); fixture names `app, client, database, fx, login, events, worker, template_db_path` (3, 7, 8).

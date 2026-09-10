@@ -445,7 +445,7 @@ Nav shows only items the role may use. Guest context panel shows guest, stay, co
 - **Create work order** button opens a modal pre-filled from `/work-orders/prefill`; on save the WO appears in the context panel.
 - Pending `draft_prompt` renders as a banner above the composer: "Work order #204 (AC repair, 412) is complete. Let Sarah know?" with **Use draft** (loads body into composer, passes `draftPromptId` on send) and **Dismiss**.
 - Internal notes render in-thread visually distinct (amber, "Internal") and come from a separate array in the response.
-- Archive prompts for an optional resolution category. Resolved and Archived are separate filters.
+- Archive prompts for an optional resolution category. Resolved and Archived are separate filters. **Resolved** is computed at query time, never stored: open, answered (last staff message after the last guest message), no guest message for `auto_resolve_hours`, and no open linked work order — so an ignored guest can never fall out of the queue, and any new inbound message returns the conversation to the live list automatically.
 - Opted-out guests show a red consent chip; the composer stays enabled (the server enforces) but shows a warning.
 
 ### 5.4 Simulator
