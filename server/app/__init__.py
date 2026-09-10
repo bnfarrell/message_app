@@ -17,6 +17,10 @@ def create_app(config: Config | None = None) -> Flask:
 
     app.extensions["db"] = Database(config.DATABASE_URL)
 
+    from app.channels import registry as channel_registry
+
+    channel_registry.install(app, config)
+
     register_error_handlers(app)
 
     from app.api import auth, departments, health, notifications, users
