@@ -54,6 +54,11 @@ def database(app):
 
 
 @pytest.fixture()
+def worker(app):
+    return app.extensions["worker"]
+
+
+@pytest.fixture()
 def client(app):
     return app.test_client()
 

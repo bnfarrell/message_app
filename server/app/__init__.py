@@ -26,4 +26,20 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(departments.bp)
     app.register_blueprint(users.bp)
     app.register_blueprint(notifications.bp)
+
+    import os
+
+    from app.queue import jobs as _jobs
+    from app.queue.worker import Worker
+
+    _jobs.RECURRING["pms.tick"] = config.PMS_TICK_SECONDS or 0
+    if not config.PMS_TICK_SECONDS:
+        _jobs.RECURRING.pop("pms.tick", None)
+    app.extensions["worker"] = Worker(app)
+    under_reloader = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+    if config.START_WORKER and (under_reloader or not app.debug):
+        with app.extensions["db"].session() as db:
+            for job_type in _jobs.RECURRING:
+                _jobs.ensure_recurring(db, job_type)
+        app.extensions["worker"].start()
     return app
