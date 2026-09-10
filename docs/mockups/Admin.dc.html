@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+  <style>
+    body { margin: 0; font-family: "Space Grotesk", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); } a:hover { color: var(--roomNum); }
+    .mono { font-family: "JetBrains Mono", "Consolas", monospace; }
+    .tag { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600; }
+    .ico { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+    .nav { height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 12px; border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--text3); }
+    .nav.on { background: var(--surface2); color: var(--roomNum); }
+    .sub { height: 40px; padding: 0 12px; display: flex; align-items: center; border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--text3); }
+    .sub.on { background: var(--surface2); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }
+    .av { width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--avText); }
+    .btn { height: 44px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; border: 1px solid var(--border3); background: var(--surface); color: var(--text); }
+    .btn.primary { background: var(--accent); color: var(--accentText); border-color: var(--accent); }
+    .card { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; display: flex; flex-direction: column; }
+    .th { font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border2); }
+    .td { font-size: 13.5px; padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr.sel .td { background: var(--sel); }
+    .lbl { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); }
+    .inp { min-height: 44px; border-radius: 8px; border: 1px solid var(--border3); background: var(--surface2); display: flex; align-items: center; padding: 0 12px; font-size: 14px; color: var(--text); }
+    .sw { width: 36px; height: 20px; border-radius: 10px; position: relative; }
+    .sw span { position: absolute; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; display: flex; overflow: hidden; color: var(--text); background: var(--bg); {{vars}}">
+
+  <!-- Nav -->
+  <div style="width: 184px; background: var(--nav); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 16px 12px; gap: 4px;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 6px 18px;">
+      <div style="width: 32px; height: 32px; border-radius: 6px; background: var(--accent); color: var(--accentText); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px;">HV</div>
+      <div><div style="font-size: 14px; font-weight: 700;">Harbourview</div><div class="mono" style="font-size: 11px; color: var(--text3);">PM shift · 19:04</div></div>
+    </div>
+    <div class="nav"><svg class="ico" viewBox="0 0 24 24"><path d="M3 13h4l2 3h6l2-3h4"></path><path d="M5 6h14l2 7v6H3v-6z"></path></svg> Inbox <span style="flex: 1;"></span><span class="mono" style="font-size: 12px; color: var(--text3);">23</span></div>
+    <div class="nav"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"></rect><rect x="10" y="4" width="5" height="10" rx="1"></rect><rect x="17" y="4" width="4" height="13" rx="1"></rect></svg> Board <span style="flex: 1;"></span><span class="mono" style="font-size: 12px; color: var(--text3);">15</span></div>
+    <div class="nav"><svg class="ico" viewBox="0 0 24 24"><path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M22 20H2"></path></svg> Analytics</div>
+    <div class="nav"><svg class="ico" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v5l2 3H4l2-3z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg> Alerts</div>
+    <div class="nav on"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg> Admin</div>
+    <div style="flex: 1;"></div>
+    <div class="nav" style="height: 40px;"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9c0-.5 0-1-.1-1.4A6 6 0 0 1 13.4 3.1C13 3 12.5 3 12 3z"></path></svg> Theme</div>
+    <div style="display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-top: 1px solid var(--border);">
+      <div class="av" style="width: 32px; height: 32px; background: var(--avMuted); font-size: 12px;">AX</div>
+      <div><div style="font-size: 13.5px; font-weight: 600;">Alex</div><div style="font-size: 12px; color: var(--text3);">Admin · GM</div></div>
+    </div>
+  </div>
+
+  <!-- Admin sub-nav -->
+  <div style="width: 220px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 20px 12px; gap: 2px;">
+    <div style="font-size: 18px; font-weight: 700; padding: 0 12px 14px;">Admin</div>
+    <div class="sub">Users &amp; roles</div>
+    <div class="sub">Departments</div>
+    <div class="sub on">Quick replies</div>
+    <div class="sub">Digital assets</div>
+    <div class="sub">Resolution categories</div>
+    <div class="sub">Property settings</div>
+    <div style="height: 1px; background: var(--border); margin: 10px 12px;"></div>
+    <div class="sub" style="color: var(--text4);">Automations</div>
+    <div class="sub" style="color: var(--text4);">Blocked numbers</div>
+    <div class="sub" style="color: var(--text4);">Integrations</div>
+    <div style="padding: 6px 12px; font-size: 11.5px; color: var(--text4);">Greyed items arrive in Phase 2</div>
+  </div>
+
+  <div style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+    <div style="height: 72px; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 12px;">
+      <div style="font-size: 20px; font-weight: 700;">Quick replies</div>
+      <span class="mono" style="font-size: 13px; color: var(--text3);">15 active · 2 inactive</span>
+      <span style="flex: 1;"></span>
+      <div class="inp" style="width: 260px; color: var(--text3); gap: 8px;"><svg class="ico" style="width: 16px; height: 16px;" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg> Search shortcut or text</div>
+      <div class="btn primary"><svg class="ico" style="width: 16px; height: 16px;" viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg> New quick reply</div>
+    </div>
+
+    <div style="flex: 1; display: flex; gap: 20px; padding: 20px 24px; overflow: hidden;">
+      <!-- Table -->
+      <div class="card" style="flex: 1; min-width: 0; overflow: hidden;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead><tr><th class="th">Shortcut</th><th class="th">Title</th><th class="th">Body</th><th class="th">Dept</th><th class="th" style="text-align: right;">Uses · 30d</th><th class="th">Active</th></tr></thead>
+          <tbody>
+            <tr class="sel"><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/wifi</td><td class="td" style="font-weight: 600;">WiFi details</td><td class="td" style="color: var(--text2); max-width: 300px;">Hi &#123;&#123;guest_first_name&#125;&#125; — the network is Harbourview-Guest, no password needed…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">212</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/checkout</td><td class="td" style="font-weight: 600;">Checkout time</td><td class="td" style="color: var(--text2); max-width: 300px;">Checkout is 11 AM. Reply LATE if you'd like to request a later time…</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right;">168</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/late</td><td class="td" style="font-weight: 600;">Late checkout granted</td><td class="td" style="color: var(--text2); max-width: 300px;">Done — &#123;&#123;guest_first_name&#125;&#125;, your checkout is extended to 2 PM at no charge…</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right;">94</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/towels</td><td class="td" style="font-weight: 600;">Towels on the way</td><td class="td" style="color: var(--text2); max-width: 300px;">Fresh towels are on their way to &#123;&#123;room_number&#125;&#125; — about 15 minutes…</td><td class="td" style="color: var(--text3);">Housekeeping</td><td class="td mono" style="text-align: right;">131</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/eng</td><td class="td" style="font-weight: 600;">Engineering dispatched</td><td class="td" style="color: var(--text2); max-width: 300px;">So sorry about that. Engineering is on the way to &#123;&#123;room_number&#125;&#125; and will knock…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">77</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/parking</td><td class="td" style="font-weight: 600;">Parking</td><td class="td" style="color: var(--text2); max-width: 300px;">Self-parking is $28/night in the garage on Front St; valet is $45…</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right;">63</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/breakfast</td><td class="td" style="font-weight: 600;">Breakfast hours</td><td class="td" style="color: var(--text2); max-width: 300px;">Breakfast is 6:30–10:30 in the Harbour Room, level 2…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">58</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/pool</td><td class="td" style="font-weight: 600;">Pool hours</td><td class="td" style="color: var(--text2); max-width: 300px;">The pool and hot tub are open 7 AM–10 PM…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">41</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--text3); font-weight: 600;">/shuttle</td><td class="td" style="font-weight: 600; color: var(--text3);">Airport shuttle</td><td class="td" style="color: var(--text4); max-width: 300px;">The shuttle runs on the hour from 5 AM… (paused for season)</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right; color: var(--text3);">0</td><td class="td"><div class="sw" style="background: var(--border3);"><span style="left: 2px;"></span></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Edit panel -->
+      <div class="card" style="width: 400px; padding: 18px; gap: 14px;">
+        <div style="display: flex; align-items: center; gap: 10px;"><div style="font-size: 16px; font-weight: 700;">Edit quick reply</div><span style="flex: 1;"></span><span class="mono" style="font-size: 12px; color: var(--text3);">212 uses · 30d</span></div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+          <div style="display: flex; flex-direction: column; gap: 6px;"><div class="lbl">Shortcut</div><div class="inp mono">/wifi</div></div>
+          <div style="display: flex; flex-direction: column; gap: 6px;"><div class="lbl">Department</div><div class="inp" style="justify-content: space-between;">All <svg class="ico" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"></path></svg></div></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;"><div class="lbl">Title</div><div class="inp">WiFi details</div></div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div class="lbl">Body</div>
+          <div class="inp" style="min-height: 110px; align-items: flex-start; padding: 12px; line-height: 1.5;">Hi <span class="mono" style="color: var(--roomNum);">&#123;&#123;guest_first_name&#125;&#125;</span> — the network is <strong>Harbourview-Guest</strong>, no password needed. If it drops, toggle WiFi off and on; we're here if that doesn't do it.</div>
+          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text3);">Insert:
+            <span class="tag mono" style="background: var(--tagBg); color: var(--roomNum);">guest_first_name</span>
+            <span class="tag mono" style="background: var(--tagBg); color: var(--roomNum);">room_number</span>
+            <span class="tag mono" style="background: var(--tagBg); color: var(--roomNum);">departure_date</span>
+            <span class="tag mono" style="background: var(--tagBg); color: var(--roomNum);">agent_first_name</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div class="lbl">Preview as Sarah Chen · 412</div>
+          <div style="padding: 10px 12px; border-radius: 8px; background: var(--outBg); color: var(--outText); font-size: 13px; line-height: 1.45;">Hi Sarah — the network is Harbourview-Guest, no password needed. If it drops, toggle WiFi off and on; we're here if that doesn't do it.</div>
+          <div class="mono" style="font-size: 11.5px; color: var(--text3);">138 chars · 1 segment</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div><span style="font-size: 13.5px;">Active</span></div>
+        <div style="display: flex; gap: 8px; margin-top: 4px;">
+          <div class="btn primary">Save</div>
+          <div class="btn">Cancel</div>
+          <span style="flex: 1;"></span>
+          <div class="btn" style="color: var(--dangerText); border-color: var(--dangerBg);">Delete</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Theme"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? true;
+    const darkT = {
+      bg: '#0e1116', bg2: '#11151b', nav: '#0b0e12', surface: '#161a21', surface2: '#1a1f28',
+      border: '#1f242d', border2: '#262c36', border3: '#2c3441',
+      text: '#e7eaf0', text2: '#aab2c0', text3: '#8b94a5', text4: '#59627a',
+      accent: '#f0b323', accentText: '#0e1116', roomNum: '#f0b323', sel: '#1a1f28',
+      outBg: '#2b3a55', outText: '#e7eaf0', autoBg: '#1a1f28', autoText: '#aab2c0', autoBorder: '#2c3441',
+      noteBg: '#2a2410', noteBorder: '#5a4a12', noteText: '#f5dfa0', noteIcon: '#f0b323',
+      okBg: '#12301f', okText: '#4ade80', okBorder: '#1f5a3a', okBtn: '#4ade80', okBtnText: '#0e1116', okBanner: '#d1fae5',
+      warnBg: '#3a2a10', warnText: '#f0b323', dangerBg: '#3a1418', dangerText: '#ff5d5d', danger: '#ff5d5d',
+      presenceBg: '#2a2140', presenceText: '#c4b5fd', presenceAv: '#a78bfa',
+      avMuted: '#8b94a5', avText: '#0e1116', tagBg: '#1f242d', tagText: '#8b94a5',
+      timerDoneBg: '#161a21', timerDoneText: '#8b94a5'
+    };
+    const light = {
+      bg: '#f2f4f7', bg2: '#f7f8fa', nav: '#ffffff', surface: '#ffffff', surface2: '#eef1f5',
+      border: '#dfe3ea', border2: '#d3d9e2', border3: '#c5ccd8',
+      text: '#0e1116', text2: '#3d4655', text3: '#6b7486', text4: '#9aa3b2',
+      accent: '#f0b323', accentText: '#0e1116', roomNum: '#9a6b00', sel: '#fff7e0',
+      outBg: '#2b3a55', outText: '#ffffff', autoBg: '#eef1f5', autoText: '#3d4655', autoBorder: '#d3d9e2',
+      noteBg: '#fff8e1', noteBorder: '#e6c96a', noteText: '#5c4300', noteIcon: '#9a6b00',
+      okBg: '#e3f7ea', okText: '#15803d', okBorder: '#a7e3bd', okBtn: '#15803d', okBtnText: '#ffffff', okBanner: '#064e3b',
+      warnBg: '#fff1cf', warnText: '#8a5a10', dangerBg: '#fde4e4', dangerText: '#b91c1c', danger: '#dc2626',
+      presenceBg: '#ede9fe', presenceText: '#5b21b6', presenceAv: '#7c3aed',
+      avMuted: '#6b7486', avText: '#ffffff', tagBg: '#eef1f5', tagText: '#6b7486',
+      timerDoneBg: '#eef1f5', timerDoneText: '#9aa3b2'
+    };
+    const t = dark ? darkT : light;
+    const vars = Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ') + ';';
+    return { vars: vars };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+  <style>
+    body { margin: 0; font-family: "Space Grotesk", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); } a:hover { color: var(--roomNum); }
+    .mono { font-family: "JetBrains Mono", "Consolas", monospace; }
+    .tag { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; }
+    .tab { height: 36px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; font-size: 13.5px; font-weight: 600; color: var(--text3); }
+    .tab.on { background: var(--accent); color: var(--accentText); }
+    .tab .n { font-size: 12px; opacity: 0.85; }
+    .ico { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+    .nav { height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 12px; border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--text3); }
+    .nav.on { background: var(--surface2); color: var(--roomNum); }
+    .av { width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--avText); }
+    .btn { height: 44px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; border: 1px solid var(--border3); background: var(--surface); color: var(--text); }
+    .btn.primary { background: var(--accent); color: var(--accentText); border-color: var(--accent); }
+    .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+    .col-h { display: flex; align-items: center; gap: 8px; padding: 0 4px 6px; border-bottom: 2px solid var(--border2); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text2); }
+    .card { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 8px; }
+    .card.sel { box-shadow: inset 3px 0 0 var(--accent); }
+    .title { font-size: 14px; font-weight: 600; line-height: 1.3; }
+    .foot { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text3); }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; display: flex; overflow: hidden; color: var(--text); background: var(--bg); {{vars}}">
+
+  <!-- Nav -->
+  <div style="width: 184px; background: var(--nav); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 16px 12px; gap: 4px;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 6px 18px;">
+      <div style="width: 32px; height: 32px; border-radius: 6px; background: var(--accent); color: var(--accentText); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px;">HV</div>
+      <div><div style="font-size: 14px; font-weight: 700;">Harbourview</div><div class="mono" style="font-size: 11px; color: var(--text3);">PM shift · 19:04</div></div>
+    </div>
+    <div class="nav"><svg class="ico" viewBox="0 0 24 24"><path d="M3 13h4l2 3h6l2-3h4"></path><path d="M5 6h14l2 7v6H3v-6z"></path></svg> Inbox <span style="flex: 1;"></span><span class="mono" style="font-size: 12px; color: var(--text3);">23</span></div>
+    <div class="nav on"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"></rect><rect x="10" y="4" width="5" height="10" rx="1"></rect><rect x="17" y="4" width="4" height="13" rx="1"></rect></svg> Board <span style="flex: 1;"></span><span class="mono" style="font-size: 12px; color: var(--roomNum);">15</span></div>
+    <div class="nav"><svg class="ico" viewBox="0 0 24 24"><path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M22 20H2"></path></svg> Analytics</div>
+    <div class="nav"><svg class="ico" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v5l2 3H4l2-3z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg> Alerts <span style="flex: 1;"></span><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--danger);"></span></div>
+    <div style="flex: 1;"></div>
+    <div class="nav" style="height: 40px;"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9c0-.5 0-1-.1-1.4A6 6 0 0 1 13.4 3.1C13 3 12.5 3 12 3z"></path></svg> Theme</div>
+    <div style="display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-top: 1px solid var(--border);">
+      <div class="av" style="width: 32px; height: 32px; background: var(--avMuted); font-size: 12px;">SS</div>
+      <div><div style="font-size: 13.5px; font-weight: 600;">Sam</div><div style="font-size: 12px; color: var(--text3);">Chief engineer</div></div>
+    </div>
+  </div>
+
+  <!-- Board -->
+  <div style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+    <div style="height: 72px; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 12px;">
+      <div style="font-size: 20px; font-weight: 700;">Work orders</div>
+      <span class="mono" style="font-size: 13px; color: var(--text3);">15 open · 2 urgent</span>
+      <span style="width: 16px;"></span>
+      <div class="tab on">All <span class="n">15</span></div>
+      <div class="tab">Mine <span class="n">4</span></div>
+      <div class="tab">Engineering <span class="n">9</span></div>
+      <div class="tab">Housekeeping <span class="n">4</span></div>
+      <div class="tab" style="color: var(--danger);">Urgent <span class="n" style="opacity: 1;">2</span></div>
+      <span style="flex: 1;"></span>
+      <div style="display: flex; border: 1px solid var(--border3); border-radius: 8px; overflow: hidden;">
+        <div style="height: 42px; padding: 0 14px; display: flex; align-items: center; font-size: 13px; font-weight: 600; background: var(--surface2); color: var(--text);">Board</div>
+        <div style="height: 42px; padding: 0 14px; display: flex; align-items: center; font-size: 13px; font-weight: 600; color: var(--text3);">List</div>
+      </div>
+      <div class="btn primary"><svg class="ico" style="width: 16px; height: 16px;" viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg> New work order</div>
+    </div>
+
+    <div style="flex: 1; display: flex; gap: 14px; padding: 18px 24px; overflow: hidden;">
+
+      <div class="col">
+        <div class="col-h">Open <span class="mono" style="font-weight: 600; color: var(--text3);">4</span></div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--roomNum);">318</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Normal</span></div>
+          <div class="title">Bathroom faucet dripping, won't shut off</div>
+          <div class="foot">Engineering<span style="flex: 1;"></span><span class="mono">22m</span></div>
+        </div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--roomNum);">703</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Normal</span><svg class="ico" style="width: 14px; height: 14px; color: var(--text3);" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"></path></svg></div>
+          <div class="title">Extra towels + pillows</div>
+          <div class="foot">Housekeeping<span style="flex: 1;"></span><span class="mono">4m</span></div>
+        </div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--text3);">5F EAST</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Low</span></div>
+          <div class="title">Hallway light out near 512</div>
+          <div class="foot">Engineering<span style="flex: 1;"></span><span class="mono">1h 10m</span></div>
+        </div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--roomNum);">118</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Normal</span><svg class="ico" style="width: 14px; height: 14px; color: var(--text3);" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"></path></svg></div>
+          <div class="title">Late checkout request — tomorrow 2 PM</div>
+          <div class="foot">Front desk<span style="flex: 1;"></span><span class="mono">12m</span></div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="col-h">Assigned <span class="mono" style="font-weight: 600; color: var(--text3);">3</span></div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--roomNum);">221</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Normal</span><span style="flex: 1;"></span><span class="av" style="background: var(--presenceAv);">EE</span></div>
+          <div class="title">Toilet running constantly</div>
+          <div class="foot">Engineering · Eli<span style="flex: 1;"></span><span class="mono">38m</span></div>
+        </div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--roomNum);">415</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Normal</span><span style="flex: 1;"></span><span class="av" style="background: var(--avMuted);">HK</span></div>
+          <div class="title">Deep clean after checkout — mattress rotation</div>
+          <div class="foot">Housekeeping · Hana<span style="flex: 1;"></span><span class="mono">55m</span></div>
+        </div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--roomNum);">509</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Low</span><span style="flex: 1;"></span><span class="av" style="background: var(--presenceAv);">EE</span></div>
+          <div class="title">TV remote not pairing</div>
+          <div class="foot">Engineering · Eli<span style="flex: 1;"></span><span class="mono">2h</span></div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="col-h">In progress <span class="mono" style="font-weight: 600; color: var(--text3);">4</span></div>
+        <div class="card sel">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--text3);">POOL PUMP</span><span class="tag" style="background: var(--warnBg); color: var(--warnText);">High</span><span style="flex: 1;"></span><span class="av" style="background: var(--avMuted);">SS</span></div>
+          <div class="title">Pump pressure low — filter backwash</div>
+          <div class="foot">Engineering · Sam<span style="flex: 1;"></span><span class="mono">26m</span></div>
+        </div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--roomNum);">606</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Normal</span><span style="flex: 1;"></span><span class="av" style="background: var(--avMuted);">HK</span></div>
+          <div class="title">Carpet stain, coffee</div>
+          <div class="foot">Housekeeping · Hana<span style="flex: 1;"></span><span class="mono">14m</span></div>
+        </div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--text3);">3F ICE</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Normal</span><span style="flex: 1;"></span><span class="av" style="background: var(--presenceAv);">EE</span></div>
+          <div class="title">Ice machine not dispensing</div>
+          <div class="foot">Engineering · Eli<span style="flex: 1;"></span><span class="mono">41m</span></div>
+        </div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--roomNum);">202</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Low</span><span style="flex: 1;"></span><span class="av" style="background: var(--avMuted);">JT</span></div>
+          <div class="title">Door closer slams</div>
+          <div class="foot">Engineering · Jordan<span style="flex: 1;"></span><span class="mono">1h 32m</span></div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="col-h">Blocked <span class="mono" style="font-weight: 600; color: var(--text3);">1</span></div>
+        <div class="card" style="border-color: var(--danger);">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--text3);">ELEV B</span><span class="tag" style="background: var(--dangerBg); color: var(--dangerText);">Urgent</span><span style="flex: 1;"></span><span class="av" style="background: var(--avMuted);">SS</span></div>
+          <div class="title">Elevator B intermittent door fault</div>
+          <div style="font-size: 12.5px; color: var(--dangerText);">Waiting on vendor — ETA Thu 09:00</div>
+          <div class="foot">Engineering · Sam<span style="flex: 1;"></span><span class="mono">1d 3h</span></div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="col-h">Complete <span class="mono" style="font-weight: 600; color: var(--text3);">3</span> <span style="flex: 1;"></span><span style="font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text3);">awaiting verify</span></div>
+        <div class="card" style="border-color: var(--okBorder);">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--roomNum);">412</span><span class="tag" style="background: var(--dangerBg); color: var(--dangerText);">Urgent</span><svg class="ico" style="width: 14px; height: 14px; color: var(--text3);" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"></path></svg><span style="flex: 1;"></span><span class="av" style="background: var(--presenceAv);">EE</span></div>
+          <div class="title">AC not cooling</div>
+          <div class="tag" style="background: var(--okBg); color: var(--okText); align-self: flex-start;">Guest told · 19:01</div>
+          <div class="foot">#204 · Eli · 14 min<span style="flex: 1;"></span><span class="mono">18:56</span></div>
+        </div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--roomNum);">118</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Normal</span><span style="flex: 1;"></span><span class="av" style="background: var(--avMuted);">JT</span></div>
+          <div class="title">Shower drain slow</div>
+          <div class="foot">#199 · Jordan · 31 min<span style="flex: 1;"></span><span class="mono">17:40</span></div>
+        </div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 13px; font-weight: 600; color: var(--roomNum);">330</span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Low</span><span style="flex: 1;"></span><span class="av" style="background: var(--presenceAv);">EE</span></div>
+          <div class="title">Bedside lamp bulb</div>
+          <div class="foot">#197 · Eli · 6 min<span style="flex: 1;"></span><span class="mono">16:12</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="height: 40px; border-top: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 16px; font-size: 12.5px; color: var(--text3);">
+      <span><svg class="ico" style="width: 14px; height: 14px; vertical-align: -3px;" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"></path></svg> raised from a guest conversation</span>
+      <span>Verified and cancelled hidden · <span style="color: var(--roomNum); font-weight: 600;">show 46 closed this week</span></span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Theme"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? true;
+    const darkT = {
+      bg: '#0e1116', bg2: '#11151b', nav: '#0b0e12', surface: '#161a21', surface2: '#1a1f28',
+      border: '#1f242d', border2: '#262c36', border3: '#2c3441',
+      text: '#e7eaf0', text2: '#aab2c0', text3: '#8b94a5', text4: '#59627a',
+      accent: '#f0b323', accentText: '#0e1116', roomNum: '#f0b323', sel: '#1a1f28',
+      outBg: '#2b3a55', outText: '#e7eaf0', autoBg: '#1a1f28', autoText: '#aab2c0', autoBorder: '#2c3441',
+      noteBg: '#2a2410', noteBorder: '#5a4a12', noteText: '#f5dfa0', noteIcon: '#f0b323',
+      okBg: '#12301f', okText: '#4ade80', okBorder: '#1f5a3a', okBtn: '#4ade80', okBtnText: '#0e1116', okBanner: '#d1fae5',
+      warnBg: '#3a2a10', warnText: '#f0b323', dangerBg: '#3a1418', dangerText: '#ff5d5d', danger: '#ff5d5d',
+      presenceBg: '#2a2140', presenceText: '#c4b5fd', presenceAv: '#a78bfa',
+      avMuted: '#8b94a5', avText: '#0e1116', tagBg: '#1f242d', tagText: '#8b94a5',
+      timerDoneBg: '#161a21', timerDoneText: '#8b94a5'
+    };
+    const light = {
+      bg: '#f2f4f7', bg2: '#f7f8fa', nav: '#ffffff', surface: '#ffffff', surface2: '#eef1f5',
+      border: '#dfe3ea', border2: '#d3d9e2', border3: '#c5ccd8',
+      text: '#0e1116', text2: '#3d4655', text3: '#6b7486', text4: '#9aa3b2',
+      accent: '#f0b323', accentText: '#0e1116', roomNum: '#9a6b00', sel: '#fff7e0',
+      outBg: '#2b3a55', outText: '#ffffff', autoBg: '#eef1f5', autoText: '#3d4655', autoBorder: '#d3d9e2',
+      noteBg: '#fff8e1', noteBorder: '#e6c96a', noteText: '#5c4300', noteIcon: '#9a6b00',
+      okBg: '#e3f7ea', okText: '#15803d', okBorder: '#a7e3bd', okBtn: '#15803d', okBtnText: '#ffffff', okBanner: '#064e3b',
+      warnBg: '#fff1cf', warnText: '#8a5a10', dangerBg: '#fde4e4', dangerText: '#b91c1c', danger: '#dc2626',
+      presenceBg: '#ede9fe', presenceText: '#5b21b6', presenceAv: '#7c3aed',
+      avMuted: '#6b7486', avText: '#ffffff', tagBg: '#eef1f5', tagText: '#6b7486',
+      timerDoneBg: '#eef1f5', timerDoneText: '#9aa3b2'
+    };
+    const t = dark ? darkT : light;
+    const vars = Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ') + ';';
+    return { vars: vars };
+  }
+}
+</script>
+</body>
+</html>

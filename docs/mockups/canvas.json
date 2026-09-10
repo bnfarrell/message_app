@@ -1,20 +1,30 @@
 {
   "pages": [
-    { "id": "page-1", "name": "B & C · light and dark" },
-    { "id": "page-2", "name": "A · not selected" }
+    { "id": "page-1", "name": "Night Shift · screens" },
+    { "id": "page-2", "name": "Not selected" }
   ],
   "artboards": [
-    { "file": "WarmHospitality.dc.html", "title": "Option B · Warm Hospitality · light", "x": 0, "y": 0, "w": 1440, "h": 900, "page": "page-1" },
-    { "file": "WarmHospitalityDark.dc.html", "title": "Option B · Warm Hospitality · dark", "x": 1560, "y": 0, "w": 1440, "h": 900, "page": "page-1" },
-    { "file": "NightShift.dc.html", "title": "Option C · Night Shift · dark", "x": 0, "y": 1140, "w": 1440, "h": 900, "page": "page-1" },
-    { "file": "NightShiftLight.dc.html", "title": "Option C · Night Shift · light", "x": 1560, "y": 1140, "w": 1440, "h": 900, "page": "page-1" },
-    { "file": "Main.dc.html", "title": "Option A · Ops Console", "x": 0, "y": 0, "w": 1440, "h": 900, "page": "page-2" }
+    { "file": "Main.dc.html", "title": "Inbox", "x": 0, "y": 0, "w": 1440, "h": 900, "page": "page-1" },
+    { "file": "Board.dc.html", "title": "Work order board", "x": 1560, "y": 0, "w": 1440, "h": 900, "page": "page-1" },
+    { "file": "WorkOrder.dc.html", "title": "Work order detail", "x": 3120, "y": 0, "w": 1440, "h": 900, "page": "page-1" },
+    { "file": "Analytics.dc.html", "title": "Analytics", "x": 0, "y": 1140, "w": 1440, "h": 900, "page": "page-1" },
+    { "file": "Admin.dc.html", "title": "Admin · quick replies", "x": 1560, "y": 1140, "w": 1440, "h": 900, "page": "page-1" },
+    { "file": "Simulator.dc.html", "title": "Phone simulator (dev)", "x": 3120, "y": 1140, "w": 1440, "h": 900, "page": "page-1" },
+    { "file": "Mobile.dc.html", "title": "Department staff · phone", "x": 4680, "y": 0, "w": 390, "h": 844, "page": "page-1" },
+    { "file": "OpsConsole.dc.html", "title": "Option A · Ops Console", "x": 0, "y": 0, "w": 1440, "h": 900, "page": "page-2" },
+    { "file": "WarmHospitality.dc.html", "title": "Option B · Warm Hospitality", "x": 1560, "y": 0, "w": 1440, "h": 900, "page": "page-2" }
   ],
   "annotations": [
-    { "id": "brief", "x": 0, "y": -300, "w": 620, "page": "page-1", "text": "Options B and C, each in light and dark.\n\nEvery artboard has a \"dark\" switch in the chips above it — flip it to see the same frame in the other mode. The two frames per row show both modes side by side so you can compare without clicking.\n\nIn the built app this is one toggle in the user menu, remembered per person, defaulting to the device's setting." },
-    { "id": "b-note", "x": 0, "y": -130, "w": 480, "page": "page-1", "text": "B · Warm Hospitality\nLight: cream ground, deep-green accent. Dark: warm charcoal (not black), sage accent — still reads as the brand at night.\nTradeoff: roomier rows mean fewer conversations per screen." },
-    { "id": "c-note", "x": 0, "y": 1010, "w": 480, "page": "page-1", "text": "C · Night Shift\nDark is its native mode: high contrast, amber, countdown timers, 44px targets. Light keeps the structure and timers but lets amber recede to a room-number highlight so it isn't loud in a bright lobby.\nTradeoff: the densest chrome — the conversation column is the narrowest of the three." },
-    { "id": "a-note", "x": 0, "y": -130, "w": 480, "page": "page-2", "text": "A · Ops Console — kept for reference, not selected." }
+    { "id": "brief", "x": 0, "y": -300, "w": 640, "page": "page-1", "text": "Night Shift — Phase 1 screen set\n\nOne story runs through every screen: Sarah Chen in 412 texts that the AC is out at 18:41; Ava raises WO #204; Eli fixes it by 18:56; the inbox prompts Ava to tell Sarah; she does at 19:01. Every frame shows a piece of that loop.\n\nEach artboard has a \"dark\" switch in its chips — flip it to see the light mode. Dark is the default for this direction." },
+    { "id": "n-inbox", "x": 0, "y": -130, "w": 460, "page": "page-1", "text": "Inbox — the core screen (design.md §6.1). Countdown timers are the primary signal; presence banner sits above the composer; the green bar is the closed-loop prompt." },
+    { "id": "n-board", "x": 1560, "y": -130, "w": 460, "page": "page-1", "text": "Board — supervisors' default landing. Columns mirror the state machine exactly (open → assigned → in progress → blocked → complete); verified and cancelled are hidden behind a link. Speech-bubble icon = raised from a guest text." },
+    { "id": "n-wo", "x": 3120, "y": -130, "w": 460, "page": "page-1", "text": "Work order detail — timeline is the audit trail (work_order_event). Before/after photos, the linked conversation, and the exact message the guest received." },
+    { "id": "n-analytics", "x": 0, "y": 1010, "w": 460, "page": "page-1", "text": "Analytics — managers' default landing. p50/p90, not averages. Single-hue bars with direct labels; red is reserved for past-SLA. Sample figures." },
+    { "id": "n-admin", "x": 1560, "y": 1010, "w": 460, "page": "page-1", "text": "Admin — quick replies shown; users, departments, assets and categories follow the same table + edit-panel pattern. Greyed items are Phase 2." },
+    { "id": "n-sim", "x": 3120, "y": 1010, "w": 460, "page": "page-1", "text": "Phone simulator — dev only. Be any seeded guest, text the hotel, watch what the server did. The phone is drawn generically (no fake status bar); the log on the right is the real event trail." },
+    { "id": "n-mobile", "x": 4680, "y": -130, "w": 400, "page": "page-1", "text": "Department staff on a phone — Eli's list. One big action per card (Start / Complete), photo attach, nothing else. This is the screen adoption depends on (design.md §3.1, §6.5)." },
+    { "id": "a-note", "x": 0, "y": -130, "w": 440, "page": "page-2", "text": "A · Ops Console — not selected, kept for reference." },
+    { "id": "b-note", "x": 1560, "y": -130, "w": 440, "page": "page-2", "text": "B · Warm Hospitality — not selected, kept for reference." }
   ],
   "launch": { "view": "canvas", "page": "page-1" }
 }

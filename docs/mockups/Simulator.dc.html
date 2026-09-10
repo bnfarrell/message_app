@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+  <style>
+    body { margin: 0; font-family: "Space Grotesk", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); } a:hover { color: var(--roomNum); }
+    .mono { font-family: "JetBrains Mono", "Consolas", monospace; }
+    .tag { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+    .ico { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+    .av { width: 32px; height: 32px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--avText); }
+    .btn { height: 44px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; border: 1px solid var(--border3); background: var(--surface); color: var(--text); }
+    .btn.primary { background: var(--accent); color: var(--accentText); border-color: var(--accent); }
+    .card { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; display: flex; flex-direction: column; }
+    .g { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    .g.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); }
+    .h { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text3); }
+    .sms-in { align-self: flex-start; max-width: 78%; background: #e9e9eb; color: #111111; padding: 9px 12px; border-radius: 16px; border-bottom-left-radius: 4px; font-size: 14px; line-height: 1.35; }
+    .sms-out { align-self: flex-end; max-width: 78%; background: #34c759; color: #ffffff; padding: 9px 12px; border-radius: 16px; border-bottom-right-radius: 4px; font-size: 14px; line-height: 1.35; }
+    .sms-meta { font-size: 10.5px; color: #8e8e93; margin-top: -2px; }
+    .ev { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+    .quick { height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid var(--border3); background: var(--surface); font-size: 12.5px; font-weight: 600; display: inline-flex; align-items: center; color: var(--text2); }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden; color: var(--text); background: var(--bg); {{vars}}">
+
+  <div style="height: 64px; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 14px; background: var(--nav);">
+    <div style="width: 32px; height: 32px; border-radius: 6px; background: var(--accent); color: var(--accentText); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px;">HV</div>
+    <div style="font-size: 18px; font-weight: 700;">Phone simulator</div>
+    <span class="tag" style="background: var(--dangerBg); color: var(--dangerText);">DEV ONLY</span>
+    <span class="mono" style="font-size: 12.5px; color: var(--text3);">SMS_ADAPTER=mock · posts Twilio-shaped webhooks to /api/hooks/sms/inbound</span>
+    <span style="flex: 1;"></span>
+    <div class="btn" style="height: 40px;"><svg class="ico" style="width: 16px; height: 16px;" viewBox="0 0 24 24"><path d="M3 13h4l2 3h6l2-3h4"></path><path d="M5 6h14l2 7v6H3v-6z"></path></svg> Open staff inbox</div>
+  </div>
+
+  <div style="flex: 1; display: flex; gap: 20px; padding: 20px 24px; overflow: hidden;">
+
+    <!-- Guest picker -->
+    <div class="card" style="width: 300px; overflow: hidden;">
+      <div style="padding: 14px 14px 10px;"><div class="h">Be a guest</div></div>
+      <div style="padding: 0 14px 12px;"><div style="height: 40px; border-radius: 8px; border: 1px solid var(--border3); background: var(--surface2); display: flex; align-items: center; padding: 0 12px; color: var(--text3); font-size: 13px;" class="mono">+1 555 …  or pick below</div></div>
+      <div class="g sel"><div class="av" style="background: var(--accent);">SC</div><div style="flex: 1;"><div style="font-size: 14px; font-weight: 600;">Sarah Chen</div><div class="mono" style="font-size: 11.5px; color: var(--text3);">+1 555 123 4567 · 412 · in-house</div></div><span class="tag" style="background: var(--okBg); color: var(--okText);">OPTED IN</span></div>
+      <div class="g"><div class="av" style="background: var(--avMuted);">DR</div><div style="flex: 1;"><div style="font-size: 14px; font-weight: 600;">Diego Ruiz</div><div class="mono" style="font-size: 11.5px; color: var(--text3);">+1 555 987 6543 · 118 · in-house</div></div><span class="tag" style="background: var(--okBg); color: var(--okText);">OPTED IN</span></div>
+      <div class="g"><div class="av" style="background: var(--avMuted);">NO</div><div style="flex: 1;"><div style="font-size: 14px; font-weight: 600;">Nia Okafor</div><div class="mono" style="font-size: 11.5px; color: var(--text3);">+1 555 777 8888 · 703 · in-house</div></div><span class="tag" style="background: var(--okBg); color: var(--okText);">OPTED IN</span></div>
+      <div class="g"><div class="av" style="background: var(--avMuted);">TB</div><div style="flex: 1;"><div style="font-size: 14px; font-weight: 600;">Tom Becker</div><div class="mono" style="font-size: 11.5px; color: var(--text3);">+1 555 200 0000 · 516 · in-house</div></div><span class="tag" style="background: var(--dangerBg); color: var(--dangerText);">FAILS</span></div>
+      <div class="g"><div class="av" style="background: var(--avMuted);">LP</div><div style="flex: 1;"><div style="font-size: 14px; font-weight: 600;">Lena Park</div><div class="mono" style="font-size: 11.5px; color: var(--text3);">+1 555 310 4411 · checked out</div></div><span class="tag" style="background: var(--tagBg); color: var(--tagText);">OPTED OUT</span></div>
+      <div class="g" style="border-bottom: none;"><div class="av" style="background: var(--avMuted);">?</div><div style="flex: 1;"><div style="font-size: 14px; font-weight: 600;">Unknown number</div><div class="mono" style="font-size: 11.5px; color: var(--text3);">+1 555 014 2290 · no stay</div></div><span class="tag" style="background: var(--tagBg); color: var(--tagText);">UNKNOWN</span></div>
+      <div style="padding: 12px 14px; font-size: 12px; color: var(--text4); line-height: 1.45;">Numbers ending in 0000 fail delivery on purpose (mock error 30007) so you can test the retry path.</div>
+    </div>
+
+    <!-- Phone -->
+    <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
+      <div style="width: 380px; height: 780px; border-radius: 40px; background: #000000; padding: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.45); display: flex;">
+        <div style="flex: 1; border-radius: 30px; background: #ffffff; display: flex; flex-direction: column; overflow: hidden; color: #111111; font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;">
+          <div style="height: 92px; border-bottom: 1px solid #e5e5ea; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 8px; gap: 2px; background: #f7f7f8;">
+            <div style="width: 36px; height: 36px; border-radius: 50%; background: #8e8e93; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600;">HV</div>
+            <div style="font-size: 12px; color: #111111; font-weight: 500;">Harbourview Hotel</div>
+            <div style="font-size: 10.5px; color: #8e8e93;">+1 (555) 010-0100</div>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 14px 12px; overflow: hidden;">
+            <div style="text-align: center; font-size: 10.5px; color: #8e8e93;">Today 3:22 PM</div>
+            <div class="sms-in">Welcome to Harbourview, Sarah. You're in 412. WiFi: Harbourview-Guest, no password. Text us anytime.</div>
+            <div class="sms-out">Hi, the AC in our room isn't working at all, it's really warm in here. We tried turning it off and on.</div>
+            <div class="sms-meta" style="align-self: flex-end;">Delivered</div>
+            <div class="sms-in">So sorry about that, Sarah. I'm sending engineering up to 412 now — they'll knock in the next 15 minutes. If you'd prefer, we can also move you to another room.</div>
+            <div class="sms-out">Thank you, someone just came by</div>
+            <div class="sms-meta" style="align-self: flex-end;">Delivered</div>
+            <div class="sms-in">Hi Sarah — engineering has repaired the AC in 412 and it's cooling now. Please text us if it isn't comfortable within the hour.</div>
+            <div style="text-align: center; font-size: 10.5px; color: #8e8e93;">7:01 PM</div>
+          </div>
+          <div style="padding: 8px 12px 14px; display: flex; flex-direction: column; gap: 8px; background: #f7f7f8; border-top: 1px solid #e5e5ea;">
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="quick" style="background: #ffffff; color: #111111; border-color: #d1d1d6; height: 30px; font-size: 12px;">STOP</span>
+              <span class="quick" style="background: #ffffff; color: #111111; border-color: #d1d1d6; height: 30px; font-size: 12px;">HELP</span>
+              <span class="quick" style="background: #ffffff; color: #111111; border-color: #d1d1d6; height: 30px; font-size: 12px;">"AC is broken"</span>
+              <span class="quick" style="background: #ffffff; color: #111111; border-color: #d1d1d6; height: 30px; font-size: 12px;">card number</span>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <div style="flex: 1; height: 36px; border-radius: 18px; border: 1px solid #d1d1d6; background: #ffffff; display: flex; align-items: center; padding: 0 14px; font-size: 14px; color: #8e8e93;">Text as Sarah…</div>
+              <div style="width: 36px; height: 36px; border-radius: 50%; background: #34c759; display: flex; align-items: center; justify-content: center;"><svg class="ico" style="width: 16px; height: 16px; color: #ffffff;" viewBox="0 0 24 24"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Event log -->
+    <div class="card" style="width: 400px; overflow: hidden;">
+      <div style="padding: 14px 14px 10px; display: flex; align-items: center;"><div class="h">What the server did</div><span style="flex: 1;"></span><span class="mono" style="font-size: 11.5px; color: var(--text3);">live</span></div>
+      <div class="ev"><span class="mono" style="color: var(--text3);">18:41:07</span><span><span style="color: var(--roomNum); font-weight: 600;">inbound</span> from +15551234567 · MessageSid mock-8f2a</span></div>
+      <div class="ev"><span class="mono" style="color: var(--text3);">18:41:07</span><span>matched guest <strong>Sarah Chen</strong> · in-house stay 412 attached</span></div>
+      <div class="ev"><span class="mono" style="color: var(--text3);">18:41:07</span><span>conversation <span class="mono">c-412</span> was open · SLA due <span class="mono">18:56</span></span></div>
+      <div class="ev"><span class="mono" style="color: var(--text3);">18:41:07</span><span>notified Front Desk (3 on shift) · ws <span class="mono">message.created</span></span></div>
+      <div class="ev"><span class="mono" style="color: var(--text3);">18:42:30</span><span>work order <span class="mono">#204</span> created from conversation by Ava</span></div>
+      <div class="ev"><span class="mono" style="color: var(--text3);">18:44:12</span><span><span style="color: var(--okText); font-weight: 600;">outbound</span> by Ava · consent ok · job <span class="mono">outbound.send</span> queued</span></div>
+      <div class="ev"><span class="mono" style="color: var(--text3);">18:44:12</span><span>mock adapter → sent (+0.4s) → delivered (+1.2s)</span></div>
+      <div class="ev"><span class="mono" style="color: var(--text3);">18:56:40</span><span>WO #204 → complete · <span class="mono">draft_prompt</span> created for c-412</span></div>
+      <div class="ev"><span class="mono" style="color: var(--text3);">18:58:02</span><span><span style="color: var(--roomNum); font-weight: 600;">inbound</span> "Thank you, someone just came by" · SLA reset</span></div>
+      <div class="ev" style="border-bottom: none;"><span class="mono" style="color: var(--text3);">19:01:15</span><span><span style="color: var(--okText); font-weight: 600;">outbound</span> from draft · prompt marked sent · WO guest_notified_at set</span></div>
+      <div style="flex: 1;"></div>
+      <div style="padding: 12px 14px; border-top: 1px solid var(--border); display: flex; gap: 8px;">
+        <div class="btn" style="height: 38px; font-size: 13px;">Fire PMS check-in</div>
+        <div class="btn" style="height: 38px; font-size: 13px;">Fire PMS check-out</div>
+        <div class="btn" style="height: 38px; font-size: 13px;">Clear</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Theme"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? true;
+    const darkT = {
+      bg: '#0e1116', bg2: '#11151b', nav: '#0b0e12', surface: '#161a21', surface2: '#1a1f28',
+      border: '#1f242d', border2: '#262c36', border3: '#2c3441',
+      text: '#e7eaf0', text2: '#aab2c0', text3: '#8b94a5', text4: '#59627a',
+      accent: '#f0b323', accentText: '#0e1116', roomNum: '#f0b323', sel: '#1a1f28',
+      outBg: '#2b3a55', outText: '#e7eaf0', autoBg: '#1a1f28', autoText: '#aab2c0', autoBorder: '#2c3441',
+      noteBg: '#2a2410', noteBorder: '#5a4a12', noteText: '#f5dfa0', noteIcon: '#f0b323',
+      okBg: '#12301f', okText: '#4ade80', okBorder: '#1f5a3a', okBtn: '#4ade80', okBtnText: '#0e1116', okBanner: '#d1fae5',
+      warnBg: '#3a2a10', warnText: '#f0b323', dangerBg: '#3a1418', dangerText: '#ff5d5d', danger: '#ff5d5d',
+      presenceBg: '#2a2140', presenceText: '#c4b5fd', presenceAv: '#a78bfa',
+      avMuted: '#8b94a5', avText: '#0e1116', tagBg: '#1f242d', tagText: '#8b94a5',
+      timerDoneBg: '#161a21', timerDoneText: '#8b94a5'
+    };
+    const light = {
+      bg: '#f2f4f7', bg2: '#f7f8fa', nav: '#ffffff', surface: '#ffffff', surface2: '#eef1f5',
+      border: '#dfe3ea', border2: '#d3d9e2', border3: '#c5ccd8',
+      text: '#0e1116', text2: '#3d4655', text3: '#6b7486', text4: '#9aa3b2',
+      accent: '#f0b323', accentText: '#0e1116', roomNum: '#9a6b00', sel: '#fff7e0',
+      outBg: '#2b3a55', outText: '#ffffff', autoBg: '#eef1f5', autoText: '#3d4655', autoBorder: '#d3d9e2',
+      noteBg: '#fff8e1', noteBorder: '#e6c96a', noteText: '#5c4300', noteIcon: '#9a6b00',
+      okBg: '#e3f7ea', okText: '#15803d', okBorder: '#a7e3bd', okBtn: '#15803d', okBtnText: '#ffffff', okBanner: '#064e3b',
+      warnBg: '#fff1cf', warnText: '#8a5a10', dangerBg: '#fde4e4', dangerText: '#b91c1c', danger: '#dc2626',
+      presenceBg: '#ede9fe', presenceText: '#5b21b6', presenceAv: '#7c3aed',
+      avMuted: '#6b7486', avText: '#ffffff', tagBg: '#eef1f5', tagText: '#6b7486',
+      timerDoneBg: '#eef1f5', timerDoneText: '#9aa3b2'
+    };
+    const t = dark ? darkT : light;
+    const vars = Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ') + ';';
+    return { vars: vars };
+  }
+}
+</script>
+</body>
+</html>

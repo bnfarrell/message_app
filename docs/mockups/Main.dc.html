@@ -7,111 +7,110 @@
 <body>
 <x-dc>
 <helmet>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
   <style>
-    body { margin: 0; font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; color: #1c2330; background: #eef0f3; -webkit-font-smoothing: antialiased; }
-    a { color: #2f52c9; } a:hover { color: #23409e; }
-    .mono { font-family: "IBM Plex Mono", "Consolas", monospace; }
-    .row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #e6e8ec; }
-    .row.sel { background: #eef2ff; box-shadow: inset 3px 0 0 #2f52c9; }
-    .chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; }
-    .tab { height: 28px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; font-size: 12.5px; font-weight: 500; color: #4b5563; }
-    .tab.on { background: #1c2330; color: #ffffff; }
-    .tab .n { font-size: 11px; opacity: 0.75; }
-    .bubble { max-width: 520px; padding: 10px 12px; border-radius: 8px; font-size: 13.5px; line-height: 1.45; }
-    .in { background: #ffffff; border: 1px solid #e3e6ea; color: #1c2330; align-self: flex-start; }
-    .out { background: #2f52c9; color: #ffffff; align-self: flex-end; }
-    .meta { font-size: 11px; color: #6b7280; margin-top: 4px; }
+    body { margin: 0; font-family: "Space Grotesk", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); } a:hover { color: var(--roomNum); }
+    .mono { font-family: "JetBrains Mono", "Consolas", monospace; }
+    .row { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-bottom: 1px solid var(--border); min-height: 44px; }
+    .row.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); }
+    .tag { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+    .timer { font-family: "JetBrains Mono", monospace; font-size: 13px; font-weight: 600; height: 28px; padding: 0 10px; border-radius: 6px; display: inline-flex; align-items: center; min-width: 64px; justify-content: center; }
+    .tab { height: 36px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; font-size: 13.5px; font-weight: 600; color: var(--text3); }
+    .tab.on { background: var(--accent); color: var(--accentText); }
+    .tab .n { font-size: 12px; opacity: 0.85; }
+    .bubble { max-width: 470px; padding: 12px 14px; border-radius: 10px; font-size: 14.5px; line-height: 1.5; }
+    .in { background: var(--surface2); border: 1px solid var(--border2); color: var(--text); }
+    .out { background: var(--outBg); color: var(--outText); }
+    .meta { font-size: 12px; color: var(--text3); margin-top: 5px; }
     .ico { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
-    .navi { width: 44px; height: 44px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #7b8494; }
-    .navi.on { background: #eef2ff; color: #2f52c9; }
-    .kbd { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: #6b7280; border: 1px solid #d5d9e0; border-radius: 4px; padding: 1px 5px; background: #fafbfc; }
-    .av { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #ffffff; }
-    .panel-h { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6b7280; }
-    .btn { height: 32px; padding: 0 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; border: 1px solid #d5d9e0; background: #ffffff; color: #1c2330; }
+    .nav { height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 12px; border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--text3); }
+    .nav.on { background: var(--surface2); color: var(--roomNum); }
+    .av { width: 26px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--avText); }
+    .panel-h { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text3); }
+    .btn { height: 44px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; border: 1px solid var(--border3); background: var(--surface); color: var(--text); }
+    .btn.primary { background: var(--accent); color: var(--accentText); border-color: var(--accent); }
+    .btn.ghost { border: none; padding: 0 10px; background: transparent; }
+    .k { color: var(--text3); font-size: 12px; }
+    .v { font-weight: 600; }
   </style>
 </helmet>
 
-<div style="width: 1440px; height: 900px; display: flex; background: #eef0f3; overflow: hidden;">
+<div style="width: 1440px; height: 900px; display: flex; overflow: hidden; color: var(--text); background: var(--bg); {{vars}}">
 
-  <!-- Nav rail -->
-  <div style="width: 64px; background: #ffffff; border-right: 1px solid #e3e6ea; display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 6px;">
-    <div style="width: 36px; height: 36px; border-radius: 8px; background: #1c2330; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; margin-bottom: 10px;">HV</div>
-    <div class="navi on"><svg class="ico" viewBox="0 0 24 24"><path d="M3 13h4l2 3h6l2-3h4"></path><path d="M5 6h14l2 7v6H3v-6z"></path></svg></div>
-    <div class="navi"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"></rect><rect x="10" y="4" width="5" height="10" rx="1"></rect><rect x="17" y="4" width="4" height="13" rx="1"></rect></svg></div>
-    <div class="navi"><svg class="ico" viewBox="0 0 24 24"><path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M22 20H2"></path></svg></div>
+  <!-- Nav -->
+  <div style="width: 184px; background: var(--nav); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 16px 12px; gap: 4px;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 6px 18px;">
+      <div style="width: 32px; height: 32px; border-radius: 6px; background: var(--accent); color: var(--accentText); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px;">HV</div>
+      <div><div style="font-size: 14px; font-weight: 700;">Harbourview</div><div class="mono" style="font-size: 11px; color: var(--text3);">PM shift · 18:58</div></div>
+    </div>
+    <div class="nav on"><svg class="ico" viewBox="0 0 24 24"><path d="M3 13h4l2 3h6l2-3h4"></path><path d="M5 6h14l2 7v6H3v-6z"></path></svg> Inbox <span style="flex: 1;"></span><span class="mono" style="font-size: 12px; color: var(--roomNum);">23</span></div>
+    <div class="nav"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"></rect><rect x="10" y="4" width="5" height="10" rx="1"></rect><rect x="17" y="4" width="4" height="13" rx="1"></rect></svg> Board <span style="flex: 1;"></span><span class="mono" style="font-size: 12px; color: var(--text3);">15</span></div>
+    <div class="nav"><svg class="ico" viewBox="0 0 24 24"><path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M22 20H2"></path></svg> Analytics</div>
+    <div class="nav"><svg class="ico" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v5l2 3H4l2-3z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg> Alerts <span style="flex: 1;"></span><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--danger);"></span></div>
     <div style="flex: 1;"></div>
-    <div class="navi" style="position: relative;"><svg class="ico" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v5l2 3H4l2-3z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg><span style="position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: #dc2626; border: 2px solid #ffffff;"></span></div>
-    <div class="av" style="width: 30px; height: 30px; background: #3b4a63; font-size: 12px;">AA</div>
+    <div class="nav" style="height: 40px;"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9c0-.5 0-1-.1-1.4A6 6 0 0 1 13.4 3.1C13 3 12.5 3 12 3z"></path></svg> Theme</div>
+    <div style="display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-top: 1px solid var(--border);">
+      <div class="av" style="width: 32px; height: 32px; background: var(--avMuted); font-size: 12px;">AA</div>
+      <div><div style="font-size: 13.5px; font-weight: 600;">Ava</div><div style="font-size: 12px; color: var(--text3);">Front desk</div></div>
+    </div>
   </div>
 
   <!-- Queue -->
-  <div style="width: 340px; background: #ffffff; border-right: 1px solid #e3e6ea; display: flex; flex-direction: column;">
-    <div style="padding: 14px 14px 10px; border-bottom: 1px solid #e6e8ec; display: flex; flex-direction: column; gap: 10px;">
-      <div style="display: flex; align-items: center; justify-content: space-between;">
-        <div style="font-size: 15px; font-weight: 600;">Inbox</div>
-        <div style="display: flex; align-items: center; gap: 6px; color: #6b7280; font-size: 12px;">Harbourview Hotel <svg class="ico" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"></path></svg></div>
+  <div style="width: 344px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column;">
+    <div style="padding: 16px 16px 12px; display: flex; flex-direction: column; gap: 12px; border-bottom: 1px solid var(--border);">
+      <div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border2); color: var(--text3); font-size: 14px;">
+        <svg class="ico" style="width: 16px; height: 16px;" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg> Search
       </div>
-      <div style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid #d5d9e0; border-radius: 6px; color: #9aa3b2; font-size: 12.5px;">
-        <svg class="ico" style="width: 15px; height: 15px;" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
-        Search name, room, phone <span style="flex: 1;"></span><span class="kbd">/</span>
-      </div>
-      <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+      <div style="display: flex; gap: 6px; flex-wrap: wrap;">
         <div class="tab on">All <span class="n">23</span></div>
         <div class="tab">Mine <span class="n">6</span></div>
         <div class="tab">Unassigned <span class="n">8</span></div>
-        <div class="tab" style="color: #b91c1c;">Overdue <span class="n" style="opacity: 1;">3</span></div>
-        <div class="tab">Resolved</div>
+        <div class="tab" style="color: var(--danger);">Overdue <span class="n" style="opacity: 1;">3</span></div>
       </div>
     </div>
 
     <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
       <div class="row sel">
-        <div class="mono" style="width: 34px; font-size: 13px; font-weight: 500; padding-top: 1px;">412</div>
+        <div class="timer" style="background: var(--dangerBg); color: var(--dangerText);">−04:12</div>
         <div style="flex: 1; min-width: 0;">
-          <div style="display: flex; align-items: center; gap: 6px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #2f52c9;"></span><span style="font-weight: 600; font-size: 13.5px;">Sarah Chen</span><span style="flex: 1;"></span><span class="chip" style="background: #fee2e2; color: #b91c1c;">-4m</span></div>
-          <div style="font-size: 12.5px; color: #4b5563; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">The AC in our room isn't working at all, it's really warm in here</div>
-          <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px;"><span class="av" style="width: 18px; height: 18px; font-size: 9px; background: #7c3aed;">MR</span><span style="font-size: 11px; color: #7c3aed;">Marcus viewing</span><span style="flex: 1;"></span><span style="font-size: 11px; color: #6b7280;">19 min</span></div>
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 14px; font-weight: 600; color: var(--roomNum);">412</span><span style="font-weight: 600; font-size: 15px;">Sarah Chen</span><span style="flex: 1;"></span><span class="av" style="width: 22px; height: 22px; font-size: 10px; background: var(--presenceAv);">MR</span></div>
+          <div style="font-size: 13.5px; color: var(--text2); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">The AC in our room isn't working at all, it's really warm</div>
         </div>
       </div>
       <div class="row">
-        <div class="mono" style="width: 34px; font-size: 13px; font-weight: 500; padding-top: 1px;">118</div>
+        <div class="timer" style="background: var(--warnBg); color: var(--warnText);">03:05</div>
         <div style="flex: 1; min-width: 0;">
-          <div style="display: flex; align-items: center; gap: 6px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #2f52c9;"></span><span style="font-weight: 600; font-size: 13.5px;">Diego Ruiz</span><span style="flex: 1;"></span><span class="chip" style="background: #fef3c7; color: #b45309;">3m</span></div>
-          <div style="font-size: 12.5px; color: #4b5563; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Can we get a late checkout tomorrow? Flight isn't until 4</div>
-          <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px;"><span style="font-size: 11px; color: #6b7280;">Unassigned</span><span style="flex: 1;"></span><span style="font-size: 11px; color: #6b7280;">12 min</span></div>
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 14px; font-weight: 600; color: var(--roomNum);">118</span><span style="font-weight: 600; font-size: 15px;">Diego Ruiz</span><span style="flex: 1;"></span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">Unassigned</span></div>
+          <div style="font-size: 13.5px; color: var(--text2); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Can we get a late checkout tomorrow? Flight isn't until 4</div>
         </div>
       </div>
       <div class="row">
-        <div class="mono" style="width: 34px; font-size: 13px; font-weight: 500; padding-top: 1px;">703</div>
+        <div class="timer" style="background: var(--okBg); color: var(--okText);">11:40</div>
         <div style="flex: 1; min-width: 0;">
-          <div style="display: flex; align-items: center; gap: 6px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #2f52c9;"></span><span style="font-weight: 600; font-size: 13.5px;">Nia Okafor</span><span style="flex: 1;"></span><span class="chip" style="background: #dcfce7; color: #15803d;">11m</span></div>
-          <div style="font-size: 12.5px; color: #4b5563; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Extra towels please, and is the pool open late?</div>
-          <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px;"><span class="av" style="width: 18px; height: 18px; font-size: 9px; background: #0f766e;">HK</span><span style="font-size: 11px; color: #6b7280;">Housekeeping</span><span style="flex: 1;"></span><span style="font-size: 11px; color: #6b7280;">4 min</span></div>
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 14px; font-weight: 600; color: var(--roomNum);">703</span><span style="font-weight: 600; font-size: 15px;">Nia Okafor</span><span style="flex: 1;"></span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">HK</span></div>
+          <div style="font-size: 13.5px; color: var(--text2); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Extra towels please, and is the pool open late?</div>
         </div>
       </div>
       <div class="row">
-        <div class="mono" style="width: 34px; font-size: 13px; font-weight: 500; padding-top: 1px;">205</div>
+        <div class="timer" style="background: var(--okBg); color: var(--okText);">14:02</div>
         <div style="flex: 1; min-width: 0;">
-          <div style="display: flex; align-items: center; gap: 6px;"><span style="font-weight: 500; font-size: 13.5px; color: #374151;">Priya Nair</span><span style="flex: 1;"></span></div>
-          <div style="font-size: 12.5px; color: #6b7280; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">You: Your car is at the valet stand now, plate ending 447.</div>
-          <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px;"><span class="av" style="width: 18px; height: 18px; font-size: 9px; background: #3b4a63;">AA</span><span style="font-size: 11px; color: #6b7280;">You</span><span style="flex: 1;"></span><span style="font-size: 11px; color: #6b7280;">31 min</span></div>
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 14px; font-weight: 600; color: var(--text3);">—</span><span style="font-weight: 600; font-size: 15px;">+1 555 014 2290</span><span style="flex: 1;"></span><span class="tag" style="background: var(--tagBg); color: var(--tagText);">New</span></div>
+          <div style="font-size: 13.5px; color: var(--text2); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Hi, arriving around 9pm tonight, is that ok?</div>
         </div>
       </div>
-      <div class="row">
-        <div class="mono" style="width: 34px; font-size: 13px; font-weight: 500; padding-top: 1px;">—</div>
+      <div class="row" style="opacity: 0.6;">
+        <div class="timer" style="background: var(--timerDoneBg); color: var(--timerDoneText);">done</div>
         <div style="flex: 1; min-width: 0;">
-          <div style="display: flex; align-items: center; gap: 6px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #2f52c9;"></span><span style="font-weight: 600; font-size: 13.5px;">+1 (555) 014-2290</span><span style="flex: 1;"></span><span class="chip" style="background: #dcfce7; color: #15803d;">14m</span></div>
-          <div style="font-size: 12.5px; color: #4b5563; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Hi, arriving around 9pm tonight, is that ok?</div>
-          <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px;"><span style="font-size: 11px; color: #6b7280;">No stay matched</span><span style="flex: 1;"></span><span style="font-size: 11px; color: #6b7280;">1 min</span></div>
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 14px; font-weight: 600; color: var(--text3);">205</span><span style="font-weight: 600; font-size: 15px;">Priya Nair</span><span style="flex: 1;"></span><span class="av" style="width: 22px; height: 22px; font-size: 10px; background: var(--avMuted);">AA</span></div>
+          <div style="font-size: 13.5px; color: var(--text3); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">You: Your car is at the valet stand now, plate ending 447.</div>
         </div>
       </div>
-      <div class="row">
-        <div class="mono" style="width: 34px; font-size: 13px; font-weight: 500; padding-top: 1px;">516</div>
+      <div class="row" style="opacity: 0.6;">
+        <div class="timer" style="background: var(--timerDoneBg); color: var(--timerDoneText);">done</div>
         <div style="flex: 1; min-width: 0;">
-          <div style="display: flex; align-items: center; gap: 6px;"><span style="font-weight: 500; font-size: 13.5px; color: #374151;">Tom Becker</span><span style="flex: 1;"></span></div>
-          <div style="font-size: 12.5px; color: #6b7280; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">You: Breakfast is 6:30–10:30 in the Harbour Room, level 2.</div>
-          <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px;"><span class="av" style="width: 18px; height: 18px; font-size: 9px; background: #7c3aed;">MR</span><span style="font-size: 11px; color: #6b7280;">Marcus</span><span style="flex: 1;"></span><span style="font-size: 11px; color: #6b7280;">48 min</span></div>
+          <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 14px; font-weight: 600; color: var(--text3);">516</span><span style="font-weight: 600; font-size: 15px;">Tom Becker</span><span style="flex: 1;"></span><span class="av" style="width: 22px; height: 22px; font-size: 10px; background: var(--presenceAv);">MR</span></div>
+          <div style="font-size: 13.5px; color: var(--text3); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">You: Breakfast is 6:30–10:30 in the Harbour Room, level 2.</div>
         </div>
       </div>
     </div>
@@ -119,113 +118,146 @@
 
   <!-- Conversation -->
   <div style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
-    <div style="height: 56px; background: #ffffff; border-bottom: 1px solid #e3e6ea; display: flex; align-items: center; padding: 0 20px; gap: 12px;">
-      <div style="font-size: 15px; font-weight: 600;">Sarah Chen</div>
-      <div class="mono" style="font-size: 12.5px; color: #4b5563;">Room 412</div>
-      <span class="chip" style="background: #f3f4f6; color: #4b5563;"><svg class="ico" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"></path></svg> SMS</span>
+    <div style="height: 64px; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 14px;">
+      <span class="mono" style="font-size: 22px; font-weight: 600; color: var(--roomNum);">412</span>
+      <div><div style="font-size: 17px; font-weight: 700;">Sarah Chen</div><div class="mono" style="font-size: 11.5px; color: var(--text3);">SMS · GOLD · 4TH STAY</div></div>
       <span style="flex: 1;"></span>
-      <div class="btn">Assign <span class="kbd">A</span></div>
-      <div class="btn">Snooze <span class="kbd">Z</span></div>
-      <div class="btn">Archive <span class="kbd">E</span></div>
+      <div class="btn">Assign</div>
+      <div class="btn">Snooze</div>
+      <div class="btn">Archive</div>
     </div>
 
-    <div style="flex: 1; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; overflow: hidden;">
-      <div style="text-align: center; font-size: 11px; color: #9aa3b2;">Today · Checked in 3:12 PM</div>
+    <div style="flex: 1; padding: 22px 28px; display: flex; flex-direction: column; gap: 14px; overflow: hidden;">
+      <div class="mono" style="text-align: center; font-size: 11.5px; color: var(--text4);">TODAY · CHECKED IN 15:12</div>
       <div style="display: flex; flex-direction: column; align-self: flex-end; align-items: flex-end;">
-        <div class="bubble out" style="background: #e5e7eb; color: #374151;">Welcome to Harbourview, Sarah. You're in 412. WiFi: Harbourview-Guest, no password. Text us anytime.</div>
-        <div class="meta">Automation · Welcome · 3:22 PM · Delivered</div>
+        <div class="bubble out" style="background: var(--autoBg); color: var(--autoText); border: 1px dashed var(--autoBorder);">Welcome to Harbourview, Sarah. You're in 412. WiFi: Harbourview-Guest, no password. Text us anytime.</div>
+        <div class="meta">Automation · Welcome · 15:22 · Delivered</div>
       </div>
       <div style="display: flex; flex-direction: column; align-self: flex-start;">
         <div class="bubble in">Hi, the AC in our room isn't working at all, it's really warm in here. We tried turning it off and on.</div>
-        <div class="meta">Sarah · 6:41 PM</div>
+        <div class="meta">Sarah · 18:41</div>
       </div>
       <div style="display: flex; flex-direction: column; align-self: flex-end; align-items: flex-end;">
         <div class="bubble out">So sorry about that, Sarah. I'm sending engineering up to 412 now — they'll knock in the next 15 minutes. If you'd prefer, we can also move you to another room.</div>
-        <div class="meta">You · 6:44 PM · Delivered</div>
+        <div class="meta">Ava · 18:44 · Delivered</div>
       </div>
-      <div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 8px; background: #fffbeb; border: 1px solid #fde68a; max-width: 560px;">
-        <svg class="ico" style="width: 16px; height: 16px; color: #b45309; margin-top: 1px;" viewBox="0 0 24 24"><path d="M5 3h10l4 4v14H5z"></path><path d="M15 3v4h4"></path></svg>
-        <div style="font-size: 13px; color: #78350f; line-height: 1.45;"><span style="font-weight: 600;">Internal note · Ava</span> — Raised WO #204 to Engineering, urgent. Sarah is Gold, 4th stay; if it's not fixed by 7:30 offer 518 (vacant clean).</div>
+      <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 10px; background: var(--noteBg); border: 1px solid var(--noteBorder); max-width: 600px;">
+        <svg class="ico" style="width: 16px; height: 16px; color: var(--noteIcon); margin-top: 2px;" viewBox="0 0 24 24"><path d="M5 3h10l4 4v14H5z"></path><path d="M15 3v4h4"></path></svg>
+        <div style="font-size: 13.5px; color: var(--noteText); line-height: 1.5;"><span style="font-weight: 700;">INTERNAL · Ava</span> — Raised WO #204 to Engineering, urgent. Sarah is Gold, 4th stay; if it's not fixed by 19:30 offer 518 (vacant clean).</div>
       </div>
       <div style="display: flex; flex-direction: column; align-self: flex-start;">
         <div class="bubble in">Thank you, someone just came by</div>
-        <div class="meta">Sarah · 6:58 PM</div>
+        <div class="meta">Sarah · 18:58</div>
       </div>
     </div>
 
-    <div style="padding: 0 24px 16px; display: flex; flex-direction: column; gap: 10px;">
-      <div style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: #ecfdf5; border: 1px solid #a7f3d0;">
-        <svg class="ico" style="width: 18px; height: 18px; color: #047857;" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"></path></svg>
-        <div style="flex: 1; font-size: 13px; color: #064e3b;"><span style="font-weight: 600;">WO #204 (AC repair, 412) marked complete by Eli.</span> Let Sarah know?</div>
-        <div class="btn" style="background: #047857; color: #ffffff; border-color: #047857;">Use draft</div>
+    <div style="padding: 0 28px 20px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: 10px; background: var(--okBg); border: 1px solid var(--okBorder);">
+        <svg class="ico" style="width: 20px; height: 20px; color: var(--okText);" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"></path></svg>
+        <div style="flex: 1; font-size: 14px; color: var(--okBanner);"><span class="mono" style="font-weight: 600; color: var(--okText);">WO #204</span> <span style="font-weight: 600;">AC repair · 412 · complete</span> by Eli, 18:56. Tell Sarah?</div>
+        <div class="btn" style="background: var(--okBtn); color: var(--okBtnText); border-color: var(--okBtn);">Use draft</div>
         <div class="btn">Dismiss</div>
       </div>
-      <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; background: #ede9fe; color: #6d28d9; font-size: 12.5px; font-weight: 500; align-self: flex-start;"><span class="av" style="width: 16px; height: 16px; font-size: 8px; background: #7c3aed;">MR</span> Marcus is replying to this conversation</div>
-      <div style="background: #ffffff; border: 1px solid #d5d9e0; border-radius: 8px; display: flex; flex-direction: column;">
-        <div style="padding: 12px 14px; font-size: 13.5px; line-height: 1.45; color: #1c2330; min-height: 52px;">Hi Sarah — engineering has repaired the AC in 412 and it's cooling now. Please text us if it isn't comfortable within the hour.<span style="display: inline-block; width: 1px; height: 16px; background: #1c2330; vertical-align: -3px; margin-left: 1px;"></span></div>
-        <div style="display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid #eceef1;">
-          <div class="btn" style="border: none; padding: 0 8px;"><svg class="ico" style="width: 16px; height: 16px;" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"></path></svg> Quick reply <span class="kbd">/</span></div>
-          <div class="btn" style="border: none; padding: 0 8px;"><svg class="ico" style="width: 16px; height: 16px;" viewBox="0 0 24 24"><path d="M21 12.5l-8.5 8.5a5 5 0 0 1-7-7L14 5.5a3 3 0 0 1 4.5 4.5L10 18.5a1 1 0 0 1-1.5-1.5L17 8.5"></path></svg> Asset</div>
-          <div class="btn" style="border: none; padding: 0 8px;"><svg class="ico" style="width: 16px; height: 16px;" viewBox="0 0 24 24"><path d="M14.5 6.5a4 4 0 0 0 4.9 4.9L21 9.8a5.5 5.5 0 0 1-7.2 7.2L7 23.8 3 20l6.8-6.8A5.5 5.5 0 0 1 17 6z"></path></svg> Work order</div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; background: var(--presenceBg); color: var(--presenceText); font-size: 12.5px; font-weight: 600; align-self: flex-start;"><span class="av" style="width: 16px; height: 16px; font-size: 9px; background: var(--presenceAv);">MR</span> MARCUS IS TYPING</div>
+      <div style="background: var(--surface); border: 1px solid var(--border3); border-radius: 10px; display: flex; flex-direction: column;">
+        <div style="padding: 14px 16px; font-size: 14.5px; line-height: 1.5; color: var(--text); min-height: 56px;">Hi Sarah — engineering has repaired the AC in 412 and it's cooling now. Please text us if it isn't comfortable within the hour.</div>
+        <div style="display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border);">
+          <div class="btn ghost"><svg class="ico" style="width: 18px; height: 18px;" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"></path></svg> Quick</div>
+          <div class="btn ghost"><svg class="ico" style="width: 18px; height: 18px;" viewBox="0 0 24 24"><path d="M21 12.5l-8.5 8.5a5 5 0 0 1-7-7L14 5.5a3 3 0 0 1 4.5 4.5L10 18.5a1 1 0 0 1-1.5-1.5L17 8.5"></path></svg> Asset</div>
+          <div class="btn ghost"><svg class="ico" style="width: 18px; height: 18px;" viewBox="0 0 24 24"><path d="M14.5 6.5a4 4 0 0 0 4.9 4.9L21 9.8a5.5 5.5 0 0 1-7.2 7.2L7 23.8 3 20l6.8-6.8A5.5 5.5 0 0 1 17 6z"></path></svg> Work order</div>
           <span style="flex: 1;"></span>
-          <span class="mono" style="font-size: 11.5px; color: #6b7280;">142 chars · 1 segment</span>
-          <div class="btn" style="background: #2f52c9; color: #ffffff; border-color: #2f52c9;">Send <span class="kbd" style="color: #c7d2fe; border-color: #6b83d6; background: transparent;">Ctrl ↵</span></div>
+          <span class="mono" style="font-size: 12px; color: var(--text3);">142 · 1 SEG</span>
+          <div class="btn primary">Send</div>
         </div>
       </div>
     </div>
   </div>
 
   <!-- Context panel -->
-  <div style="width: 320px; background: #ffffff; border-left: 1px solid #e3e6ea; display: flex; flex-direction: column; gap: 18px; padding: 18px 18px; overflow: hidden;">
-    <div style="display: flex; flex-direction: column; gap: 6px;">
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <div class="av" style="width: 40px; height: 40px; font-size: 14px; background: #1c2330;">SC</div>
+  <div style="width: 300px; background: var(--bg2); border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 22px; padding: 20px 18px; overflow: hidden;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div class="av" style="width: 44px; height: 44px; font-size: 15px; background: var(--accent);">SC</div>
         <div>
-          <div style="font-size: 15px; font-weight: 600;">Sarah Chen</div>
-          <div class="mono" style="font-size: 12px; color: #6b7280;">+1 (555) 123-4567</div>
+          <div style="font-size: 16px; font-weight: 700;">Sarah Chen</div>
+          <div class="mono" style="font-size: 12px; color: var(--text3);">+1 555 123 4567</div>
         </div>
       </div>
-      <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
-        <span class="chip" style="background: #fef3c7; color: #92400e;">Gold</span>
-        <span class="chip" style="background: #f3f4f6; color: #4b5563;">4th stay</span>
-        <span class="chip" style="background: #dcfce7; color: #15803d;">SMS opted in</span>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+        <span class="tag" style="background: var(--warnBg); color: var(--warnText);">GOLD</span>
+        <span class="tag" style="background: var(--tagBg); color: var(--text2);">4TH STAY</span>
+        <span class="tag" style="background: var(--okBg); color: var(--okText);">OPTED IN</span>
       </div>
     </div>
 
-    <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
       <div class="panel-h">Stay</div>
-      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 13px;">
-        <div><div style="color: #6b7280; font-size: 11px;">Room</div><div class="mono" style="font-weight: 500;">412 · King</div></div>
-        <div><div style="color: #6b7280; font-size: 11px;">Nights</div><div style="font-weight: 500;">3 · Wed–Sat</div></div>
-        <div><div style="color: #6b7280; font-size: 11px;">Departs</div><div style="font-weight: 500;">Sat 11:00 AM</div></div>
-        <div><div style="color: #6b7280; font-size: 11px;">Rate</div><div style="font-weight: 500;">BAR · 2 adults</div></div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; font-size: 14px;">
+        <div><div class="k">Room</div><div class="v mono">412 · KING</div></div>
+        <div><div class="k">Nights</div><div class="v">3 · Wed–Sat</div></div>
+        <div><div class="k">Departs</div><div class="v mono">SAT 11:00</div></div>
+        <div><div class="k">Guests</div><div class="v">2 adults</div></div>
       </div>
     </div>
 
-    <div style="display: flex; flex-direction: column; gap: 8px;">
-      <div style="display: flex; align-items: center;"><div class="panel-h">Open work orders</div><span style="flex: 1;"></span><span style="font-size: 12px; color: #2f52c9; font-weight: 500;">+ New</span></div>
-      <div style="border: 1px solid #e3e6ea; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;">
-        <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 12px; color: #6b7280;">#204</span><span style="font-size: 13px; font-weight: 600;">AC not cooling</span><span style="flex: 1;"></span><span class="chip" style="background: #dcfce7; color: #15803d;">Complete</span></div>
-        <div style="font-size: 12px; color: #6b7280;">Engineering · Eli · Urgent · 14 min to complete</div>
-        <div style="display: flex; gap: 4px; margin-top: 2px;">
-          <span style="height: 4px; flex: 1; border-radius: 2px; background: #15803d;"></span><span style="height: 4px; flex: 1; border-radius: 2px; background: #15803d;"></span><span style="height: 4px; flex: 1; border-radius: 2px; background: #15803d;"></span><span style="height: 4px; flex: 1; border-radius: 2px; background: #15803d;"></span><span style="height: 4px; flex: 1; border-radius: 2px; background: #15803d;"></span>
-        </div>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center;"><div class="panel-h">Work orders</div><span style="flex: 1;"></span><span style="font-size: 13px; color: var(--roomNum); font-weight: 600;">+ New</span></div>
+      <div style="border: 1px solid var(--border2); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: var(--surface);">
+        <div style="display: flex; align-items: center; gap: 8px;"><span class="mono" style="font-size: 12px; color: var(--text3);">#204</span><span style="font-size: 14px; font-weight: 600;">AC not cooling</span><span style="flex: 1;"></span><span class="tag" style="background: var(--okBg); color: var(--okText);">COMPLETE</span></div>
+        <div style="font-size: 12.5px; color: var(--text3);">Engineering · Eli · URGENT</div>
+        <div class="mono" style="font-size: 12px; color: var(--text2);">18:42 open → 18:44 assigned → 18:47 in progress → 18:56 complete</div>
       </div>
     </div>
 
-    <div style="display: flex; flex-direction: column; gap: 8px;">
-      <div style="display: flex; align-items: center;"><div class="panel-h">Notes</div><span style="flex: 1;"></span><span style="font-size: 12px; color: #6b7280;">3</span></div>
-      <div style="font-size: 12.5px; color: #374151; line-height: 1.45; padding-left: 10px; border-left: 2px solid #fde68a;">Prefers high floor, away from elevator. — Marcus, Mar 2026</div>
-      <div style="font-size: 12.5px; color: #374151; line-height: 1.45; padding-left: 10px; border-left: 2px solid #fde68a;">Feather allergy — hypoallergenic pillows pre-set. — Ava, Sep 2025</div>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center;"><div class="panel-h">Notes</div><span style="flex: 1;"></span><span class="mono" style="font-size: 12px; color: var(--text3);">3</span></div>
+      <div style="font-size: 13.5px; color: var(--text2); line-height: 1.5; padding-left: 10px; border-left: 2px solid var(--noteBorder);">Prefers high floor, away from elevator. — Marcus, Mar 2026</div>
+      <div style="font-size: 13.5px; color: var(--text2); line-height: 1.5; padding-left: 10px; border-left: 2px solid var(--noteBorder);">Feather allergy — hypoallergenic pillows pre-set. — Ava, Sep 2025</div>
     </div>
 
-    <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
       <div class="panel-h">Previous stays</div>
-      <div style="font-size: 12.5px; color: #4b5563;">Jun 2026 · 2 nts · 1 conversation · resolved</div>
-      <div style="font-size: 12.5px; color: #4b5563;">Mar 2026 · 4 nts · praise · <span style="color: #15803d;">5★ review</span></div>
+      <div class="mono" style="font-size: 12.5px; color: var(--text2);">JUN 2026 · 2N · 1 conv · resolved</div>
+      <div class="mono" style="font-size: 12.5px; color: var(--text2);">MAR 2026 · 4N · praise · <span style="color: var(--okText);">5★</span></div>
     </div>
   </div>
 </div>
 </x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Theme"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? true;
+    const darkT = {
+      bg: '#0e1116', bg2: '#11151b', nav: '#0b0e12', surface: '#161a21', surface2: '#1a1f28',
+      border: '#1f242d', border2: '#262c36', border3: '#2c3441',
+      text: '#e7eaf0', text2: '#aab2c0', text3: '#8b94a5', text4: '#59627a',
+      accent: '#f0b323', accentText: '#0e1116', roomNum: '#f0b323', sel: '#1a1f28',
+      outBg: '#2b3a55', outText: '#e7eaf0', autoBg: '#1a1f28', autoText: '#aab2c0', autoBorder: '#2c3441',
+      noteBg: '#2a2410', noteBorder: '#5a4a12', noteText: '#f5dfa0', noteIcon: '#f0b323',
+      okBg: '#12301f', okText: '#4ade80', okBorder: '#1f5a3a', okBtn: '#4ade80', okBtnText: '#0e1116', okBanner: '#d1fae5',
+      warnBg: '#3a2a10', warnText: '#f0b323', dangerBg: '#3a1418', dangerText: '#ff5d5d', danger: '#ff5d5d',
+      presenceBg: '#2a2140', presenceText: '#c4b5fd', presenceAv: '#a78bfa',
+      avMuted: '#8b94a5', avText: '#0e1116', tagBg: '#1f242d', tagText: '#8b94a5',
+      timerDoneBg: '#161a21', timerDoneText: '#8b94a5'
+    };
+    const light = {
+      bg: '#f2f4f7', bg2: '#f7f8fa', nav: '#ffffff', surface: '#ffffff', surface2: '#eef1f5',
+      border: '#dfe3ea', border2: '#d3d9e2', border3: '#c5ccd8',
+      text: '#0e1116', text2: '#3d4655', text3: '#6b7486', text4: '#9aa3b2',
+      accent: '#f0b323', accentText: '#0e1116', roomNum: '#9a6b00', sel: '#fff7e0',
+      outBg: '#2b3a55', outText: '#ffffff', autoBg: '#eef1f5', autoText: '#3d4655', autoBorder: '#d3d9e2',
+      noteBg: '#fff8e1', noteBorder: '#e6c96a', noteText: '#5c4300', noteIcon: '#9a6b00',
+      okBg: '#e3f7ea', okText: '#15803d', okBorder: '#a7e3bd', okBtn: '#15803d', okBtnText: '#ffffff', okBanner: '#064e3b',
+      warnBg: '#fff1cf', warnText: '#8a5a10', dangerBg: '#fde4e4', dangerText: '#b91c1c', danger: '#dc2626',
+      presenceBg: '#ede9fe', presenceText: '#5b21b6', presenceAv: '#7c3aed',
+      avMuted: '#6b7486', avText: '#ffffff', tagBg: '#eef1f5', tagText: '#6b7486',
+      timerDoneBg: '#eef1f5', timerDoneText: '#9aa3b2'
+    };
+    const t = dark ? darkT : light;
+    const vars = Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ') + ';';
+    return { vars: vars };
+  }
+}
+</script>
 </body>
 </html>

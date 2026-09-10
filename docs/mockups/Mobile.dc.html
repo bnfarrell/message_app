@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+  <style>
+    body { margin: 0; font-family: "Space Grotesk", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); } a:hover { color: var(--roomNum); }
+    .mono { font-family: "JetBrains Mono", "Consolas", monospace; }
+    .tag { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+    .ico { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+    .card { background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .big { height: 56px; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; font-weight: 700; }
+    .tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; font-weight: 600; color: var(--text3); }
+    .tab.on { color: var(--roomNum); }
+    .seg { height: 40px; padding: 0 14px; border-radius: 8px; display: inline-flex; align-items: center; font-size: 13.5px; font-weight: 600; color: var(--text3); }
+    .seg.on { background: var(--accent); color: var(--accentText); }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; color: var(--text); background: var(--bg); {{vars}}">
+
+  <div style="padding: 56px 18px 12px; display: flex; align-items: center; gap: 12px;">
+    <div>
+      <div style="font-size: 22px; font-weight: 700;">My work</div>
+      <div class="mono" style="font-size: 12px; color: var(--text3);">Eli · Engineering · 4 open</div>
+    </div>
+    <span style="flex: 1;"></span>
+    <div style="width: 44px; height: 44px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border2); display: flex; align-items: center; justify-content: center; color: var(--text3);"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9c0-.5 0-1-.1-1.4A6 6 0 0 1 13.4 3.1C13 3 12.5 3 12 3z"></path></svg></div>
+    <div style="width: 44px; height: 44px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border2); display: flex; align-items: center; justify-content: center; color: var(--text3); position: relative;"><svg class="ico" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v5l2 3H4l2-3z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg><span style="position: absolute; top: 8px; right: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--danger); border: 2px solid var(--surface);"></span></div>
+  </div>
+
+  <div style="padding: 0 18px 12px; display: flex; gap: 6px;">
+    <div class="seg on">Mine · 4</div>
+    <div class="seg">Engineering · 9</div>
+    <div class="seg">Done</div>
+  </div>
+
+  <div style="flex: 1; padding: 0 18px; display: flex; flex-direction: column; gap: 12px; overflow: hidden;">
+
+    <div class="card" style="box-shadow: inset 3px 0 0 var(--accent);">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="mono" style="font-size: 26px; font-weight: 600; color: var(--roomNum); line-height: 1;">3F</span>
+        <div style="flex: 1;"><div style="font-size: 16px; font-weight: 600;">Ice machine not dispensing</div><div style="font-size: 12.5px; color: var(--text3);">Public area · 3rd floor vending</div></div>
+        <span class="tag" style="background: var(--tagBg); color: var(--tagText);">Normal</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text3);"><span class="tag" style="background: var(--okBg); color: var(--okText); height: 22px;">IN PROGRESS</span> started <span class="mono">18:23</span> · 41 min</div>
+      <div style="display: flex; gap: 8px;">
+        <div class="big" style="flex: 1; background: var(--okBtn); color: var(--okBtnText);"><svg class="ico" style="width: 20px; height: 20px;" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"></path></svg> Complete</div>
+        <div class="big" style="width: 56px; background: var(--surface2); border: 1px solid var(--border3); color: var(--text2);"><svg class="ico" style="width: 20px; height: 20px;" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="11" r="2"></circle><path d="M21 16l-5-5-8 8"></path></svg></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="mono" style="font-size: 26px; font-weight: 600; color: var(--roomNum); line-height: 1;">221</span>
+        <div style="flex: 1;"><div style="font-size: 16px; font-weight: 600;">Toilet running constantly</div><div style="font-size: 12.5px; color: var(--text3);">Guest in room · knock first</div></div>
+        <span class="tag" style="background: var(--tagBg); color: var(--tagText);">Normal</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text3);"><span class="tag" style="background: var(--tagBg); color: var(--text2); height: 22px;">ASSIGNED</span> by Sam · 38 min ago</div>
+      <div class="big" style="background: var(--accent); color: var(--accentText);"><svg class="ico" style="width: 20px; height: 20px;" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"></path></svg> Start</div>
+    </div>
+
+    <div class="card">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="mono" style="font-size: 26px; font-weight: 600; color: var(--roomNum); line-height: 1;">509</span>
+        <div style="flex: 1;"><div style="font-size: 16px; font-weight: 600;">TV remote not pairing</div><div style="font-size: 12.5px; color: var(--text3);">Vacant until 16:00 tomorrow</div></div>
+        <span class="tag" style="background: var(--tagBg); color: var(--tagText);">Low</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text3);"><span class="tag" style="background: var(--tagBg); color: var(--text2); height: 22px;">ASSIGNED</span> by Sam · 2 h ago</div>
+      <div class="big" style="background: var(--accent); color: var(--accentText);"><svg class="ico" style="width: 20px; height: 20px;" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"></path></svg> Start</div>
+    </div>
+
+    <div class="card" style="opacity: 0.75;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="mono" style="font-size: 26px; font-weight: 600; color: var(--text3); line-height: 1;">412</span>
+        <div style="flex: 1;"><div style="font-size: 16px; font-weight: 600;">AC not cooling</div><div style="font-size: 12.5px; color: var(--text3);">Done 18:56 · guest told · awaiting Sam's check</div></div>
+        <span class="tag" style="background: var(--okBg); color: var(--okText);">COMPLETE</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="height: 76px; border-top: 1px solid var(--border); background: var(--nav); display: flex; padding-bottom: 10px;">
+    <div class="tab on"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"></rect><rect x="10" y="4" width="5" height="10" rx="1"></rect><rect x="17" y="4" width="4" height="13" rx="1"></rect></svg> Work</div>
+    <div class="tab"><svg class="ico" viewBox="0 0 24 24"><path d="M3 13h4l2 3h6l2-3h4"></path><path d="M5 6h14l2 7v6H3v-6z"></path></svg> Inbox</div>
+    <div class="tab"><svg class="ico" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v5l2 3H4l2-3z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg> Alerts</div>
+    <div class="tab"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path></svg> Me</div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Theme"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? true;
+    const darkT = {
+      bg: '#0e1116', bg2: '#11151b', nav: '#0b0e12', surface: '#161a21', surface2: '#1a1f28',
+      border: '#1f242d', border2: '#262c36', border3: '#2c3441',
+      text: '#e7eaf0', text2: '#aab2c0', text3: '#8b94a5', text4: '#59627a',
+      accent: '#f0b323', accentText: '#0e1116', roomNum: '#f0b323', sel: '#1a1f28',
+      outBg: '#2b3a55', outText: '#e7eaf0', autoBg: '#1a1f28', autoText: '#aab2c0', autoBorder: '#2c3441',
+      noteBg: '#2a2410', noteBorder: '#5a4a12', noteText: '#f5dfa0', noteIcon: '#f0b323',
+      okBg: '#12301f', okText: '#4ade80', okBorder: '#1f5a3a', okBtn: '#4ade80', okBtnText: '#0e1116', okBanner: '#d1fae5',
+      warnBg: '#3a2a10', warnText: '#f0b323', dangerBg: '#3a1418', dangerText: '#ff5d5d', danger: '#ff5d5d',
+      presenceBg: '#2a2140', presenceText: '#c4b5fd', presenceAv: '#a78bfa',
+      avMuted: '#8b94a5', avText: '#0e1116', tagBg: '#1f242d', tagText: '#8b94a5',
+      timerDoneBg: '#161a21', timerDoneText: '#8b94a5'
+    };
+    const light = {
+      bg: '#f2f4f7', bg2: '#f7f8fa', nav: '#ffffff', surface: '#ffffff', surface2: '#eef1f5',
+      border: '#dfe3ea', border2: '#d3d9e2', border3: '#c5ccd8',
+      text: '#0e1116', text2: '#3d4655', text3: '#6b7486', text4: '#9aa3b2',
+      accent: '#f0b323', accentText: '#0e1116', roomNum: '#9a6b00', sel: '#fff7e0',
+      outBg: '#2b3a55', outText: '#ffffff', autoBg: '#eef1f5', autoText: '#3d4655', autoBorder: '#d3d9e2',
+      noteBg: '#fff8e1', noteBorder: '#e6c96a', noteText: '#5c4300', noteIcon: '#9a6b00',
+      okBg: '#e3f7ea', okText: '#15803d', okBorder: '#a7e3bd', okBtn: '#15803d', okBtnText: '#ffffff', okBanner: '#064e3b',
+      warnBg: '#fff1cf', warnText: '#8a5a10', dangerBg: '#fde4e4', dangerText: '#b91c1c', danger: '#dc2626',
+      presenceBg: '#ede9fe', presenceText: '#5b21b6', presenceAv: '#7c3aed',
+      avMuted: '#6b7486', avText: '#ffffff', tagBg: '#eef1f5', tagText: '#6b7486',
+      timerDoneBg: '#eef1f5', timerDoneText: '#9aa3b2'
+    };
+    const t = dark ? darkT : light;
+    const vars = Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ') + ';';
+    return { vars: vars };
+  }
+}
+</script>
+</body>
+</html>
