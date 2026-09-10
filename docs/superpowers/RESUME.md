@@ -21,11 +21,11 @@ Remote to push to when done: **https://github.com/bnfarrellUUS/message_app** (no
 
 ## Where the build stands
 
-**Tasks 1–7 of 24 committed and green.** Suite: **58 passing, 0 warnings**
+**Tasks 1–8 of 24 committed and green.** Suite: **64 passing, 0 warnings**
 (`cd server && ../.venv/Scripts/python.exe -m pytest -q`). Working tree clean.
 
-Task 7's independent review has **not** been run yet — that is the first thing to do on resume
-(package the diff `21fec0c..e69ff49` and dispatch a reviewer), before starting Task 8.
+Reviews for Tasks 6 and 7 were run at the top of session 2 and both came back **clean**
+(spec ✅, quality Approved, 0 Critical/Important). No reviews are owed.
 
 | # | Task | State |
 |---|---|---|
@@ -34,10 +34,11 @@ Task 7's independent review has **not** been run yet — that is the first thing
 | 3 | Test fixtures, conftest, template-DB copy, login helper | ✅ `b07acd5`, `aa1e88e` |
 | 4 | Auth: bcrypt, server-side sessions, decorators, capabilities, rate limiting | ✅ `4c89683` |
 | 5 | Departments/users routes + **property-isolation suite** (acceptance #9) | ✅ `5fdf2b6` |
-| 6 | SMS segments, card redaction, quick-reply interpolation | ✅ `0f130aa`, `21fec0c` |
-| 7 | Realtime event outbox, connection registry, notifications | ✅ `9471872`, `e69ff49` — **review still owed** |
-| **8** | **Job queue and worker — start here** | Not started |
-| 9–24 | Channels/mock SMS, guests+consent, conversations, work orders, content, analytics, WS/presence, PMS, dev endpoints, seed, schema export, README | Not started |
+| 6 | SMS segments, card redaction, quick-reply interpolation | ✅ `0f130aa`, `21fec0c` — review clean |
+| 7 | Realtime event outbox, connection registry, notifications | ✅ `9471872`, `e69ff49` — review clean |
+| 8 | Job queue and worker (retry/backoff/dead-letter, in-process thread) | ✅ `9d45faf` — review in flight |
+| **9** | **Channels/mock SMS, outbound + delivery-status handlers — in progress** | Dispatched |
+| 10–24 | Guests+consent, conversations, work orders, content, analytics, WS/presence, PMS, dev endpoints, seed, schema export, README | Not started |
 
 ## How to resume the process
 
