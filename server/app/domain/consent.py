@@ -19,15 +19,14 @@ Keyword = Literal["stop", "start", "help"]
 
 
 def classify_keyword(body: str) -> Keyword | None:
-    words = body.strip().lower().split()
-    if not words:
+    normalized = body.strip().lower().rstrip(".,!?")
+    if not normalized:
         return None
-    first = words[0].strip(".,!?")
-    if first in STOP_WORDS:
+    if normalized in STOP_WORDS:
         return "stop"
-    if first in START_WORDS:
+    if normalized in START_WORDS:
         return "start"
-    if first in HELP_WORDS:
+    if normalized in HELP_WORDS:
         return "help"
     return None
 

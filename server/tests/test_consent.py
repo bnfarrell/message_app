@@ -7,12 +7,18 @@ from app.schemas.enums import SmsConsentStatus
 
 
 @pytest.mark.parametrize("body,expected", [
-    ("STOP", "stop"), ("stop", "stop"), (" Stop please ", "stop"), ("STOPALL", "stop"),
+    ("STOP", "stop"), ("stop", "stop"), ("stop.", "stop"), (" STOP ", "stop"), ("STOPALL", "stop"),
     ("UNSUBSCRIBE", "stop"), ("CANCEL", "stop"), ("END", "stop"), ("QUIT", "stop"),
     ("START", "start"), ("UNSTOP", "start"), ("YES", "start"),
-    ("HELP", "help"), ("help me", "help"),
-    ("Please stop the AC noise", None),     # 'stop' not the first word → real message
+    ("HELP", "help"),
+    # Whole-message matching (CTIA/carrier convention): a keyword embedded in a real
+    # message must NOT misfire as an opt-out/opt-in/help request.
+    (" Stop please ", None),
+    ("help me", None),
+    ("Please stop the AC noise", None),
     ("Can you help with towels?", None),
+    ("Stop by room 400 later", None),
+    ("Yes, extra towels please", None),
     ("", None),
 ])
 def test_classify_keyword(body, expected):
