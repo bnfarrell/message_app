@@ -454,7 +454,10 @@ Left: pick a seeded guest or enter a phone. Centre: a phone frame rendering the 
 
 ## 6. Compliance behaviours (design.md §9.1)
 
-- STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT (case-insensitive, trimmed, alone or first word) → `opted_out`, `sms_consent_at`, source `sms_keyword`; exactly one confirmation ("You're unsubscribed from <property> messages. Reply START to resume."). START/UNSTOP/YES → `opted_in`.
+- STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT (case-insensitive, trimmed of whitespace and trailing punctuation, and matching the **whole message**) → `opted_out`, `sms_consent_at`, source `sms_keyword`; exactly one confirmation ("You're unsubscribed from <property> messages. Reply START to resume."). START/UNSTOP/YES → `opted_in`, matched the same whole-message way.
+  (Amended during Task 10: the original rule said "alone or first word", which unsubscribes a guest who writes
+  "Stop by room 400 later" and opts in one who writes "Yes, extra towels please". Whole-message matching is the
+  CTIA/carrier convention and avoids both misfires.)
 - HELP → `property.settings.help_text`.
 - Send path rejects `opted_out` with `CONSENT_OPTED_OUT` except the confirmation itself. The rejection creates no `message` row; it audit-logs the attempt.
 - Card numbers: sequences of 13–19 digits allowing spaces/dashes that pass Luhn → replaced with `**** **** **** 1234` before storage, `redacted=true`; the UI shows a "Card number redacted" chip.
