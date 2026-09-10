@@ -16,7 +16,8 @@ from app.domain.sms import is_gsm7, segment_count
     ("Hello 😊", 1),                    # emoji forces UCS-2: 70 per single segment
     ("😊" * 35, 1),                     # 35 emoji = 70 UTF-16 code units
     ("😊" * 36, 2),
-    ("你好" * 34, 2),                    # 68 units UCS-2: 67 per segment when multipart
+    ("你好" * 35, 1),                    # 70 units UCS-2: exactly one segment
+    ("你好" * 36, 2),                    # 72 units UCS-2: multipart, 67 per segment
 ])
 def test_segment_count(body, expected):
     assert segment_count(body) == expected
