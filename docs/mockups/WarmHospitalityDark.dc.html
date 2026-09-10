@@ -225,10 +225,10 @@
   </div>
 </div>
 </x-dc>
-<script data-dc-script data-props='{"dark":{"editor":"boolean","default":false,"section":"Theme"}}'>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Theme"}}'>
 class Component extends DCLogic {
   renderVals() {
-    const dark = this.props.dark ?? false;
+    const dark = this.props.dark ?? true;
     const light = {
       bg: '#f6f1e8', bg2: '#fbf8f2', surface: '#ffffff', border: '#e8dfd1', border2: '#ddd3c4',
       text: '#2a2420', text2: '#4f453d', text3: '#8a7d70', text4: '#a39484',

@@ -1,14 +1,20 @@
 {
+  "pages": [
+    { "id": "page-1", "name": "B & C · light and dark" },
+    { "id": "page-2", "name": "A · not selected" }
+  ],
   "artboards": [
-    { "file": "Main.dc.html", "title": "Option A · Ops Console", "x": 0, "y": 0, "w": 1440, "h": 900 },
-    { "file": "WarmHospitality.dc.html", "title": "Option B · Warm Hospitality", "x": 1560, "y": 0, "w": 1440, "h": 900 },
-    { "file": "NightShift.dc.html", "title": "Option C · Night Shift", "x": 3120, "y": 0, "w": 1440, "h": 900 }
+    { "file": "WarmHospitality.dc.html", "title": "Option B · Warm Hospitality · light", "x": 0, "y": 0, "w": 1440, "h": 900, "page": "page-1" },
+    { "file": "WarmHospitalityDark.dc.html", "title": "Option B · Warm Hospitality · dark", "x": 1560, "y": 0, "w": 1440, "h": 900, "page": "page-1" },
+    { "file": "NightShift.dc.html", "title": "Option C · Night Shift · dark", "x": 0, "y": 1140, "w": 1440, "h": 900, "page": "page-1" },
+    { "file": "NightShiftLight.dc.html", "title": "Option C · Night Shift · light", "x": 1560, "y": 1140, "w": 1440, "h": 900, "page": "page-1" },
+    { "file": "Main.dc.html", "title": "Option A · Ops Console", "x": 0, "y": 0, "w": 1440, "h": 900, "page": "page-2" }
   ],
   "annotations": [
-    { "id": "brief", "x": 0, "y": -320, "w": 560, "text": "Shared inbox — three directions (design.md §6.1)\n\nSame screen, same data, three deliberately different answers to \"what should this feel like?\". Pick one and I'll build the full screen set (board, work order detail, analytics, admin, phone simulator, mobile) in that direction." },
-    { "id": "a-note", "x": 0, "y": -150, "w": 440, "text": "A · Ops Console\nFor: front desk agents living in the inbox all shift.\nBet: density and speed — 6+ conversations visible, keyboard shortcuts on every action, mono room numbers, compact SLA chips.\nTradeoff: feels like software, not hospitality. Small targets on a phone." },
-    { "id": "b-note", "x": 1560, "y": -150, "w": 440, "text": "B · Warm Hospitality\nFor: properties that want staff tools to feel like the brand.\nBet: warmth and calm — serif guest names, cream ground, plain-language copy (\"Guests waiting\", \"Texts OK\"), roomier rows.\nTradeoff: ~30% fewer conversations per screen; less at-a-glance status." },
-    { "id": "c-note", "x": 3120, "y": -150, "w": 440, "text": "C · Night Shift\nFor: back-of-house and shift boards; also the strongest base for department staff on phones.\nBet: high contrast, big 44px targets, countdown timers as the primary signal, dark for dim environments.\nTradeoff: dark UI in a bright lobby on a shared front-desk screen; loud." }
+    { "id": "brief", "x": 0, "y": -300, "w": 620, "page": "page-1", "text": "Options B and C, each in light and dark.\n\nEvery artboard has a \"dark\" switch in the chips above it — flip it to see the same frame in the other mode. The two frames per row show both modes side by side so you can compare without clicking.\n\nIn the built app this is one toggle in the user menu, remembered per person, defaulting to the device's setting." },
+    { "id": "b-note", "x": 0, "y": -130, "w": 480, "page": "page-1", "text": "B · Warm Hospitality\nLight: cream ground, deep-green accent. Dark: warm charcoal (not black), sage accent — still reads as the brand at night.\nTradeoff: roomier rows mean fewer conversations per screen." },
+    { "id": "c-note", "x": 0, "y": 1010, "w": 480, "page": "page-1", "text": "C · Night Shift\nDark is its native mode: high contrast, amber, countdown timers, 44px targets. Light keeps the structure and timers but lets amber recede to a room-number highlight so it isn't loud in a bright lobby.\nTradeoff: the densest chrome — the conversation column is the narrowest of the three." },
+    { "id": "a-note", "x": 0, "y": -130, "w": 480, "page": "page-2", "text": "A · Ops Console — kept for reference, not selected." }
   ],
-  "launch": { "view": "canvas" }
+  "launch": { "view": "canvas", "page": "page-1" }
 }
