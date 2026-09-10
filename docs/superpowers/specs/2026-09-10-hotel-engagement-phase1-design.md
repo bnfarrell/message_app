@@ -1,0 +1,466 @@
+# Hotel Engagement Platform — Phase 1 MVP Design
+
+**Date:** 2026-09-10
+**Source spec:** `docs/design.md` (v1.0). This document narrows that spec to the Phase 1 MVP (§11 Phase 1, §11.1 acceptance criteria) and records the stack decisions that differ from it.
+**Status:** approved for planning.
+
+---
+
+## 0. Decisions that differ from `docs/design.md`
+
+| Area | Design doc says | This build does | Why |
+|---|---|---|---|
+| Database | PostgreSQL + Prisma | SQLite via Node's built-in `node:sqlite`, hand-written SQL | User request. Node 26 ships `node:sqlite`; no native compile. Fallback: `better-sqlite3` if an API gap appears — the `db/` layer is the only thing that changes. |
+| Frontend | Next.js 15 App Router | Vite + React 18 + TypeScript SPA | User request. Two processes (API + static SPA) instead of one. |
+| Queue / presence | BullMQ + Redis | SQLite `job` table + in-memory presence map, worker in-process | No Redis. Single process is correct for one property (§2 A7). Worker is a bounded module with its own `start()` so it can be split out later. |
+| Realtime pub/sub | Redis-backed | Direct in-process broadcast to `ws` clients | Same reason. |
+| Auth | Auth.js + SSO + TOTP MFA | bcrypt + session cookies. MFA/SSO deferred. | Single-property local MVP. Isolation and roles are fully built; MFA is a bolt-on. |
+| SMS | Twilio | `MockSmsAdapter` behind the `ChannelAdapter` interface, plus a dev phone simulator | No credentials; 10DLC takes weeks. Consent, STOP, delivery status and failure handling are real; only the wire is fake. |
+| PMS | Real vendor adapter | `MockPmsAdapter` | As the design doc itself recommends for Phase 1. |
+| Push notifications | Staff PWA with browser push | Persisted in-app notification centre + realtime delivery; installable PWA manifest. Browser Web Push deferred. | The persisted `notification` table is the part §6.10 says matters; Web Push adds VAPID/service-worker plumbing without changing the model. |
+
+Everything else follows `docs/design.md` for the Phase 1 feature set.
+
+## 1. Scope
+
+**In:** auth and per-property roles · guests and stays via `MockPmsAdapter` · mock SMS inbound/outbound with consent and STOP/HELP · shared inbox (queue, filters, conversation view, assign/transfer, internal notes, archive/reopen, snooze, presence, typing) · quick replies · digital assets · work orders with state machine, audit events, and the closed-loop completion prompt · notification centre · basic analytics · seed data · tests for §11.1.
+
+**Out (deferred, data model does not block them):** housekeeping, preventative maintenance, checklists, hotel log, outreach, automation engine, guest tokenised web surface, guest tags, number blocking, sentiment, translation, WhatsApp, MFA/SSO, browser Web Push, real Twilio/PMS adapters, multi-property UI, offline PWA mode.
+
+## 2. Repository layout
+
+```
+docs/design.md                          full v1.0 spec
+docs/superpowers/specs/                 this file
+docs/superpowers/plans/                 implementation plan
+package.json                            npm workspaces root; scripts: dev, build, test, seed
+packages/shared/                        TS types, enums, zod schemas — imported by server and web
+packages/server/                        Express API + ws + worker + SQLite
+  src/db/                               connection, schema.sql, migrate.ts, seed.ts
+  src/auth/                             password.ts, session.ts, middleware.ts
+  src/channels/                         ChannelAdapter.ts, MockSmsAdapter.ts, inbound.ts
+  src/pms/                              PmsAdapter.ts, MockPmsAdapter.ts, handleEvent.ts
+  src/domain/                           one file per aggregate (see §4)
+  src/queue/                            jobs.ts, worker.ts, handlers/
+  src/realtime/                         server.ts, presence.ts, broadcast.ts
+  src/routes/                           thin Express routers
+  src/app.ts                            builds the Express app (testable, no listen)
+  src/index.ts                          listen + start worker + start mock PMS
+  test/                                 vitest + supertest
+packages/web/                           Vite + React
+  src/api/                              fetch client, TanStack Query hooks, ws client
+  src/auth/                             session context, role helpers, landing redirect
+  src/components/ui/                    button, input, dialog, dropdown, badge, avatar
+  src/features/inbox|board|analytics|notifications|admin|sim|login
+  src/App.tsx, main.tsx, routes.tsx
+  public/manifest.webmanifest
+```
+
+Tooling: npm workspaces, TypeScript strict everywhere, ESLint + Prettier, Vitest (server and web), Playwright for one E2E smoke suite. Dev: `npm run dev` runs server (tsx watch, port 4000) and Vite (port 5173, proxying `/api` and `/ws`).
+
+## 3. Data model
+
+### 3.1 SQLite conventions
+
+- `id TEXT PRIMARY KEY` — UUID v4 from `crypto.randomUUID()`.
+- Timestamps `TEXT` ISO-8601 UTC. Every table has `created_at`, `updated_at`; `updated_at` maintained by the domain layer.
+- Enums as `TEXT` with `CHECK (col IN (...))`. The same literal unions live in `packages/shared/src/enums.ts`; a test asserts the two agree.
+- JSON columns as `TEXT`, parsed/validated with zod schemas from `shared` on read and write.
+- `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000`.
+- Migrations: numbered `.sql` files in `src/db/migrations/`, applied in order, recorded in `schema_migration(version, applied_at)`.
+- Every property-scoped table has `property_id` and an index on it.
+
+### 3.2 Tables
+
+```
+property
+  id, name, code UNIQUE, timezone, address, phone, sms_number,
+  brand, currency, logo_url, primary_color,
+  settings TEXT   -- {sla_minutes: 15, auto_resolve_hours: 4,
+                  --  quiet_hours: {start:"21:00", end:"08:00"},
+                  --  help_text: "..."}
+
+user_account
+  id, email UNIQUE, phone, first_name, last_name, avatar_url,
+  locale DEFAULT 'en', status CHECK(active|disabled),
+  password_hash, last_seen_at, notification_prefs TEXT
+
+property_membership
+  id, user_id → user_account, property_id → property,
+  role CHECK(agent|dept_staff|supervisor|manager|admin|corporate),
+  department_id → department NULL,
+  UNIQUE(user_id, property_id)
+
+department
+  id, property_id, name,
+  type CHECK(front_desk|housekeeping|engineering|food_beverage|spa|security|valet|other),
+  escalation_minutes INT, active INT
+
+guest
+  id, property_id, first_name, last_name, phone_e164 (indexed with property_id),
+  email, locale, loyalty_program, loyalty_tier, loyalty_number,
+  vip INT, pms_profile_id,
+  sms_consent_status CHECK(unknown|opted_in|opted_out),
+  sms_consent_at, sms_consent_source, notes_summary
+  UNIQUE(property_id, phone_e164)
+
+stay
+  id, guest_id, property_id, pms_reservation_id,
+  room_number, room_type, rate_code,
+  status CHECK(reserved|checked_in|checked_out|cancelled|no_show),
+  arrival_date, departure_date, actual_checkin_at, actual_checkout_at,
+  adults, children, group_code, market_segment,
+  is_return_guest INT, stay_count INT, raw_pms TEXT
+
+conversation
+  id, property_id, guest_id, stay_id NULL,
+  status CHECK(open|snoozed|archived),
+  assigned_user_id NULL, assigned_department_id NULL,
+  channel_primary CHECK(sms|web|whatsapp|email),
+  last_guest_message_at, last_staff_message_at,
+  first_response_seconds INT NULL,
+  sla_due_at NULL, sla_breach_notified_at NULL,
+  resolution_category_id NULL, snoozed_until NULL,
+  archived_at NULL
+
+message
+  id, conversation_id, property_id,
+  direction CHECK(inbound|outbound),
+  author_type CHECK(guest|staff|system|automation),
+  author_user_id NULL,
+  channel CHECK(sms|web|whatsapp|email),
+  body, attachments TEXT, digital_asset_id NULL,
+  delivery_status CHECK(queued|sent|delivered|failed|undelivered),
+  provider_message_id, provider_error_code, provider_error_message,
+  redacted INT DEFAULT 0, sent_at, delivered_at
+
+internal_note
+  id, conversation_id, property_id, author_user_id, body,
+  mentions TEXT   -- JSON array of user ids
+  -- NEVER joined into any guest-facing query. Separate table by design.
+
+resolution_category
+  id, property_id, name, parent_id NULL, active INT
+
+work_order
+  id, property_id, title, description,
+  type CHECK(maintenance|housekeeping|guest_request|pm|other),
+  priority CHECK(low|normal|high|urgent),
+  status CHECK(open|assigned|in_progress|blocked|complete|verified|cancelled),
+  location_type CHECK(room|public_area|equipment|other), location_ref,
+  department_id NULL, assigned_user_id NULL,
+  reported_by_user_id, source_conversation_id NULL, source_message_id NULL,
+  attachments TEXT, due_at, started_at, completed_at, verified_at,
+  guest_notified_at NULL, acknowledged_at NULL
+
+work_order_event
+  id, work_order_id, property_id, user_id NULL,
+  type CHECK(created|status_changed|assigned|commented|priority_changed),
+  from_value, to_value, comment
+
+draft_prompt
+  id, property_id, conversation_id, work_order_id, body,
+  status CHECK(pending|sent|dismissed), resolved_at, resolved_by_user_id
+  -- the unsent, editable closed-loop message (design.md §6.4)
+
+quick_reply
+  id, property_id, department_id NULL, shortcut, title, body,
+  category, locale, usage_count INT, active INT
+  UNIQUE(property_id, shortcut)
+
+digital_asset
+  id, property_id, name, description, category,
+  type CHECK(file|link|menu|map|form),
+  url, short_code UNIQUE, thumbnail_url, department_id NULL,
+  active INT, valid_from, valid_until, send_count INT
+
+session
+  id, user_id, token_hash UNIQUE, expires_at, ip, user_agent, last_seen_at
+
+job
+  id, type, payload TEXT, run_at, attempts INT, max_attempts INT,
+  status CHECK(queued|running|done|failed|dead),
+  last_error, locked_at, finished_at
+  INDEX (status, run_at)
+
+notification
+  id, property_id, user_id, type, title, body,
+  entity_type, entity_id, read_at NULL
+
+audit_log
+  id, property_id NULL, actor_user_id NULL, action,
+  entity_type, entity_id, before TEXT, after TEXT, ip, user_agent
+  -- append-only: no UPDATE/DELETE path exists in the domain layer
+
+pms_event
+  id, integration_key, external_id, event_type, payload TEXT,
+  processed_at, error
+  UNIQUE(integration_key, external_id, event_type)
+```
+
+## 4. Backend
+
+### 4.1 Domain layer
+
+One module per aggregate in `src/domain/`. Every exported function takes `propertyId` as its first argument and includes `property_id = ?` in every query. Routes never touch the database directly.
+
+| Module | Responsibilities |
+|---|---|
+| `conversations` | list with filters (`all\|mine\|unassigned\|overdue\|resolved\|dept:<id>\|archived`), get with messages + notes + open WOs + pending prompts, assign to user/department, archive (optional resolution category), unarchive, snooze/unsnooze, `findOrCreateForGuest`, `reopenIfArchived` |
+| `messages` | `send()` — **the only outbound path** — and `recordInbound()`, `retry()`, `updateDeliveryStatus()` |
+| `consent` | `applyInboundKeywords()` (STOP family, HELP), `assertCanSend()`, `recordOptIn()` |
+| `redaction` | card-number pattern + Luhn check → `****` masked body, returns `{body, redacted}` |
+| `notes` | create, list; mention extraction → notifications |
+| `guests`, `stays` | upsert from PMS shape, in-house lookup by phone |
+| `workOrders` | create (incl. `fromConversation` prefill), `transition()` with `assertTransition()`, assign, comment, list/board, event log; on `→ complete` with `source_conversation_id` creates `draft_prompt` |
+| `draftPrompts` | list pending for conversation, mark sent/dismissed |
+| `quickReplies` | CRUD, search by shortcut/body, `interpolate(body, ctx)` with `{{guest_first_name}}`, `{{room_number}}`, `{{property_name}}`, `{{agent_first_name}}`, `{{departure_date}}` |
+| `assets` | CRUD, short link resolution `/a/:short_code` |
+| `notifications` | create (+ broadcast), list, mark read, `notifyUserOrDepartment()` |
+| `analytics` | volume by day/hour, first-response p50/p90 (computed in JS from fetched durations), SLA breach count, per-agent table, WO by type/status/department, mean time to resolution |
+| `audit` | `record()`; called by every mutation of guest data, messages, memberships, consent |
+| `sms` | `segmentCount(body)` — GSM-7 vs UCS-2 detection, 160/153 and 70/67 rules |
+
+**Work order transitions** (`assertTransition`):
+
+```
+open        → assigned | in_progress | cancelled
+assigned    → in_progress | open | cancelled
+in_progress → blocked | complete | cancelled
+blocked     → in_progress | cancelled
+complete    → verified | in_progress   (reopen if inspection fails)
+verified    → (terminal)
+cancelled   → (terminal)
+```
+
+Assigning a user while `open` moves to `assigned`. Setting `acknowledged_at` happens on first assignee view or first transition by the assignee.
+
+**Send path** (`messages.send({propertyId, conversationId, body, authorUserId, authorType, digitalAssetId?})`):
+
+1. Load conversation + guest. `consent.assertCanSend(guest)` — throws `ConsentError` if `opted_out`, except when `allowOptOutConfirmation` is set (used only for the STOP confirmation itself). Rejections are audit-logged with reason `CONSENT_OPTED_OUT`.
+2. Append asset short link if `digitalAssetId`; bump `send_count`.
+3. Insert `message` with `delivery_status=queued`, `sent_at=now`.
+4. Update conversation `last_staff_message_at`, clear `sla_due_at`, set `first_response_seconds` if null and a guest message exists.
+5. `enqueue('outbound.send', {messageId})`.
+6. Broadcast `message.created`. Return the message.
+
+**Inbound path** (`channels/inbound.handle({propertyId, from, to, body, providerMessageId})`):
+
+1. `guests.findOrCreateByPhone`; if `sms_consent_status=unknown` → `opted_in`, source `inbound_sms`.
+2. `stays.findInHouseForGuest` → attach to conversation if found.
+3. `conversations.findOrCreateForGuest` (reopens archived; sets `status=open`, clears `archived_at`).
+4. `consent.applyInboundKeywords(body)` — STOP family: set `opted_out`, send one confirmation via `messages.send` with `allowOptOutConfirmation`, still store the inbound. HELP: send help text. Both return `handled=true` and skip SLA.
+5. `redaction.redact(body)`.
+6. Insert `message(inbound, guest, delivered)`, set `last_guest_message_at`, `sla_due_at = now + sla_minutes`, `sla_breach_notified_at = null`.
+7. `notifications.notifyUserOrDepartment(assigned_user_id ?? assigned_department_id ?? front_desk)`.
+8. Broadcast `conversation.created` or `conversation.updated`, and `message.created`.
+
+Idempotent on `provider_message_id` per property.
+
+### 4.2 Channel adapter
+
+```ts
+interface ChannelAdapter {
+  readonly channel: Channel;              // 'sms'
+  readonly supportsRichMedia: boolean;
+  readonly maxLength: number;
+  send(to: string, body: string, meta: {messageId: string}): Promise<{providerMessageId: string}>;
+  verifyInbound(req: Request): boolean;
+  parseInbound(payload: unknown): {from: string; to: string; body: string; providerMessageId: string};
+}
+```
+
+`MockSmsAdapter`:
+- `send()` returns `mock-<uuid>` immediately and enqueues `mock.deliveryStatus` jobs: `sent` at +400 ms, `delivered` at +1200 ms. If `to` ends in `0000`, enqueues `failed` at +400 ms with `provider_error_code='30007'`, message "Carrier violation (mock)".
+- `verifyInbound` checks header `x-mock-secret` against `MOCK_SMS_SECRET` env (default `dev`).
+- `parseInbound` accepts `{From, To, Body, MessageSid}` — the Twilio field names — so the simulator posts Twilio-shaped payloads and the future `TwilioAdapter` only differs in `verifyInbound`.
+
+Registry: `channels/index.ts` exports `getAdapter(channel)`; env `SMS_ADAPTER=mock` is the only value in Phase 1.
+
+### 4.3 PMS adapter
+
+```ts
+interface PmsAdapter {
+  start(onEvent: (e: PmsEvent) => Promise<void>): void;
+  stop(): void;
+  fetchInHouse(propertyId: string): Promise<NormalizedStay[]>;
+}
+type PmsEvent = {externalId: string; type: 'reservation.created'|'stay.checked_in'|'stay.checked_out'|'stay.room_changed'; propertyId: string; stay: NormalizedStay; guest: NormalizedGuest; raw: unknown};
+```
+
+`MockPmsAdapter`: every `PMS_TICK_SECONDS` (default 90, `0` disables) picks a seeded `reserved` stay arriving today and checks it in, or a `checked_in` stay departing today and checks it out. Dev endpoints under `/api/dev/pms/` fire a specific event on demand. `pms/handleEvent.ts` upserts guest and stay, records `pms_event`, and is a no-op on duplicate `(integration_key, external_id, event_type)`.
+
+### 4.4 Queue
+
+`queue/jobs.ts`: `enqueue(type, payload, {runAt?, maxAttempts?=5})`. `queue/worker.ts`: `start({intervalMs=500})` / `stop()`. Each tick, in one transaction, claims up to 20 jobs where `status='queued' AND run_at<=now` by setting `status='running', locked_at=now`, then runs each handler. Success → `done`. Error → `attempts+1`; if `attempts<max_attempts` → `queued` with `run_at = now + 2^attempts * 1s`, else `dead`. `last_error` records the message. Jobs `running` for > 60 s are reclaimed (crash recovery on restart).
+
+Handlers:
+
+| type | does |
+|---|---|
+| `outbound.send` | load message, call adapter, set `provider_message_id`; on adapter throw set `failed` + error and rethrow for retry |
+| `mock.deliveryStatus` | apply a status transition to a message, broadcast `message.status_changed` |
+| `sla.sweep` | recurring every 30 s: conversations with `sla_due_at < now AND sla_breach_notified_at IS NULL` → notification to assignee else department, set `sla_breach_notified_at`, broadcast `conversation.updated` |
+| `snooze.wake` | recurring every 60 s: `snoozed` with `snoozed_until <= now` → `open` |
+| `pms.tick` | recurring: drives `MockPmsAdapter` (when enabled) |
+
+Recurring jobs re-enqueue themselves at the end of each run; `index.ts` seeds them at startup if absent.
+
+### 4.5 Realtime
+
+`ws` (`WebSocketServer`) attached to the Node HTTP server at path `/ws`. On upgrade, parse the session cookie; reject without a valid session. Client sends `{type:'subscribe', propertyId}`; server verifies membership and joins the socket to that property's set.
+
+Server → client events (all `{type, propertyId, payload, at}`):
+`conversation.created` · `conversation.updated` · `message.created` · `message.status_changed` · `typing.update` · `presence.update` · `work_order.created` · `work_order.updated` · `draft_prompt.created` · `notification.created`
+
+Client → server: `subscribe` · `presence` `{conversationId|null, state:'viewing'|'composing'}` · `heartbeat`.
+
+`realtime/presence.ts`: `Map<conversationId, Map<userId, {state, seenAt, user:{id,firstName,avatarUrl}}>>`. Heartbeat 5 s; a sweeper every 5 s drops entries older than 10 s and broadcasts `presence.update` for changed conversations. `composing` is set when the composer gains focus (§6.1).
+
+`broadcast(propertyId, event)` is a plain function the domain layer and worker call; no pub/sub layer.
+
+### 4.6 Auth and authorisation
+
+- `POST /api/auth/login {email, password}` → bcrypt compare (cost 12) → insert `session` (random 32-byte token, stored as SHA-256 hash) → `Set-Cookie: sid=<token>; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200`.
+- `POST /api/auth/logout`, `GET /api/auth/me` → user + memberships.
+- `requireAuth`: loads session by hash, rejects expired → 401. Touches `last_seen_at` at most once per minute.
+- `requireProperty`: reads `:propertyId`, loads `property_membership` for `(user, property)`; none → **403**. Sets `req.ctx = {user, propertyId, membership}`.
+- `requireRole(...roles)` → 403 if `membership.role` not in list.
+- Capability map in `shared/src/permissions.ts` mirrors `design.md` §3.2 for the Phase 1 capabilities: `view_all_conversations`, `reply`, `assign`, `add_note`, `archive`, `create_work_order`, `close_work_order`, `view_property_analytics`, `view_own_stats`, `manage_admin`. `dept_staff` conversation list is filtered to `assigned_department_id = membership.department_id` or assigned to them.
+- Rate limit: login 10/min/IP; webhooks 60/min/IP.
+
+### 4.7 API
+
+All staff routes are under `/api/p/:propertyId/` and pass `requireAuth → requireProperty`.
+
+```
+POST   /api/auth/login | logout          GET /api/auth/me
+
+GET    conversations?filter=&dept=&cursor=&limit=
+GET    conversations/:id                   → conversation, guest, stay, messages, notes, workOrders, draftPrompts
+POST   conversations/:id/messages          {body, digitalAssetId?, draftPromptId?}
+POST   conversations/:id/messages/:mid/retry
+POST   conversations/:id/notes             {body}
+PATCH  conversations/:id                   {assignedUserId?|assignedDepartmentId?|status?|resolutionCategoryId?|snoozedUntil?}
+POST   conversations/:id/draft-prompts/:pid/dismiss
+
+GET    work-orders?status=&type=&dept=&assignee=&mine=
+POST   work-orders                         {..., sourceConversationId?, sourceMessageId?}
+GET    work-orders/prefill?conversationId=  → suggested title/description/location/department
+GET    work-orders/:id
+PATCH  work-orders/:id                     {status?|assignedUserId?|departmentId?|priority?|comment?}
+
+GET    quick-replies?q=      POST/PATCH/DELETE quick-replies[/:id]
+GET    assets                POST/PATCH/DELETE assets[/:id]
+GET    resolution-categories POST/PATCH/DELETE resolution-categories[/:id]
+GET    users                 POST/PATCH users[/:id]     (memberships managed here)
+GET    departments
+GET    notifications?unread=   POST notifications/:id/read   POST notifications/read-all
+GET    analytics/overview?from=&to=
+GET    analytics/agents?from=&to=
+GET    guests/:id
+
+POST   /api/hooks/sms/inbound              (adapter.verifyInbound; Twilio-shaped body)
+GET    /a/:short_code                      302 to asset url, bumps nothing (send_count is bumped on send)
+
+# dev only (NODE_ENV !== 'production')
+POST   /api/dev/pms/check-in/:stayId | check-out/:stayId
+GET    /api/dev/sim/guests                 seeded guests + phones for the simulator
+GET    /api/dev/sim/thread?phone=          outbound+inbound messages as the guest sees them
+```
+
+Errors: `{error: {code, message, details?}}`; zod validation → 400; `ConsentError` → 422 `CONSENT_OPTED_OUT`; `TransitionError` → 409.
+
+The conversation detail response is built by a zod schema `ConversationDetail` with `.strict()`; the guest-visible message list uses `GuestThread` (`/api/dev/sim/thread` and, later, the guest surface) which is also `.strict()` and has no field that could carry a note.
+
+## 5. Frontend
+
+### 5.1 Stack and conventions
+
+Vite · React 18 · TypeScript strict · Tailwind · TanStack Query · React Router v6 · zod (shared schemas parse API responses in dev). No component library; `components/ui/` holds ~8 small primitives. Server state only in TanStack Query; UI state in component/context. One `useRealtime()` hook owns the WebSocket, reconnects with backoff, invalidates queries by event type, and exposes presence/typing maps.
+
+### 5.2 Routes and screens
+
+| Route | Screen | Notes |
+|---|---|---|
+| `/login` | Login | Redirects to role landing after success |
+| `/app` | Landing redirect | agent → inbox; dept_staff, supervisor → board?mine=1; manager, admin, corporate → analytics |
+| `/app/inbox`, `/app/inbox/:id` | Inbox | Three columns ≥1024 px; two ≥768; one below with back nav |
+| `/app/board`, `/app/work-orders/:id` | Board / WO detail | Kanban by status + list toggle; detail with timeline and transition buttons that reflect `assertTransition` |
+| `/app/analytics` | Analytics | Date range; cards + tables; no charting lib (bars are CSS) |
+| `/app/notifications` | Notification centre | Also a bell + unread badge in nav |
+| `/app/admin/users`, `/quick-replies`, `/assets`, `/categories` | Admin CRUD | Admin only |
+| `/sim` | Phone simulator | Dev only; hidden in production build |
+
+Nav shows only items the role may use. Guest context panel shows guest, stay, consent status, open work orders, pending prompts, recent notes.
+
+### 5.3 Inbox behaviour
+
+- Queue sorted oldest-unanswered first. Row: unread state, assignee avatar, SLA chip (green → amber at 66 % → red past due), channel icon, presence avatars of others viewing.
+- Conversation header shows "Marcus is viewing" / "Marcus is replying" from presence.
+- Composer: `/` opens quick-reply palette filtered by shortcut and body; Enter inserts interpolated text. Asset picker appends short link. Segment counter shows `N chars · M segments`. Cmd/Ctrl+Enter sends.
+- Optimistic send: message appears as `queued`, updates via `message.status_changed`; `failed` shows error and a Retry button hitting `/retry`.
+- **Create work order** button opens a modal pre-filled from `/work-orders/prefill`; on save the WO appears in the context panel.
+- Pending `draft_prompt` renders as a banner above the composer: "Work order #204 (AC repair, 412) is complete. Let Sarah know?" with **Use draft** (loads body into composer, passes `draftPromptId` on send → prompt marked `sent`, WO `guest_notified_at` set) and **Dismiss**.
+- Internal notes render in-thread visually distinct (amber, "Internal") and come from a separate array in the response.
+- Archive prompts for an optional resolution category. Resolved and Archived are separate filters.
+- Opted-out guests show a red consent chip; the composer is still enabled (the server enforces) but shows a warning.
+
+### 5.4 Simulator
+
+Left: pick a seeded guest or enter a phone. Centre: a phone frame rendering the guest's thread (outbound messages from the hotel as received bubbles, with delivery status). Bottom: text input that POSTs Twilio-shaped `{From, To, Body, MessageSid}` to `/api/hooks/sms/inbound` with the `x-mock-secret` header. Quick buttons: `STOP`, `HELP`, "AC broken in my room", a card-number sample (to demo redaction).
+
+## 6. Compliance behaviours (design.md §9.1)
+
+- STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT (case-insensitive, trimmed, alone or first word) → `opted_out`, `sms_consent_at`, source `sms_keyword`; exactly one confirmation ("You're unsubscribed from <property> messages. Reply START to resume."). START/UNSTOP/YES → `opted_in`.
+- HELP → `property.settings.help_text`.
+- Send path rejects `opted_out` with `CONSENT_OPTED_OUT` except the confirmation itself. The rejection creates no `message` row; it audit-logs the attempt.
+- Card numbers: sequences of 13–19 digits allowing spaces/dashes that pass Luhn → replaced with `**** **** **** 1234` before storage, `redacted=1`; the UI shows a "Card number redacted" chip.
+- `audit_log` rows for: login/logout, consent changes, message send/reject, note create, conversation assign/archive, WO create/transition, membership changes, admin CRUD.
+
+## 7. Testing
+
+**Server (Vitest + supertest).** `test/helpers.ts` creates a fresh `:memory:` database with migrations + a small fixture (2 properties, departments, 4 users across roles, 3 guests, stays) and builds the app via `app.ts` with a fake clock (`vi.useFakeTimers` or injected `now()`) and the worker driven manually via `worker.tick()`.
+
+| §11.1 | Test |
+|---|---|
+| 1 | Inbound from unknown number → 200; conversation exists, guest created, `opted_in`, visible in `GET conversations` |
+| 2 | Inbound from a phone matching an in-house stay → conversation has `stay_id`, detail includes room number |
+| 4 | Send to a `…0000` number → after `worker.tick()` message is `failed` with `30007`; `POST …/retry` re-queues |
+| 5 | Inbound `STOP` → guest `opted_out`, exactly one outbound confirmation; subsequent `POST messages` → 422 `CONSENT_OPTED_OUT`, audit row exists, no message row |
+| 6 | `GET work-orders/prefill` returns room, guest, last inbound body, suggested department; `POST work-orders` stores `source_conversation_id` |
+| 7 | Transition to `complete` → one `draft_prompt(pending)` for the conversation; `message` count unchanged |
+| 8 | Inbound at T; advance 15 min; `sla.sweep` → conversation in `filter=overdue`; notification row for assignee (or department members) |
+| 9 | Enumerate every route mounted under `/api/p/:propertyId` from the Express router stack; for each method+path, a user with membership only at A requests it for B → 403. New routes are covered automatically. |
+| 10 | `ConversationDetail` and `GuestThread` schemas are `.strict()`; test inserts a note then asserts the guest-thread payload parses and contains no note body anywhere (deep string search) |
+
+Also: `assertTransition` matrix, `segmentCount`, `interpolate`, `redact` (positive, Luhn-negative, false-positive phone numbers), job retry/backoff/dead-letter, snooze wake, PMS idempotency, dept_staff list filtering.
+
+**Web (Vitest + Testing Library).** Segment counter, quick-reply palette filtering, SLA chip thresholds, transition button enablement.
+
+**E2E (Playwright).** One smoke: simulator sends text → agent logs in → sees conversation → replies → status reaches `delivered` in simulator → creates WO → engineer logs in (second context) → completes → agent sees draft prompt → sends → simulator shows message. A second spec opens the same conversation in two contexts and asserts each sees the other's presence within 2 s (§11.1 #3).
+
+## 8. Seed data (design.md §11.2)
+
+`npm run seed` drops and recreates `data/app.db`, runs migrations, then inserts:
+
+- **Property A** "Harbourview Hotel" (code `HVH`, tz `America/New_York`, sms `+15550100`), settings `sla_minutes=15`, `auto_resolve_hours=4`.
+- **Property B** "Lakeside Inn" (`LSI`) with 1 admin, 1 agent, 3 guests, 2 conversations — for isolation tests and to show property switching.
+- Departments A: Front Desk, Housekeeping, Engineering.
+- 12 staff at A: 3 agents, 2 housekeeping staff, 2 engineers, 1 HK supervisor, 1 chief engineer (supervisor), 1 duty manager, 1 admin (also GM), 1 corporate. All passwords `Password123!`; emails `<first>@hvh.test`. Listed in README.
+- Rooms: numbers 101–120 … 601–620 used across stays.
+- 85 `checked_in` stays today with varied loyalty tiers, 10 `reserved` arriving today, 10 departing today (for the mock PMS to act on), 8 `checked_out` yesterday.
+- 30 conversations: ~8 unassigned and fresh, ~6 assigned and answered, ~5 overdue, ~4 snoozed/resolved-eligible, ~5 archived with categories, 2 with a pending draft prompt, 1 opted-out guest, 1 with a redacted card message. Message timestamps spread over the past 3 days.
+- 15 open work orders across types/priorities/statuses, 6 linked to conversations.
+- ~15 quick replies (`/wifi`, `/checkout`, `/towels`, `/late`, `/parking`, …), 8 assets (WiFi card, map, breakfast menu, …), resolution category tree (Maintenance > HVAC/Plumbing/Electrical, Service > Housekeeping delay/Front desk, Billing, Praise, Question > Hours/Amenities).
+- Recurring jobs seeded.
+
+Seed is deterministic (fixed RNG seed) so screenshots and tests are stable.
+
+## 9. Configuration
+
+`.env` (server): `PORT=4000`, `DATABASE_PATH=./data/app.db`, `SESSION_SECRET`, `MOCK_SMS_SECRET=dev`, `SMS_ADAPTER=mock`, `PMS_TICK_SECONDS=90`, `NODE_ENV`. Web: `VITE_API_BASE` (empty in dev; Vite proxies).
+
+## 10. Acceptance for this build
+
+Done when: `npm install && npm run seed && npm run dev` brings up both surfaces; all server tests including the §11.1 suite pass; the Playwright smoke passes; every screen in §5.2 is reachable by the roles that should see it and hidden from the ones that shouldn't; README documents setup, seeded credentials, and the simulator.
