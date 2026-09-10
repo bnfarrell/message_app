@@ -1,5 +1,18 @@
 # CLAUDE.md
 
+## Project
+
+Unified hotel guest engagement & operations platform. Full spec: `docs/design.md`.
+Phase 1 scope, stack decisions and acceptance criteria: `docs/superpowers/specs/2026-09-10-hotel-engagement-phase1-design.md`.
+Implementation plan: `docs/superpowers/plans/2026-09-10-phase1-server.md`. Approved screens: `docs/mockups/`.
+
+Stack: Python 3.12+ · Flask 3 · SQLAlchemy 2 · Alembic · Pydantic v2 · flask-sock · pytest, on SQLite
+(PostgreSQL by changing `DATABASE_URL`); frontend Vite + React + TypeScript.
+
+**Remote:** https://github.com/bnfarrellUUS/message_app — push the finished work here.
+
+---
+
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
