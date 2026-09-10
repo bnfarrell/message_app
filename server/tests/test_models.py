@@ -1,11 +1,13 @@
 from datetime import datetime, timezone
+from enum import StrEnum
 
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import Column, MetaData, String, Table, inspect, text
 from sqlalchemy.exc import StatementError
 
 from app.db import Database, run_migrations
 from app.models import Conversation, Guest, Property
+from app.models.core import enum_type
 from app.schemas.enums import ConversationStatus, SmsConsentStatus
 
 EXPECTED_TABLES = {
@@ -57,6 +59,44 @@ def test_enum_values_are_stored_as_values_and_validated(db_url):
     with pytest.raises(StatementError):
         with database.session() as db:
             db.add(Conversation(property_id=p.id, guest_id=g.id, status="bogus"))
+            db.flush()
+    database.engine.dispose()
+
+
+def test_enum_stores_value_not_name(db_url):
+    """Every app enum member has name == value, which can't distinguish value-storage
+    from name-storage. Use a throwaway enum/table where they differ to prove it."""
+    run_migrations(db_url)
+    database = Database(db_url)
+
+    class _T(StrEnum):
+        a_b = "a-b"
+
+    metadata = MetaData()
+    table = Table(
+        "_test_enum_value",
+        metadata,
+        Column("id", String(36), primary_key=True),
+        Column("val", enum_type(_T), nullable=False),
+    )
+    metadata.create_all(database.engine)
+    with database.engine.begin() as conn:
+        conn.execute(table.insert().values(id="1", val=_T.a_b))
+    with database.engine.connect() as conn:
+        raw = conn.execute(text("SELECT val FROM _test_enum_value")).scalar()
+    assert raw == "a-b"
+    database.engine.dispose()
+
+
+def test_utc_datetime_rejects_naive(db_url):
+    run_migrations(db_url)
+    database = Database(db_url)
+    with pytest.raises(StatementError):
+        with database.session() as db:
+            p = Property(
+                name="Test", code="TST", timezone="UTC", created_at=datetime(2026, 1, 1)
+            )
+            db.add(p)
             db.flush()
     database.engine.dispose()
 
