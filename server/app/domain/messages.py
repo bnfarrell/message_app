@@ -1,15 +1,28 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.errors import Conflict, NotFound
-from app.models import Message
+from app.db import get_db
+from app.domain import audit, consent
+from app.domain import conversations as conv_domain
+from app.domain.redaction import redact
+from app.errors import Conflict, NotFound, ValidationFailed
+from app.models import Conversation, DigitalAsset, Guest, Message, WorkOrder
 from app.queue import jobs
 from app.realtime.broadcast import queue_event
 from app.schemas.conversations import MessageOut
-from app.schemas.enums import DeliveryStatus, Direction
+from app.schemas.enums import (
+    AuthorType,
+    Channel,
+    DeliveryStatus,
+    Direction,
+    DraftPromptStatus,
+    SmsConsentStatus,
+)
 
 
 def _get(db: Session, property_id: str, message_id: str) -> Message:
@@ -59,5 +72,95 @@ def retry(db: Session, property_id: str, message_id: str) -> Message:
     db.flush()
     jobs.enqueue(db, "outbound.send", {"message_id": m.id})
     queue_event(db, property_id, "message.status_changed",
+                MessageOut.model_validate(m).model_dump(mode="json", by_alias=True))
+    return m
+
+
+MAX_BODY = 1600
+
+
+def send(db: Session, property_id: str, conversation_id: str, body: str, *,
+         author_user_id: str | None, author_type: AuthorType = AuthorType.staff,
+         digital_asset_id: str | None = None, draft_prompt_id: str | None = None,
+         allow_opt_out_confirmation: bool = False, ip: str | None = None,
+         user_agent: str | None = None) -> Message:
+    """THE outbound path. Every message to a guest goes through here (design.md §9.1)."""
+    body = (body or "").strip()
+    if not body:
+        raise ValidationFailed("Message body is empty")
+    if len(body) > MAX_BODY:
+        raise ValidationFailed(f"Message body exceeds {MAX_BODY} characters")
+
+    conv = conv_domain.get(db, property_id, conversation_id)
+    guest = db.get(Guest, conv.guest_id)
+    if guest.sms_consent_status == SmsConsentStatus.opted_out and not allow_opt_out_confirmation:
+        # The caller's session will roll back when ConsentError propagates, so the audit row gets its own
+        # session. Nothing has been written in `db` yet at this point, so SQLite WAL allows the second writer.
+        with get_db().session() as audit_db:
+            audit.record(audit_db, property_id, author_user_id, "message.rejected_opted_out", "conversation",
+                         conv.id, after={"body_length": len(body)}, ip=ip, user_agent=user_agent)
+    consent.assert_can_send(guest, allow_opt_out_confirmation=allow_opt_out_confirmation)
+
+    if digital_asset_id:
+        asset = db.scalar(select(DigitalAsset).where(DigitalAsset.id == digital_asset_id,
+                                                     DigitalAsset.property_id == property_id))
+        if asset is None:
+            raise ValidationFailed("Unknown digital asset")
+        body = f"{body} /a/{asset.short_code}"
+        asset.send_count += 1
+
+    now = clock.now()
+    m = Message(conversation_id=conv.id, property_id=property_id, direction=Direction.outbound,
+                author_type=author_type, author_user_id=author_user_id, channel=Channel.sms,
+                body=body, digital_asset_id=digital_asset_id, delivery_status=DeliveryStatus.queued,
+                sent_at=now)
+    db.add(m)
+
+    conv.last_staff_message_at = now
+    conv.sla_due_at = None
+    conv.sla_breach_notified_at = None
+    if conv.first_response_seconds is None and conv.last_guest_message_at is not None \
+            and author_type == AuthorType.staff:
+        conv.first_response_seconds = int((now - conv.last_guest_message_at).total_seconds())
+
+    if draft_prompt_id:
+        from app.models import DraftPrompt
+
+        dp = db.scalar(select(DraftPrompt).where(DraftPrompt.id == draft_prompt_id,
+                                                 DraftPrompt.property_id == property_id,
+                                                 DraftPrompt.conversation_id == conv.id))
+        if dp is not None and dp.status == DraftPromptStatus.pending:
+            dp.status = DraftPromptStatus.sent
+            dp.resolved_at = now
+            dp.resolved_by_user_id = author_user_id
+            wo = db.get(WorkOrder, dp.work_order_id)
+            if wo is not None:
+                wo.guest_notified_at = now
+
+    db.flush()
+    jobs.enqueue(db, "outbound.send", {"message_id": m.id})
+    audit.record(db, property_id, author_user_id, "message.sent", "message", m.id,
+                 after={"conversation_id": conv.id, "length": len(body)}, ip=ip, user_agent=user_agent)
+    queue_event(db, property_id, "message.created",
+                MessageOut.model_validate(m).model_dump(mode="json", by_alias=True))
+    conv_domain.touch_updated(db, conv)
+    return m
+
+
+def record_inbound(db: Session, property_id: str, conv: Conversation, body: str,
+                   provider_message_id: str, *, start_sla: bool = True) -> Message:
+    clean, redacted = redact(body)
+    now = clock.now()
+    m = Message(conversation_id=conv.id, property_id=property_id, direction=Direction.inbound,
+                author_type=AuthorType.guest, channel=Channel.sms, body=clean, redacted=redacted,
+                delivery_status=DeliveryStatus.delivered, provider_message_id=provider_message_id,
+                sent_at=now, delivered_at=now)
+    db.add(m)
+    conv.last_guest_message_at = now
+    if start_sla:
+        conv.sla_due_at = now + timedelta(minutes=conv_domain.sla_minutes(db, property_id))
+        conv.sla_breach_notified_at = None
+    db.flush()
+    queue_event(db, property_id, "message.created",
                 MessageOut.model_validate(m).model_dump(mode="json", by_alias=True))
     return m

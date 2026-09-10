@@ -33,3 +33,14 @@ def make_message(db: Session, conversation: Conversation, *, direction: Directio
     db.add(m)
     db.flush()
     return m
+
+
+def inbound(client, fx, from_phone: str, body: str, to: str | None = None, sid: str | None = None):
+    import uuid
+
+    return client.post(
+        "/api/hooks/sms/inbound",
+        data={"From": from_phone, "To": to or fx.property_a.sms_number, "Body": body,
+              "MessageSid": sid or f"SM{uuid.uuid4().hex[:10]}"},
+        headers={"X-Mock-Secret": "dev"},
+    )
