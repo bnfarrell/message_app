@@ -13,6 +13,10 @@ def create_app(config: Config | None = None) -> Flask:
     app.config["TESTING"] = config.TESTING
     app.config["SECRET_KEY"] = config.SESSION_SECRET
 
+    from app.db import Database
+
+    app.extensions["db"] = Database(config.DATABASE_URL)
+
     register_error_handlers(app)
 
     from app.api import health
