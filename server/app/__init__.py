@@ -19,7 +19,8 @@ def create_app(config: Config | None = None) -> Flask:
 
     register_error_handlers(app)
 
-    from app.api import health
+    from app.api import auth, health
 
     app.register_blueprint(health.bp)
+    app.register_blueprint(auth.bp)
     return app

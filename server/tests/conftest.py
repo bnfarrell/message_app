@@ -3,12 +3,17 @@ from __future__ import annotations
 import shutil
 from datetime import datetime, timezone
 
+import email_validator
 import pytest
 
 from app import clock, create_app
 from app.config import Config
 from app.db import run_migrations
 from tests.fixtures import PASSWORD, load_fixture
+
+# Fixture data uses RFC 2606 reserved test domains (e.g. "hvh.test"), which
+# email-validator otherwise rejects as "special-use". Test process only.
+email_validator.TEST_ENVIRONMENT = True
 
 FROZEN = datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc)
 
@@ -32,6 +37,11 @@ def app(template_db_path, tmp_path):
         ENV="testing",
         PMS_TICK_SECONDS=0,
     )
+    from app.ratelimit import login_limiter, webhook_limiter
+
+    login_limiter.reset()
+    webhook_limiter.reset()
+
     application = create_app(cfg)
     yield application
     application.extensions["db"].engine.dispose()

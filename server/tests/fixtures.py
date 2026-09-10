@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-import bcrypt
 from sqlalchemy.orm import Session
 
 from app import clock
+from app.auth.passwords import hash_password
 from app.models import (
     Department,
     Guest,
@@ -21,7 +21,7 @@ PASSWORD = "Password123!"
 
 
 def _hash(pw: str) -> str:
-    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt(rounds=4)).decode()  # low cost: tests only
+    return hash_password(pw, rounds=4)  # low cost: tests only
 
 
 @dataclass
