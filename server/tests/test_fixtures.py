@@ -19,8 +19,11 @@ def test_clock_is_frozen(app):
 
 
 def test_each_test_gets_a_fresh_database(app, database):
+    """The entry assertion is the real check: a leaked row from a prior run would fail it."""
     from app.models import Property
 
     with database.session() as db:
+        assert db.scalar(select(Property).where(Property.code == "SCR")) is None
         db.add(Property(name="Scratch", code="SCR", timezone="UTC"))
-    # The next test's assertion on counts would fail if this leaked.
+    with database.session() as db:
+        assert db.scalar(select(Property).where(Property.code == "SCR")) is not None
