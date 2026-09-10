@@ -41,7 +41,7 @@ def create_app(config: Config | None = None) -> Flask:
         _jobs.RECURRING.pop("pms.tick", None)
     app.extensions["worker"] = Worker(app)
     under_reloader = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
-    if config.START_WORKER and (under_reloader or not app.debug):
+    if config.START_WORKER and (under_reloader or config.is_production):
         with app.extensions["db"].session() as db:
             for job_type in _jobs.RECURRING:
                 _jobs.ensure_recurring(db, job_type)

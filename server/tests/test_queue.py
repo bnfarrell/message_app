@@ -1,10 +1,14 @@
+import shutil
+
 import pytest
 from sqlalchemy import select
 
-from app import clock
+from app import clock, create_app
+from app.config import Config
 from app.models import Job
 from app.queue import jobs
 from app.queue.handlers import HANDLERS, handler
+from app.queue.worker import Worker
 from app.schemas.enums import JobStatus
 
 
@@ -98,3 +102,47 @@ def test_stale_running_jobs_are_reclaimed(app, database, worker, fake_handlers):
     with database.session() as db:
         assert jobs.reclaim_stale(db) == 1
     assert worker.tick() == 1
+
+
+def test_start_worker_guard_avoids_duplicate_start_under_reloader(
+    template_db_path, tmp_path, monkeypatch
+):
+    """Regression: create_app must start the worker exactly once per real process.
+
+    In dev (non-production) under the Werkzeug reloader, create_app() runs once in the
+    parent monitor process (no WERKZEUG_RUN_MAIN) and once in the child (WERKZEUG_RUN_MAIN
+    "true"). Only the child should start the worker. In production there is no reloader, so
+    the single run must start it.
+    """
+    started = []
+    monkeypatch.setattr(Worker, "start", lambda self: started.append(True))
+
+    def build_app(env: str, werkzeug_run_main: str | None) -> list:
+        started.clear()
+        if werkzeug_run_main is None:
+            monkeypatch.delenv("WERKZEUG_RUN_MAIN", raising=False)
+        else:
+            monkeypatch.setenv("WERKZEUG_RUN_MAIN", werkzeug_run_main)
+        db_path = tmp_path / f"guard-{env}-{werkzeug_run_main}.db"
+        shutil.copy(template_db_path, db_path)
+        clock.freeze(clock.now())
+        cfg = Config(
+            DATABASE_URL=f"sqlite:///{db_path.as_posix()}",
+            TESTING=True,
+            START_WORKER=True,
+            ENV=env,
+            PMS_TICK_SECONDS=0,
+        )
+        application = create_app(cfg)
+        application.extensions["db"].engine.dispose()
+        return started[:]
+
+    try:
+        # 1. production, no reloader at all -> the single run starts it.
+        assert build_app("production", None) == [True]
+        # 2. dev, parent monitor process (no WERKZEUG_RUN_MAIN yet) -> must NOT start.
+        assert build_app("development", None) == []
+        # 3. dev, reloader child (WERKZEUG_RUN_MAIN=true) -> starts it.
+        assert build_app("development", "true") == [True]
+    finally:
+        clock.reset()
