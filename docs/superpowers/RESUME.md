@@ -21,8 +21,11 @@ Remote to push to when done: **https://github.com/bnfarrellUUS/message_app** (no
 
 ## Where the build stands
 
-**Tasks 1–6 of 24 complete and committed. Task 7 in progress, uncommitted.**
-Suite at last green point: **51 passing, 0 warnings** (`cd server && ../.venv/Scripts/python.exe -m pytest -q`).
+**Tasks 1–7 of 24 committed and green.** Suite: **58 passing, 0 warnings**
+(`cd server && ../.venv/Scripts/python.exe -m pytest -q`). Working tree clean.
+
+Task 7's independent review has **not** been run yet — that is the first thing to do on resume
+(package the diff `21fec0c..e69ff49` and dispatch a reviewer), before starting Task 8.
 
 | # | Task | State |
 |---|---|---|
@@ -32,20 +35,9 @@ Suite at last green point: **51 passing, 0 warnings** (`cd server && ../.venv/Sc
 | 4 | Auth: bcrypt, server-side sessions, decorators, capabilities, rate limiting | ✅ `4c89683` |
 | 5 | Departments/users routes + **property-isolation suite** (acceptance #9) | ✅ `5fdf2b6` |
 | 6 | SMS segments, card redaction, quick-reply interpolation | ✅ `0f130aa`, `21fec0c` |
-| **7** | **Realtime event outbox, connection registry, notifications** | **IN PROGRESS — see below** |
-| 8–24 | Queue/worker, channels, PMS, conversations, work orders, content, analytics, WS, seed, schema export, README | Not started |
-
-### Task 7 is half-finished
-
-Uncommitted files exist on disk: `server/app/realtime/`, `server/app/domain/notifications.py`,
-`server/app/schemas/notifications.py`, `server/app/api/notifications.py`,
-`server/tests/test_notifications.py`, plus edits to `server/app/__init__.py` and `server/tests/conftest.py`.
-At the moment the session ended, `test_list_mark_read_and_unread_count_via_api` was failing while its
-implementer iterated.
-
-**To resume:** either finish Task 7 from `.superpowers/sdd/2026-09-10-phase1-server/task-7-brief.md`
-(the brief has the complete code), or `git checkout -- server && git clean -fd server/app/realtime` to
-discard it and restart Task 7 cleanly. Do **not** commit it half-working.
+| 7 | Realtime event outbox, connection registry, notifications | ✅ `9471872`, `e69ff49` — **review still owed** |
+| **8** | **Job queue and worker — start here** | Not started |
+| 9–24 | Channels/mock SMS, guests+consent, conversations, work orders, content, analytics, WS/presence, PMS, dev endpoints, seed, schema export, README | Not started |
 
 ## How to resume the process
 
@@ -85,7 +77,9 @@ The build is running under the `superpowers:subagent-driven-development` skill:
 
 ## The one thing not to lose
 
-The plan's value is that every task carries its own tests and the reviews have caught **five real defects
-in the plan text itself** so far (an `AppError` ordering bug, a deprecated Alembic key, a test that
-asserted nothing, an SMS segment boundary off by one, and a vacuous enum test). Keep the review step —
-it is doing real work, and the implementers have been right to refuse to paper over brief defects.
+The plan's value is that every task carries its own tests, and reviews plus implementers have caught **six
+real defects in the plan text itself** so far: an `AppError` ordering bug, a deprecated Alembic key, a test
+that asserted nothing, a vacuous enum test, an SMS segment boundary off by one, and a notification-ordering
+test that couldn't pass under a frozen clock. Keep the review step — it is doing real work — and keep
+telling implementers to report brief defects rather than paper over them. Every one of those was found
+that way.
