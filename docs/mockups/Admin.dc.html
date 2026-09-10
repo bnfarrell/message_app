@@ -32,7 +32,7 @@
   </style>
 </helmet>
 
-<div style="width: 1440px; height: 900px; display: flex; overflow: hidden; color: var(--text); background: var(--bg); {{vars}}">
+<div style="width: 1440px; height: 900px; display: flex; overflow: hidden; color: var(--text); background: var(--bg); --bg: #0e1116; --bg2: #11151b; --nav: #0b0e12; --surface: #161a21; --surface2: #1a1f28; --border: #1f242d; --border2: #262c36; --border3: #2c3441; --text: #e7eaf0; --text2: #aab2c0; --text3: #8b94a5; --text4: #59627a; --accent: #f0b323; --accentText: #0e1116; --roomNum: #f0b323; --sel: #1a1f28; --outBg: #2b3a55; --outText: #e7eaf0; --autoBg: #1a1f28; --autoText: #aab2c0; --autoBorder: #2c3441; --noteBg: #2a2410; --noteBorder: #5a4a12; --noteText: #f5dfa0; --noteIcon: #f0b323; --okBg: #12301f; --okText: #4ade80; --okBorder: #1f5a3a; --okBtn: #4ade80; --okBtnText: #0e1116; --okBanner: #d1fae5; --warnBg: #3a2a10; --warnText: #f0b323; --dangerBg: #3a1418; --dangerText: #ff5d5d; --danger: #ff5d5d; --presenceBg: #2a2140; --presenceText: #c4b5fd; --presenceAv: #a78bfa; --avMuted: #8b94a5; --avText: #0e1116; --tagBg: #1f242d; --tagText: #8b94a5; --timerDoneBg: #161a21; --timerDoneText: #8b94a5;">
 
   <!-- Nav -->
   <div style="width: 184px; background: var(--nav); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 16px 12px; gap: 4px;">
@@ -84,15 +84,15 @@
         <table style="width: 100%; border-collapse: collapse;">
           <thead><tr><th class="th">Shortcut</th><th class="th">Title</th><th class="th">Body</th><th class="th">Dept</th><th class="th" style="text-align: right;">Uses · 30d</th><th class="th">Active</th></tr></thead>
           <tbody>
-            <tr class="sel"><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/wifi</td><td class="td" style="font-weight: 600;">WiFi details</td><td class="td" style="color: var(--text2); max-width: 300px;">Hi &#123;&#123;guest_first_name&#125;&#125; — the network is Harbourview-Guest, no password needed…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">212</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
-            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/checkout</td><td class="td" style="font-weight: 600;">Checkout time</td><td class="td" style="color: var(--text2); max-width: 300px;">Checkout is 11 AM. Reply LATE if you'd like to request a later time…</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right;">168</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
-            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/late</td><td class="td" style="font-weight: 600;">Late checkout granted</td><td class="td" style="color: var(--text2); max-width: 300px;">Done — &#123;&#123;guest_first_name&#125;&#125;, your checkout is extended to 2 PM at no charge…</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right;">94</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
-            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/towels</td><td class="td" style="font-weight: 600;">Towels on the way</td><td class="td" style="color: var(--text2); max-width: 300px;">Fresh towels are on their way to &#123;&#123;room_number&#125;&#125; — about 15 minutes…</td><td class="td" style="color: var(--text3);">Housekeeping</td><td class="td mono" style="text-align: right;">131</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
-            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/eng</td><td class="td" style="font-weight: 600;">Engineering dispatched</td><td class="td" style="color: var(--text2); max-width: 300px;">So sorry about that. Engineering is on the way to &#123;&#123;room_number&#125;&#125; and will knock…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">77</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
-            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/parking</td><td class="td" style="font-weight: 600;">Parking</td><td class="td" style="color: var(--text2); max-width: 300px;">Self-parking is $28/night in the garage on Front St; valet is $45…</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right;">63</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
-            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/breakfast</td><td class="td" style="font-weight: 600;">Breakfast hours</td><td class="td" style="color: var(--text2); max-width: 300px;">Breakfast is 6:30–10:30 in the Harbour Room, level 2…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">58</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
-            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/pool</td><td class="td" style="font-weight: 600;">Pool hours</td><td class="td" style="color: var(--text2); max-width: 300px;">The pool and hot tub are open 7 AM–10 PM…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">41</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
-            <tr><td class="td mono" style="color: var(--text3); font-weight: 600;">/shuttle</td><td class="td" style="font-weight: 600; color: var(--text3);">Airport shuttle</td><td class="td" style="color: var(--text4); max-width: 300px;">The shuttle runs on the hour from 5 AM… (paused for season)</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right; color: var(--text3);">0</td><td class="td"><div class="sw" style="background: var(--border3);"><span style="left: 2px;"></span></div></td></tr>
+            <tr class="sel"><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/wifi</td><td class="td" style="font-weight: 600;">WiFi details</td><td class="td" style="color: var(--text2); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Hi <span>{</span>{guest_first_name}<span>}</span> — the network is Harbourview-Guest, no password needed…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">212</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/checkout</td><td class="td" style="font-weight: 600;">Checkout time</td><td class="td" style="color: var(--text2); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Checkout is 11 AM. Reply LATE if you'd like to request a later time…</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right;">168</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/late</td><td class="td" style="font-weight: 600;">Late checkout granted</td><td class="td" style="color: var(--text2); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Done — <span>{</span>{guest_first_name}<span>}</span>, your checkout is extended to 2 PM at no charge…</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right;">94</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/towels</td><td class="td" style="font-weight: 600;">Towels on the way</td><td class="td" style="color: var(--text2); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Fresh towels are on their way to <span>{</span>{room_number}<span>}</span> — about 15 minutes…</td><td class="td" style="color: var(--text3);">Housekeeping</td><td class="td mono" style="text-align: right;">131</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/eng</td><td class="td" style="font-weight: 600;">Engineering dispatched</td><td class="td" style="color: var(--text2); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">So sorry about that. Engineering is on the way to <span>{</span>{room_number}<span>}</span> and will knock…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">77</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/parking</td><td class="td" style="font-weight: 600;">Parking</td><td class="td" style="color: var(--text2); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Self-parking is $28/night in the garage on Front St; valet is $45…</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right;">63</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/breakfast</td><td class="td" style="font-weight: 600;">Breakfast hours</td><td class="td" style="color: var(--text2); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Breakfast is 6:30–10:30 in the Harbour Room, level 2…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">58</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--roomNum); font-weight: 600;">/pool</td><td class="td" style="font-weight: 600;">Pool hours</td><td class="td" style="color: var(--text2); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">The pool and hot tub are open 7 AM–10 PM…</td><td class="td" style="color: var(--text3);">All</td><td class="td mono" style="text-align: right;">41</td><td class="td"><div class="sw" style="background: var(--okText);"><span style="right: 2px;"></span></div></td></tr>
+            <tr><td class="td mono" style="color: var(--text3); font-weight: 600;">/shuttle</td><td class="td" style="font-weight: 600; color: var(--text3);">Airport shuttle</td><td class="td" style="color: var(--text4); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">The shuttle runs on the hour from 5 AM… (paused for season)</td><td class="td" style="color: var(--text3);">Front desk</td><td class="td mono" style="text-align: right; color: var(--text3);">0</td><td class="td"><div class="sw" style="background: var(--border3);"><span style="left: 2px;"></span></div></td></tr>
           </tbody>
         </table>
       </div>
@@ -107,7 +107,7 @@
         <div style="display: flex; flex-direction: column; gap: 6px;"><div class="lbl">Title</div><div class="inp">WiFi details</div></div>
         <div style="display: flex; flex-direction: column; gap: 6px;">
           <div class="lbl">Body</div>
-          <div class="inp" style="min-height: 110px; align-items: flex-start; padding: 12px; line-height: 1.5;">Hi <span class="mono" style="color: var(--roomNum);">&#123;&#123;guest_first_name&#125;&#125;</span> — the network is <strong>Harbourview-Guest</strong>, no password needed. If it drops, toggle WiFi off and on; we're here if that doesn't do it.</div>
+          <div class="inp" style="min-height: 110px; align-items: flex-start; padding: 12px; line-height: 1.5;">Hi <span class="mono" style="color: var(--roomNum);"><span>{</span>{guest_first_name}<span>}</span></span> — the network is <strong>Harbourview-Guest</strong>, no password needed. If it drops, toggle WiFi off and on; we're here if that doesn't do it.</div>
           <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text3);">Insert:
             <span class="tag mono" style="background: var(--tagBg); color: var(--roomNum);">guest_first_name</span>
             <span class="tag mono" style="background: var(--tagBg); color: var(--roomNum);">room_number</span>
@@ -132,41 +132,5 @@
   </div>
 </div>
 </x-dc>
-<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Theme"}}'>
-class Component extends DCLogic {
-  renderVals() {
-    const dark = this.props.dark ?? true;
-    const darkT = {
-      bg: '#0e1116', bg2: '#11151b', nav: '#0b0e12', surface: '#161a21', surface2: '#1a1f28',
-      border: '#1f242d', border2: '#262c36', border3: '#2c3441',
-      text: '#e7eaf0', text2: '#aab2c0', text3: '#8b94a5', text4: '#59627a',
-      accent: '#f0b323', accentText: '#0e1116', roomNum: '#f0b323', sel: '#1a1f28',
-      outBg: '#2b3a55', outText: '#e7eaf0', autoBg: '#1a1f28', autoText: '#aab2c0', autoBorder: '#2c3441',
-      noteBg: '#2a2410', noteBorder: '#5a4a12', noteText: '#f5dfa0', noteIcon: '#f0b323',
-      okBg: '#12301f', okText: '#4ade80', okBorder: '#1f5a3a', okBtn: '#4ade80', okBtnText: '#0e1116', okBanner: '#d1fae5',
-      warnBg: '#3a2a10', warnText: '#f0b323', dangerBg: '#3a1418', dangerText: '#ff5d5d', danger: '#ff5d5d',
-      presenceBg: '#2a2140', presenceText: '#c4b5fd', presenceAv: '#a78bfa',
-      avMuted: '#8b94a5', avText: '#0e1116', tagBg: '#1f242d', tagText: '#8b94a5',
-      timerDoneBg: '#161a21', timerDoneText: '#8b94a5'
-    };
-    const light = {
-      bg: '#f2f4f7', bg2: '#f7f8fa', nav: '#ffffff', surface: '#ffffff', surface2: '#eef1f5',
-      border: '#dfe3ea', border2: '#d3d9e2', border3: '#c5ccd8',
-      text: '#0e1116', text2: '#3d4655', text3: '#6b7486', text4: '#9aa3b2',
-      accent: '#f0b323', accentText: '#0e1116', roomNum: '#9a6b00', sel: '#fff7e0',
-      outBg: '#2b3a55', outText: '#ffffff', autoBg: '#eef1f5', autoText: '#3d4655', autoBorder: '#d3d9e2',
-      noteBg: '#fff8e1', noteBorder: '#e6c96a', noteText: '#5c4300', noteIcon: '#9a6b00',
-      okBg: '#e3f7ea', okText: '#15803d', okBorder: '#a7e3bd', okBtn: '#15803d', okBtnText: '#ffffff', okBanner: '#064e3b',
-      warnBg: '#fff1cf', warnText: '#8a5a10', dangerBg: '#fde4e4', dangerText: '#b91c1c', danger: '#dc2626',
-      presenceBg: '#ede9fe', presenceText: '#5b21b6', presenceAv: '#7c3aed',
-      avMuted: '#6b7486', avText: '#ffffff', tagBg: '#eef1f5', tagText: '#6b7486',
-      timerDoneBg: '#eef1f5', timerDoneText: '#9aa3b2'
-    };
-    const t = dark ? darkT : light;
-    const vars = Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ') + ';';
-    return { vars: vars };
-  }
-}
-</script>
 </body>
 </html>

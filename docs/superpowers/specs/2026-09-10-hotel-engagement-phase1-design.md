@@ -407,6 +407,16 @@ Response models use `model_config = ConfigDict(extra='forbid')`. `ConversationDe
 
 ## 5. Frontend
 
+### 5.0 Visual direction — "Night Shift" (chosen 2026-09-10)
+
+Approved mockups live in `docs/mockups/*.dc.html` (published canvas: https://claude.ai/code/artifact/cc54191d-cdf8-4474-b5a2-eda523b54ad8). The web build reproduces them:
+
+- **Themes:** dark is the default; light is a per-user toggle in the nav ("Theme"), persisted in `notification_prefs.theme` and defaulting to the device `prefers-color-scheme`. Both palettes are the token sets in the `renderVals()` block of any `docs/mockups/*.dc.html` (keys `bg, bg2, nav, surface, surface2, border, border2, border3, text, text2, text3, text4, accent, accentText, roomNum, sel, outBg, outText, autoBg, autoText, autoBorder, noteBg, noteBorder, noteText, noteIcon, okBg, okText, okBorder, okBtn, okBtnText, okBanner, warnBg, warnText, dangerBg, dangerText, danger, presenceBg, presenceText, presenceAv, avMuted, avText, tagBg, tagText, timerDoneBg, timerDoneText`). They become CSS custom properties on `:root` / `[data-theme="light"]` and Tailwind colours via `var()`.
+- **Type:** Space Grotesk (UI) + JetBrains Mono (room numbers, timers, ids, counts), both from Google Fonts with system fallbacks.
+- **Shape language:** 184 px labelled left nav; 44 px controls (`.btn`), 8–10 px radii, 1 px borders, no shadows; amber `accent` for primary actions and the selected-row inset bar; SLA shown as a mono countdown timer chip (green / amber / red backgrounds); status colours reserved (green ok, amber warn, red danger) and never used decoratively.
+- **Screens covered by mockups:** Inbox (`Main`), Board, WorkOrder, Analytics, Admin (quick replies; other admin screens reuse the table + edit-panel pattern), Simulator, Mobile (department-staff task list). Login and Notification centre follow the same tokens without a dedicated mockup.
+- **Charts:** single-hue amber bars with direct labels; red only for past-SLA; no chart library.
+
 ### 5.1 Stack and conventions
 
 Vite · React 18 · TypeScript strict · Tailwind · TanStack Query · React Router v6. Types come from `types.generated.ts` (§4.8). No component library; `components/ui/` holds ~8 small primitives. Server state only in TanStack Query; UI state in component/context. One `useRealtime()` hook owns the native `WebSocket`, reconnects with backoff, invalidates queries by event type, and exposes presence/typing maps.

@@ -31,7 +31,7 @@
   </style>
 </helmet>
 
-<div style="width: 1440px; height: 900px; display: flex; overflow: hidden; color: var(--text); background: var(--bg); {{vars}}">
+<div style="width: 1440px; height: 900px; display: flex; overflow: hidden; color: var(--text); background: var(--bg); --bg: #0e1116; --bg2: #11151b; --nav: #0b0e12; --surface: #161a21; --surface2: #1a1f28; --border: #1f242d; --border2: #262c36; --border3: #2c3441; --text: #e7eaf0; --text2: #aab2c0; --text3: #8b94a5; --text4: #59627a; --accent: #f0b323; --accentText: #0e1116; --roomNum: #f0b323; --sel: #1a1f28; --outBg: #2b3a55; --outText: #e7eaf0; --autoBg: #1a1f28; --autoText: #aab2c0; --autoBorder: #2c3441; --noteBg: #2a2410; --noteBorder: #5a4a12; --noteText: #f5dfa0; --noteIcon: #f0b323; --okBg: #12301f; --okText: #4ade80; --okBorder: #1f5a3a; --okBtn: #4ade80; --okBtnText: #0e1116; --okBanner: #d1fae5; --warnBg: #3a2a10; --warnText: #f0b323; --dangerBg: #3a1418; --dangerText: #ff5d5d; --danger: #ff5d5d; --presenceBg: #2a2140; --presenceText: #c4b5fd; --presenceAv: #a78bfa; --avMuted: #8b94a5; --avText: #0e1116; --tagBg: #1f242d; --tagText: #8b94a5; --timerDoneBg: #161a21; --timerDoneText: #8b94a5;">
 
   <!-- Nav -->
   <div style="width: 184px; background: var(--nav); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 16px 12px; gap: 4px;">
@@ -55,19 +55,18 @@
   <div style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
     <div style="height: 72px; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 12px;">
       <div style="font-size: 20px; font-weight: 700;">Work orders</div>
-      <span class="mono" style="font-size: 13px; color: var(--text3);">15 open · 2 urgent</span>
-      <span style="width: 16px;"></span>
+      <span class="mono" style="font-size: 13px; color: var(--text3);">15 active · 2 urgent</span>
       <div class="tab on">All <span class="n">15</span></div>
       <div class="tab">Mine <span class="n">4</span></div>
-      <div class="tab">Engineering <span class="n">9</span></div>
-      <div class="tab">Housekeeping <span class="n">4</span></div>
+      <div class="tab">Engineering <span class="n">11</span></div>
+      <div class="tab">Housekeeping <span class="n">3</span></div>
       <div class="tab" style="color: var(--danger);">Urgent <span class="n" style="opacity: 1;">2</span></div>
       <span style="flex: 1;"></span>
       <div style="display: flex; border: 1px solid var(--border3); border-radius: 8px; overflow: hidden;">
         <div style="height: 42px; padding: 0 14px; display: flex; align-items: center; font-size: 13px; font-weight: 600; background: var(--surface2); color: var(--text);">Board</div>
         <div style="height: 42px; padding: 0 14px; display: flex; align-items: center; font-size: 13px; font-weight: 600; color: var(--text3);">List</div>
       </div>
-      <div class="btn primary"><svg class="ico" style="width: 16px; height: 16px;" viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg> New work order</div>
+      <div class="btn primary"><svg class="ico" style="width: 16px; height: 16px;" viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg> New</div>
     </div>
 
     <div style="flex: 1; display: flex; gap: 14px; padding: 18px 24px; overflow: hidden;">
@@ -177,41 +176,5 @@
   </div>
 </div>
 </x-dc>
-<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Theme"}}'>
-class Component extends DCLogic {
-  renderVals() {
-    const dark = this.props.dark ?? true;
-    const darkT = {
-      bg: '#0e1116', bg2: '#11151b', nav: '#0b0e12', surface: '#161a21', surface2: '#1a1f28',
-      border: '#1f242d', border2: '#262c36', border3: '#2c3441',
-      text: '#e7eaf0', text2: '#aab2c0', text3: '#8b94a5', text4: '#59627a',
-      accent: '#f0b323', accentText: '#0e1116', roomNum: '#f0b323', sel: '#1a1f28',
-      outBg: '#2b3a55', outText: '#e7eaf0', autoBg: '#1a1f28', autoText: '#aab2c0', autoBorder: '#2c3441',
-      noteBg: '#2a2410', noteBorder: '#5a4a12', noteText: '#f5dfa0', noteIcon: '#f0b323',
-      okBg: '#12301f', okText: '#4ade80', okBorder: '#1f5a3a', okBtn: '#4ade80', okBtnText: '#0e1116', okBanner: '#d1fae5',
-      warnBg: '#3a2a10', warnText: '#f0b323', dangerBg: '#3a1418', dangerText: '#ff5d5d', danger: '#ff5d5d',
-      presenceBg: '#2a2140', presenceText: '#c4b5fd', presenceAv: '#a78bfa',
-      avMuted: '#8b94a5', avText: '#0e1116', tagBg: '#1f242d', tagText: '#8b94a5',
-      timerDoneBg: '#161a21', timerDoneText: '#8b94a5'
-    };
-    const light = {
-      bg: '#f2f4f7', bg2: '#f7f8fa', nav: '#ffffff', surface: '#ffffff', surface2: '#eef1f5',
-      border: '#dfe3ea', border2: '#d3d9e2', border3: '#c5ccd8',
-      text: '#0e1116', text2: '#3d4655', text3: '#6b7486', text4: '#9aa3b2',
-      accent: '#f0b323', accentText: '#0e1116', roomNum: '#9a6b00', sel: '#fff7e0',
-      outBg: '#2b3a55', outText: '#ffffff', autoBg: '#eef1f5', autoText: '#3d4655', autoBorder: '#d3d9e2',
-      noteBg: '#fff8e1', noteBorder: '#e6c96a', noteText: '#5c4300', noteIcon: '#9a6b00',
-      okBg: '#e3f7ea', okText: '#15803d', okBorder: '#a7e3bd', okBtn: '#15803d', okBtnText: '#ffffff', okBanner: '#064e3b',
-      warnBg: '#fff1cf', warnText: '#8a5a10', dangerBg: '#fde4e4', dangerText: '#b91c1c', danger: '#dc2626',
-      presenceBg: '#ede9fe', presenceText: '#5b21b6', presenceAv: '#7c3aed',
-      avMuted: '#6b7486', avText: '#ffffff', tagBg: '#eef1f5', tagText: '#6b7486',
-      timerDoneBg: '#eef1f5', timerDoneText: '#9aa3b2'
-    };
-    const t = dark ? darkT : light;
-    const vars = Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ') + ';';
-    return { vars: vars };
-  }
-}
-</script>
 </body>
 </html>

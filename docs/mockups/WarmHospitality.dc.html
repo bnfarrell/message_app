@@ -36,7 +36,7 @@
   </style>
 </helmet>
 
-<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden; color: var(--text); background: var(--bg); {{vars}}">
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden; color: var(--text); background: var(--bg); --bg: #f6f1e8; --bg2: #fbf8f2; --surface: #ffffff; --border: #e8dfd1; --border2: #ddd3c4; --text: #2a2420; --text2: #4f453d; --text3: #8a7d70; --text4: #a39484; --accent: #2f5d50; --accentText: #fbf8f2; --accentSoft: #e1efe6; --accentSoftText: #24513f; --accentSoftBorder: #c4dccf; --sel: #fbf8f2; --inBg: #ffffff; --outBg: #2f5d50; --outText: #fbf8f2; --autoBg: #ebe4d8; --autoText: #4f453d; --noteBg: #fdf6e3; --noteBorder: #e4cf9a; --noteText: #5c3f0a; --noteIcon: #8a5a10; --warnBg: #f9ecd3; --warnText: #8a5a10; --dangerBg: #f7e2da; --dangerText: #9a4326; --danger: #b5573a; --presenceBg: #ede4f7; --presenceText: #6b3fa0; --presenceAv: #6b3fa0; --shadow: rgba(42, 36, 32, 0.06); --avText: #fbf8f2; --avDark: #2a2420; --avMid: #7a6a58; --avMuted: #a39484; --chipBg: #efe8dc; --chipText: #6b5f54;">
 
   <!-- Top bar -->
   <div style="height: 64px; display: flex; align-items: center; padding: 0 28px; gap: 28px; border-bottom: 1px solid var(--border); background: var(--bg);">
@@ -225,37 +225,5 @@
   </div>
 </div>
 </x-dc>
-<script data-dc-script data-props='{"dark":{"editor":"boolean","default":false,"section":"Theme"}}'>
-class Component extends DCLogic {
-  renderVals() {
-    const dark = this.props.dark ?? false;
-    const light = {
-      bg: '#f6f1e8', bg2: '#fbf8f2', surface: '#ffffff', border: '#e8dfd1', border2: '#ddd3c4',
-      text: '#2a2420', text2: '#4f453d', text3: '#8a7d70', text4: '#a39484',
-      accent: '#2f5d50', accentText: '#fbf8f2', accentSoft: '#e1efe6', accentSoftText: '#24513f', accentSoftBorder: '#c4dccf',
-      sel: '#fbf8f2', inBg: '#ffffff', outBg: '#2f5d50', outText: '#fbf8f2', autoBg: '#ebe4d8', autoText: '#4f453d',
-      noteBg: '#fdf6e3', noteBorder: '#e4cf9a', noteText: '#5c3f0a', noteIcon: '#8a5a10',
-      warnBg: '#f9ecd3', warnText: '#8a5a10', dangerBg: '#f7e2da', dangerText: '#9a4326', danger: '#b5573a',
-      presenceBg: '#ede4f7', presenceText: '#6b3fa0', presenceAv: '#6b3fa0',
-      shadow: 'rgba(42, 36, 32, 0.06)', avText: '#fbf8f2', avDark: '#2a2420', avMid: '#7a6a58', avMuted: '#a39484',
-      chipBg: '#efe8dc', chipText: '#6b5f54'
-    };
-    const darkT = {
-      bg: '#1c1814', bg2: '#211d19', surface: '#2a2521', border: '#3a332c', border2: '#463e36',
-      text: '#f1eae0', text2: '#d6cbbd', text3: '#a3968a', text4: '#7a6f64',
-      accent: '#7fb59f', accentText: '#14201b', accentSoft: '#23342d', accentSoftText: '#a7d6c2', accentSoftBorder: '#33493f',
-      sel: '#2f2924', inBg: '#2a2521', outBg: '#3f6b5d', outText: '#f1eae0', autoBg: '#302a25', autoText: '#c9bfb2',
-      noteBg: '#332c1c', noteBorder: '#6b5a2c', noteText: '#e8d6a3', noteIcon: '#d9b85a',
-      warnBg: '#3a2f18', warnText: '#e8c46e', dangerBg: '#3d241c', dangerText: '#f0a38a', danger: '#d9856a',
-      presenceBg: '#322a44', presenceText: '#c9b6ee', presenceAv: '#a48ad8',
-      shadow: 'rgba(0, 0, 0, 0.35)', avText: '#f1eae0', avDark: '#6b5f54', avMid: '#7a6a58', avMuted: '#5a4f45',
-      chipBg: '#332d27', chipText: '#c9bfb2'
-    };
-    const t = dark ? darkT : light;
-    const vars = Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ') + ';';
-    return { vars: vars };
-  }
-}
-</script>
 </body>
 </html>
