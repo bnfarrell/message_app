@@ -9,7 +9,7 @@ Implementation plan: `docs/superpowers/plans/2026-09-10-phase1-server.md`. Appro
 Stack: Python 3.12+ · Flask 3 · SQLAlchemy 2 · Alembic · Pydantic v2 · flask-sock · pytest, on SQLite
 (PostgreSQL by changing `DATABASE_URL`); frontend Vite + React + TypeScript.
 
-**Remote:** https://github.com/bnfarrellUUS/message_app — push the finished work here.
+**Remote:** https://github.com/bnfarrell/message_app — push the finished work here.
 
 ---
 

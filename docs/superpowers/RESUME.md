@@ -17,7 +17,7 @@ inbox, problems become work orders, and when a work order closes the agent is pr
 Stack: Python 3.14 · Flask 3 · SQLAlchemy 2 · Alembic · Pydantic v2 · flask-sock · pytest, on SQLite
 (PostgreSQL later by changing `DATABASE_URL`). Frontend (not started): Vite + React + TypeScript.
 
-Remote to push to when done: **https://github.com/bnfarrellUUS/message_app** (no git remote configured yet).
+Remote to push to when done: **https://github.com/bnfarrell/message_app** (configured as `origin`; nothing pushed yet).
 
 ## Where the build stands
 
