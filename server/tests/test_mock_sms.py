@@ -77,6 +77,38 @@ def test_retry_requeues_a_failed_message(app, fx, database, worker):
         assert db.get(Message, msg_id).delivery_status == DeliveryStatus.delivered
 
 
+def test_provider_exception_marks_failed_without_retry(app, fx, database, worker, events, monkeypatch):
+    def _raise(self, db, to, body, *, message_id):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(MockSmsAdapter, "send", _raise)
+    msg_id = _outbound(database, fx, "+15551234567")
+    ran = worker.tick()
+    assert ran == 1
+    with database.session() as db:
+        m = db.get(Message, msg_id)
+        assert m.delivery_status == DeliveryStatus.failed
+        assert m.provider_error_code == "ADAPTER_ERROR"
+        assert "boom" in m.provider_error_message
+    statuses = [e.payload["deliveryStatus"] for e in events if e.type == "message.status_changed"]
+    assert statuses == ["failed"]
+
+
+def test_update_delivery_status_ignores_backward_transition(app, fx, database, events):
+    from app.domain import messages
+
+    msg_id = _outbound(database, fx, "+15551234567")
+    with database.session() as db:
+        messages.update_delivery_status(db, fx.property_a.id, msg_id, DeliveryStatus.delivered)
+    events.clear()
+    with database.session() as db:
+        m = messages.update_delivery_status(db, fx.property_a.id, msg_id, DeliveryStatus.sent)
+        assert m.delivery_status == DeliveryStatus.delivered
+    with database.session() as db:
+        assert db.get(Message, msg_id).delivery_status == DeliveryStatus.delivered
+    assert not any(e.type == "message.status_changed" for e in events)
+
+
 def test_parse_inbound_reads_twilio_field_names(app):
     a = MockSmsAdapter(secret="dev")
     m = a.parse_inbound({"From": "+15551234567", "To": "+15550100", "Body": " hi ", "MessageSid": "SM1"})

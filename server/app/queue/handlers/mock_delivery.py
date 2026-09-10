@@ -12,11 +12,10 @@ def mock_delivery_status(db: Session, payload: dict) -> None:
     if msg is None:
         return
     target = DeliveryStatus(payload["status"])
-    # A retry resets the message to queued and schedules a new sequence; stale events must not
-    # overwrite it. Only advance forward: queued→sent→delivered, or queued/sent→failed.
-    order = [DeliveryStatus.queued, DeliveryStatus.sent, DeliveryStatus.delivered]
-    if target in order and msg.delivery_status in order and order.index(target) <= order.index(msg.delivery_status):
-        return
+    # A retry resets the message to queued and clears provider_message_id before scheduling a new
+    # sequence; a stale job from the superseded send must not touch the message it no longer
+    # describes. The forward-only ordering invariant lives in messages.update_delivery_status,
+    # which is the trusted boundary for it.
     if msg.provider_message_id is None:
         return  # message was reset by a retry after this job was scheduled
     messages.update_delivery_status(db, msg.property_id, msg.id, target,

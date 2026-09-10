@@ -19,10 +19,19 @@ def _get(db: Session, property_id: str, message_id: str) -> Message:
     return m
 
 
+# The trusted boundary for the forward-only invariant: queued -> sent -> delivered may only move
+# forward (a stale/replayed provider callback must not revert a later status). failed/undelivered
+# are terminal-from-anywhere and sit outside this list, so e.g. queued -> failed still applies.
+_FORWARD_ORDER = [DeliveryStatus.queued, DeliveryStatus.sent, DeliveryStatus.delivered]
+
+
 def update_delivery_status(db: Session, property_id: str, message_id: str, status: DeliveryStatus, *,
                            provider_message_id: str | None = None, error_code: str | None = None,
                            error_message: str | None = None) -> Message:
     m = _get(db, property_id, message_id)
+    if (status in _FORWARD_ORDER and m.delivery_status in _FORWARD_ORDER
+            and _FORWARD_ORDER.index(status) <= _FORWARD_ORDER.index(m.delivery_status)):
+        return m  # backward or no-op transition: ignore, no write, no event
     m.delivery_status = status
     if provider_message_id:
         m.provider_message_id = provider_message_id
