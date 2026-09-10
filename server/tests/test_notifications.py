@@ -1,3 +1,4 @@
+from app import clock
 from app.domain import notifications
 from app.schemas.enums import DepartmentType
 
@@ -47,8 +48,12 @@ def test_notify_falls_back_to_front_desk(app, fx, database):
 
 
 def test_list_mark_read_and_unread_count_via_api(app, fx, database, login):
+    # The clock is frozen, so "newest first" only means something if time actually moves between
+    # the two notifications — otherwise their created_at values tie and the order is arbitrary.
     with database.session() as db:
         notifications.create(db, fx.property_a.id, fx.agent_a.id, "t", "One")
+    clock.advance(seconds=1)
+    with database.session() as db:
         notifications.create(db, fx.property_a.id, fx.agent_a.id, "t", "Two")
         notifications.create(db, fx.property_a.id, fx.agent_a2.id, "t", "Not mine")
     c = login("agent@hvh.test")
