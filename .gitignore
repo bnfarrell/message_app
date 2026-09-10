@@ -2,3 +2,17 @@
 # assembled design canvases (re-generated from the .dc.html sources)
 docs/mockups/*-directions.html
 .playwright-mcp/
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+server/data/
+*.db
+*.db-wal
+*.db-shm
+node_modules/
+web/dist/
+.env
