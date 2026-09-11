@@ -58,7 +58,12 @@ export function renderWithProviders(
   if (opts.session) client.setQueryData(qk.session, opts.session)
   const result = render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[opts.route ?? '/']}>{ui}</MemoryRouter>
+      <MemoryRouter
+        initialEntries={[opts.route ?? '/']}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        {ui}
+      </MemoryRouter>
     </QueryClientProvider>,
   )
   return { ...result, client }
