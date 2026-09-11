@@ -1,10 +1,11 @@
 import { useEffect, useMemo } from 'react'
-import { useConversation } from '../../api/hooks/conversations'
+import { useConversation, useRetryMessage } from '../../api/hooks/conversations'
 import { useStaff } from '../../api/hooks/users'
 import { useRealtime } from '../../api/ws'
 import type { MessageOut, NoteOut } from '../../api/types'
 import { EmptyState, Spinner } from '../../components/ui'
 import { formatClock } from '../../lib/time'
+import { Composer } from './Composer'
 import { ConversationHeader } from './ConversationHeader'
 import { GuestPanel } from './GuestPanel'
 import { MessageBubble } from './MessageBubble'
@@ -17,6 +18,7 @@ export function ConversationView({ conversationId }: { conversationId: string })
   const { data, isPending, error } = useConversation(conversationId)
   const { data: staff } = useStaff()
   const { setPresence } = useRealtime()
+  const retry = useRetryMessage(conversationId)
 
   // Tell everyone else we are on this conversation; clear it on the way out.
   useEffect(() => {
@@ -62,6 +64,12 @@ export function ConversationView({ conversationId }: { conversationId: string })
                 key={entry.message.id}
                 message={entry.message}
                 authorName={nameFor(entry.message.authorUserId)}
+                onRetry={
+                  entry.message.deliveryStatus === 'failed' ||
+                  entry.message.deliveryStatus === 'undelivered'
+                    ? () => retry.mutate({ messageId: entry.message.id })
+                    : undefined
+                }
               />
             ) : (
               <div
@@ -81,7 +89,7 @@ export function ConversationView({ conversationId }: { conversationId: string })
             ),
           )}
         </div>
-        {/* Task 14 mounts the Composer here. */}
+        <Composer conversationId={conversationId} conversation={data} />
       </div>
       <GuestPanel conversation={data} />
     </div>

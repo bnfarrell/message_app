@@ -2,7 +2,14 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useSession } from '../../auth/SessionContext'
 import { ApiError, api, propertyPath } from '../client'
 import { qk } from '../queryKeys'
-import type { ConversationDetail, ConversationPatch, ConversationSummary, NoteOut } from '../types'
+import type {
+  ConversationDetail,
+  ConversationPatch,
+  ConversationSummary,
+  MessageOut,
+  NoteOut,
+  SendMessageRequest,
+} from '../types'
 
 export type ConversationFilter =
   | 'all'
@@ -72,6 +79,89 @@ export function usePatchConversation(conversationId: string) {
       // Assignment, status and snooze all change which filters this belongs to.
       void client.invalidateQueries({ queryKey: qk.conversation(propertyId, conversationId) })
       void client.invalidateQueries({ queryKey: qk.conversationsAll(propertyId) })
+    },
+  })
+}
+
+let optimisticCounter = 0
+
+export function useSendMessage(conversationId: string) {
+  const { propertyId, user } = useSession()
+  const client = useQueryClient()
+  const key = qk.conversation(propertyId, conversationId)
+
+  return useMutation<MessageOut, ApiError, SendMessageRequest, { optimisticId: string }>({
+    mutationFn: (body) =>
+      api<MessageOut>(propertyPath(propertyId, `conversations/${conversationId}/messages`), {
+        method: 'POST',
+        json: body,
+      }),
+    onMutate: async (body) => {
+      await client.cancelQueries({ queryKey: key })
+      const optimisticId = `optimistic-${++optimisticCounter}`
+      client.setQueryData<ConversationDetail>(key, (current) =>
+        current
+          ? {
+              ...current,
+              messages: [
+                ...current.messages,
+                {
+                  id: optimisticId,
+                  conversationId,
+                  direction: 'outbound',
+                  channel: current.channelPrimary,
+                  authorType: 'staff',
+                  authorUserId: user.id,
+                  body: body.body,
+                  deliveryStatus: 'queued',
+                  sentAt: null,
+                  deliveredAt: null,
+                  providerErrorCode: null,
+                  providerErrorMessage: null,
+                  digitalAssetId: body.digitalAssetId ?? null,
+                  redacted: false,
+                },
+              ],
+            }
+          : current,
+      )
+      return { optimisticId }
+    },
+    onSuccess: (real, _body, context) => {
+      client.setQueryData<ConversationDetail>(key, (current) =>
+        current
+          ? {
+              ...current,
+              messages: current.messages.map((m) => (m.id === context?.optimisticId ? real : m)),
+            }
+          : current,
+      )
+    },
+    onError: (_error, _body, context) => {
+      // A rejected send creates no server row (§6) — drop the bubble rather than leave a ghost.
+      client.setQueryData<ConversationDetail>(key, (current) =>
+        current
+          ? { ...current, messages: current.messages.filter((m) => m.id !== context?.optimisticId) }
+          : current,
+      )
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.conversationsAll(propertyId) })
+    },
+  })
+}
+
+export function useRetryMessage(conversationId: string) {
+  const { propertyId } = useSession()
+  const client = useQueryClient()
+  return useMutation<MessageOut, ApiError, { messageId: string }>({
+    mutationFn: ({ messageId }) =>
+      api<MessageOut>(
+        propertyPath(propertyId, `conversations/${conversationId}/messages/${messageId}/retry`),
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: qk.conversation(propertyId, conversationId) })
     },
   })
 }
