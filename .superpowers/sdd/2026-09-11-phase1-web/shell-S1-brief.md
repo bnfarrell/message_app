@@ -15,9 +15,42 @@ belongs to `docs/mockups/`, which remains the binding fidelity reference. You ar
 frame and retuning the palette. You are not redesigning the Inbox, Board, Analytics, Admin or
 Work Order screens, and you are not moving anything inside them.
 
-**Open `score.png` and look at it before you write anything.** Sample its actual colours,
-spacing and type sizes from the image rather than inventing values or trusting my prose
-description of it.
+**`score.png` IS NO LONGER ON DISK.** It was an untracked file at the repo root and something
+tidied it away mid-build; it was never committed, so there is no copy to recover. If it
+reappears at the repo root, open it and sample it — it beats any description. Otherwise work
+from the description below, which I wrote while looking at it.
+
+### The reference, described
+
+Structure, outermost in:
+
+- **A deep navy left rail**, roughly 200px, full height, its own ground distinct from the page.
+  Brand lockup at the top: a small square accent-blue tile holding a glyph, then the product
+  name in bold white ~17px, with a muted ~11px subtitle line under it.
+- **Nav grouped under small uppercase letter-spaced headings** in a muted blue-grey — the
+  reference uses OVERVIEW, REFERENCE, ADMIN, ACCOUNT. Each row is an outline icon plus a label.
+  The active row is a filled rounded rectangle in a brighter blue with white text; inactive rows
+  are muted blue-grey with no fill.
+- **A thin white top bar** across the content column. Quiet muted hint text on the left. On the
+  right, in order: a bordered pill reading the search affordance with a small keyboard-shortcut
+  badge inside it, the user's name, a notification bell, a bordered "Dark" toggle with a moon
+  glyph, and a bordered "Sign Out" button.
+- **Content on a very light cool grey ground**, with white cards, 1px hairline borders in a
+  light cool grey, and ~10px radii. No drop shadows.
+- Small **uppercase letter-spaced muted labels** introduce panel sections ("RUNNING TOTAL",
+  "BY DEPARTMENT").
+- Dense tables: uppercase muted column headers, **right-aligned numerics in tabular figures**,
+  inline editable cells, a quiet per-row remove control.
+
+The palette reads as: near-black navy rail, a saturated but not neon blue for the active state
+and primary buttons, cool light greys for ground and borders, near-black body text with two
+muted grey steps below it, and green/amber/red reserved for status only.
+
+**You are choosing exact hues, so choose them deliberately and report them.** Aim for the
+character above rather than guessing at specific values I have not given you — a navy that is
+clearly navy rather than black, and an accent blue that clears contrast on both the navy rail
+and a white card. The user will see the result and can adjust; what they cannot forgive is an
+illegible pair, so the contrast checks below are the hard requirement.
 
 ---
 

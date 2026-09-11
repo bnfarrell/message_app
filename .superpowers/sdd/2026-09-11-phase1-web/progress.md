@@ -3276,3 +3276,64 @@ Ruling D96 (the test harness gets a safe default, not a remembered convention): 
       as their own commits without trouble.
       Cost if wrong: if hardening the mock breaks existing admin tests, those tests were relying
       on a server that cannot exist, which is the finding rather than a regression.
+
+S1 RETURNED: DONE_WITH_CONCERNS, 4 commits 8beea25..294780a. Web 489 -> **516 passing / 0 failed**
+      (51 files), server unchanged at 347, tsc/lint/build clean, NO React warnings in stderr.
+      c68c13a D96 mock hardening (own commit), be203ba tailwind-merge in cn, 309084c the reskin
+      itself, 294780a the report plus 7 screenshots.
+
+      D69 RESOLVED, and the audit reversed the risk I briefed. I warned that adding tailwind-merge
+      could REVIVE overrides that had been silently dead, changing screens this wave must not
+      touch. It audited first and found **ZERO** silently-dead colour overrides in the client, so
+      that regression could not fire. And because tailwind-merge keys its conflict groups on
+      `!important`, Composer's note mode is byte-for-byte unchanged - which it verified IN THE
+      BROWSER rather than trusting the suite, precisely because D86 records that the test guarding
+      it cannot fail.
+
+      TWO INACCURACIES IN MY BRIEF, both mine:
+      - I wrote D96 as "the shared admin serve() helper". There is no shared helper - six separate
+        ones, and only PropertySettings echoes. The hardening is right; my description of the
+        blast radius was wrong.
+      - index.css.test.ts's block() helper resolves its selector by indexOf over the RAW FILE, so a
+        comment merely MENTIONING `[data-theme='light']` silently redirects the light-theme
+        assertions to the wrong block. It hit this and reworded around it rather than hardening the
+        helper. That is a test harness that can assert against the wrong thing and stay green -
+        the same family as D86 and D96. Carried to the S1 review to rule on.
+
+      Trap worth keeping: **Vite does not HMR tailwind.config.js.** New token utilities were absent
+      from the dev stylesheet while `npm run build` emitted them correctly - so a class can appear
+      broken in dev and be fine in production, which is the opposite of the usual direction and
+      will mislead whoever meets it next.
+
+      EVERY HUE IS THE IMPLEMENTER'S JUDGEMENT. score.png never reappeared, so the palette comes
+      from my written description rather than the image. Legibility is not guesswork - ratios
+      measured, asserted per theme, verified live with getComputedStyle - but the user should
+      expect to tune the navy and the active blue.
+
+S1 review dispatched (agent a4cfa26e0d00070e0, opus) over 8beea25..294780a. Told to verify the
+      hard boundary first - that nothing inside a screen's content area changed, since the user
+      declined that tier - plus its own contrast spot-checks with numbers, the capability filtering
+      on both corporate and dept_staff, and the note-composer focus indicator measured in a
+      browser rather than read from a test that cannot fail.
+
+DELIVERY-STATUS REGRESSION - a real product defect, found by S1 while running the E2E suite and
+      NOT caused by it. smoke.spec.ts fails at the delivery-status step: the thread keeps showing
+      "Sending..." though the database records the message delivered within ~2s. S1 isolated it as
+      PRE-EXISTING by checking web/ out at 8beea25 and reproducing identically, and noted
+      presence.spec.ts passes over the same socket, so the connection is healthy and the delivered
+      event is not reaching the mounted thread.
+      This matters beyond the test: if it reproduces in the product, an agent watching a guest
+      thread never sees a message leave "Sending...", and a delivery FAILURE would be equally
+      invisible.
+
+Ruling D97 (diagnose before fixing, and separate the diagnosis from the fix): dispatched a
+      DIAGNOSIS-ONLY investigation (agent a6562e0539ddef878, opus) forbidden from editing
+      application code. It must name the exact broken link with file:line evidence rather than a
+      list of suspects, and must first establish whether the bug reproduces in the PRODUCT or only
+      under Playwright - because the most likely single cause is that START_WORKER defaults to 0,
+      which would mean no job ever runs and the E2E environment differs from the product. It must
+      also check whether a page reload corrects the status, which separates "the event never
+      arrived" from "it arrived and the cache was not updated".
+      Cost if wrong: a diagnosis seat spent on something a fixer would have found anyway. Worth it
+      - this is the third time on this project that a "test failure" turned out to be a product
+      bug, and dispatching a fixer at a symptom is how the wrong thing gets changed.
