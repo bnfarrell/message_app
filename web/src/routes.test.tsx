@@ -61,16 +61,17 @@ describe('AppRoutes', () => {
 
   it('sends dept_staff from /app to the board, filtered to mine', async () => {
     mountAt('/app', 'dept_staff')
-    expect(await (await mainScreen()).findByText('Board')).toBeInTheDocument()
-    // The Placeholder ignores query strings entirely, so this is the only thing in this
-    // file that would catch <Navigate> silently dropping `?mine=1` on the way there.
-    expect(screen.getByTestId('location')).toHaveTextContent('/app/board?mine=1')
+    // Task 16 replaced the Board placeholder with the real screen, which has no literal
+    // "Board" text of its own in <main> — the location is the stable signal that we landed.
+    // It also fetches on mount, which the blanket 401 in this file's beforeEach fails, so
+    // this is the only thing in this file that would catch <Navigate> silently dropping
+    // `?mine=1` on the way there.
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/board?mine=1'))
   })
 
   it('sends a supervisor from /app to the board, filtered to mine', async () => {
     mountAt('/app', 'supervisor')
-    expect(await (await mainScreen()).findByText('Board')).toBeInTheDocument()
-    expect(screen.getByTestId('location')).toHaveTextContent('/app/board?mine=1')
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/board?mine=1'))
   })
 
   it('sends a manager from /app to analytics', async () => {

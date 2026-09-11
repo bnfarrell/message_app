@@ -18,11 +18,13 @@ export function Avatar({
   tone = 'muted',
   size = 26,
   title,
+  className,
 }: {
   name: string
   tone?: keyof typeof TONES
   size?: 22 | 26 | 32
   title?: string
+  className?: string
 }) {
   return (
     <span
@@ -32,6 +34,7 @@ export function Avatar({
         'inline-flex flex-none items-center justify-center rounded-md text-[11px] font-bold',
         'text-avText',
         TONES[tone],
+        className,
       )}
     >
       {initialsOf(name)}

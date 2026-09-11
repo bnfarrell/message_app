@@ -7,6 +7,8 @@ import { AppLayout } from './AppLayout'
 import { EmptyState, Spinner } from './components/ui'
 import { LoginPage } from './features/login/LoginPage'
 import { InboxPage } from './features/inbox/InboxPage'
+import { BoardPage } from './features/board/BoardPage'
+import { WorkOrderDetailPage } from './features/board/WorkOrderDetailPage'
 
 /** Temporary: each feature task replaces one of these with the real screen. */
 function Placeholder({ name }: { name: string }) {
@@ -44,8 +46,8 @@ export function AppRoutes() {
           <Route index element={<LandingRedirect />} />
           <Route path="inbox" element={<InboxPage />} />
           <Route path="inbox/:id" element={<InboxPage />} />
-          <Route path="board" element={<Placeholder name="Board" />} />
-          <Route path="work-orders/:id" element={<Placeholder name="Work order" />} />
+          <Route path="board" element={<BoardPage />} />
+          <Route path="work-orders/:id" element={<WorkOrderDetailPage />} />
           <Route
             path="analytics"
             element={
