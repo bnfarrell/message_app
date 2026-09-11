@@ -34,8 +34,8 @@ def list_conversations(property_id: str):
 @require_property
 def get_conversation(property_id: str, conversation_id: str):
     with db_session() as db:
-        c = conversations.get(db, g.property_id, conversation_id)
-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
+                                     g.user.id, g.membership.department_id)
         return ok(conversations.detail(db, g.property_id, conversation_id))
 
 
@@ -47,8 +47,8 @@ def send_message(property_id: str, conversation_id: str):
     body = parse_body(SendMessageRequest)
     ip, ua = client_meta()
     with db_session() as db:
-        c = conversations.get(db, g.property_id, conversation_id)
-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
+                                     g.user.id, g.membership.department_id)
         m = messages.send(db, g.property_id, conversation_id, body.body, author_user_id=g.user.id,
                           digital_asset_id=body.digital_asset_id, draft_prompt_id=body.draft_prompt_id,
                           ip=ip, user_agent=ua)
@@ -61,8 +61,8 @@ def send_message(property_id: str, conversation_id: str):
 @require_capability("reply")
 def retry_message(property_id: str, conversation_id: str, message_id: str):
     with db_session() as db:
-        c = conversations.get(db, g.property_id, conversation_id)
-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
+                                     g.user.id, g.membership.department_id)
         target = db.scalar(select(Message).where(Message.id == message_id,
                                                   Message.property_id == g.property_id))
         if target is None or target.conversation_id != conversation_id:
@@ -78,8 +78,8 @@ def retry_message(property_id: str, conversation_id: str, message_id: str):
 def add_note(property_id: str, conversation_id: str):
     body = parse_body(CreateNoteRequest)
     with db_session() as db:
-        c = conversations.get(db, g.property_id, conversation_id)
-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
+                                     g.user.id, g.membership.department_id)
         n = notes.create(db, g.property_id, conversation_id, g.user.id, body.body)
         out = [x for x in notes.list_for(db, g.property_id, conversation_id) if x.id == n.id][0]
         return ok(out, 201)
@@ -92,8 +92,8 @@ def add_note(property_id: str, conversation_id: str):
 def patch_conversation(property_id: str, conversation_id: str):
     changes = parse_body(ConversationPatch)
     with db_session() as db:
-        c = conversations.get(db, g.property_id, conversation_id)
-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
+                                     g.user.id, g.membership.department_id)
         conversations.patch(db, g.property_id, conversation_id, g.user.id, changes,
                             can_archive=has_capability(g.membership.role, "archive"))
         return ok(conversations.detail(db, g.property_id, conversation_id))
@@ -105,7 +105,7 @@ def patch_conversation(property_id: str, conversation_id: str):
 @require_capability("reply")
 def dismiss_prompt(property_id: str, conversation_id: str, prompt_id: str):
     with db_session() as db:
-        c = conversations.get(db, g.property_id, conversation_id)
-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
+                                     g.user.id, g.membership.department_id)
         draft_prompts.dismiss(db, g.property_id, conversation_id, prompt_id, g.user.id)
     return no_content()

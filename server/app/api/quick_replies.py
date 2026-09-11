@@ -52,6 +52,6 @@ def delete_quick_reply(property_id: str, quick_reply_id: str):
 def render_quick_reply(property_id: str, quick_reply_id: str):
     body = parse_body(RenderRequest)
     with db_session() as db:
-        c = conversations.get(db, g.property_id, body.conversation_id)
-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+        conversations.get_for_viewer(db, g.property_id, body.conversation_id, g.membership.role,
+                                     g.user.id, g.membership.department_id)
         return ok(quick_replies.render(db, g.property_id, quick_reply_id, body.conversation_id, g.user.id))

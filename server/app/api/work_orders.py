@@ -3,7 +3,7 @@ from flask import Blueprint, g, request
 from app.api._util import db_session, ok, parse_body, parse_query
 from app.auth.decorators import require_auth, require_capability, require_property
 from app.auth.permissions import has_capability
-from app.domain import work_orders
+from app.domain import conversations, work_orders
 from app.errors import Forbidden, ValidationFailed
 from app.schemas.enums import WorkOrderStatus
 from app.schemas.work_orders import CreateWorkOrder, WorkOrderListQuery, WorkOrderOut, WorkOrderPatch
@@ -32,6 +32,8 @@ def prefill(property_id: str):
     if not conversation_id:
         raise ValidationFailed("conversationId is required")
     with db_session() as db:
+        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
+                                     g.user.id, g.membership.department_id)
         return ok(work_orders.prefill_from_conversation(db, g.property_id, conversation_id))
 
 
@@ -42,6 +44,9 @@ def prefill(property_id: str):
 def create_work_order(property_id: str):
     data = parse_body(CreateWorkOrder)
     with db_session() as db:
+        if data.source_conversation_id:
+            conversations.get_for_viewer(db, g.property_id, data.source_conversation_id,
+                                         g.membership.role, g.user.id, g.membership.department_id)
         wo = work_orders.create(db, g.property_id, g.user.id, data)
         return ok(WorkOrderOut.model_validate(wo), 201)
 

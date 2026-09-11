@@ -191,6 +191,16 @@ def assert_viewer_can_see(c: Conversation, viewer_role: Role, viewer_user_id: st
         raise Forbidden("This conversation belongs to another department")
 
 
+def get_for_viewer(db: Session, property_id: str, conversation_id: str, viewer_role: Role,
+                   viewer_user_id: str, viewer_department_id: str | None) -> Conversation:
+    """`get` plus `assert_viewer_can_see` in one call, so a route cannot resolve a conversation
+    without also checking whether its caller is allowed to see it (see Task 12/15 review history:
+    this pairing was missed on seven routes across three tasks before this helper existed)."""
+    c = get(db, property_id, conversation_id)
+    assert_viewer_can_see(c, viewer_role, viewer_user_id, viewer_department_id)
+    return c
+
+
 def detail(db: Session, property_id: str, conversation_id: str) -> ConversationDetail:
     from app.domain import notes as notes_domain
 

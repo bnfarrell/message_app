@@ -60,6 +60,35 @@ def test_list_filters(app, fx, client, database, login):
     assert ids(sup.get(base + f"?dept={fx.dept_housekeeping.id}&includeClosed=true")) == {b["id"]}
 
 
+def test_prefill_and_create_reject_out_of_department_dept_staff(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "The AC in our room isn't working")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    base = f"/api/p/{fx.property_a.id}/work-orders"
+    agent = login("agent@hvh.test")
+    agent.patch(f"/api/p/{fx.property_a.id}/conversations/{cid}",
+                json={"assignedDepartmentId": fx.dept_engineering.id})
+    hk = login("housekeeper@hvh.test")  # dept_staff, housekeeping — not engineering
+    assert hk.get(f"{base}/prefill?conversationId={cid}").status_code == 403
+    assert hk.post(base, json={"title": "AC", "type": "maintenance", "locationRef": "412",
+                               "sourceConversationId": cid}).status_code == 403
+    eng = login("engineer@hvh.test")  # dept_staff, engineering — can see it
+    assert eng.get(f"{base}/prefill?conversationId={cid}").status_code == 200
+
+
+def test_patch_priority_department_reassignment_and_clear_assignee(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/work-orders"
+    sup = login("supervisor@hvh.test")
+    wo = sup.post(base, json={"title": "Fridge", "type": "maintenance", "locationRef": "5",
+                              "assignedUserId": fx.engineer_a.id}).get_json()
+    assert wo["status"] == "assigned"
+    p1 = sup.patch(f"{base}/{wo['id']}", json={"priority": "urgent"}).get_json()
+    assert p1["priority"] == "urgent"
+    p2 = sup.patch(f"{base}/{wo['id']}", json={"departmentId": fx.dept_housekeeping.id}).get_json()
+    assert p2["departmentId"] == fx.dept_housekeeping.id and p2["assignedUserId"] == fx.engineer_a.id
+    p3 = sup.patch(f"{base}/{wo['id']}", json={"clearAssignee": True}).get_json()
+    assert p3["assignedUserId"] is None and p3["status"] == "open"
+
+
 def test_dismiss_draft_prompt(app, fx, client, database, login):
     from app.domain import work_orders
     from app.schemas.enums import WorkOrderStatus, WorkOrderType
