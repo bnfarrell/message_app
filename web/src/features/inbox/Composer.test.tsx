@@ -2,8 +2,9 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RealtimeProvider } from '../../api/ws'
+import type { Role } from '../../api/types'
 import { SessionProvider } from '../../auth/SessionContext'
-import { aAsset, aConversationDetail, aGuest, aMessage, aQuickReply } from '../../test/factories'
+import { aAsset, aConversationDetail, aGuest, aMessage, aNote, aQuickReply } from '../../test/factories'
 import { renderWithProviders, sessionFixture } from '../../test/harness'
 import { Composer } from './Composer'
 
@@ -17,6 +18,15 @@ function routes(overrides: Record<string, unknown> = {}) {
       departments: [],
       users: [],
       ...overrides,
+    }
+    if (url.includes('/notes') && method === 'POST') {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { body: string }
+      return Promise.resolve(
+        new Response(JSON.stringify(aNote({ id: 'n-real', body: body.body })), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
     }
     if (url.includes('/messages') && method === 'POST') {
       const body = JSON.parse(String(init?.body ?? '{}')) as { body: string }
@@ -51,16 +61,19 @@ function routes(overrides: Record<string, unknown> = {}) {
   })
 }
 
-function mount(detail = aConversationDetail()) {
+function mount(detail = aConversationDetail(), role: Role = 'agent') {
   return renderWithProviders(
     <SessionProvider>
       <RealtimeProvider>
         <Composer conversationId={detail.id} conversation={detail} />
       </RealtimeProvider>
     </SessionProvider>,
-    { session: sessionFixture({ role: 'agent' }), route: `/app/inbox/${detail.id}` },
+    { session: sessionFixture({ role }), route: `/app/inbox/${detail.id}` },
   )
 }
+
+const notePosts = () =>
+  vi.mocked(fetch).mock.calls.filter(([u, i]) => String(u).includes('/notes') && i?.method === 'POST')
 
 describe('Composer', () => {
   beforeEach(() => {
@@ -294,20 +307,89 @@ describe('Composer', () => {
     await waitFor(() => expect(frames.some((f) => f.includes('"state":"viewing"'))).toBe(true))
   })
 
-  // Added per the Task 14 dispatch: corporate holds view_all_conversations and add_note
-  // but not reply, so it must get a read-only thread rather than a composer the server
-  // would reject a send from.
-  it('renders nothing for a role without the reply capability', async () => {
-    const detail = aConversationDetail()
-    renderWithProviders(
-      <SessionProvider>
-        <RealtimeProvider>
-          <Composer conversationId={detail.id} conversation={detail} />
-        </RealtimeProvider>
-      </SessionProvider>,
-      { session: sessionFixture({ role: 'corporate' }), route: `/app/inbox/${detail.id}` },
+  // R1.1 supersedes the Task 14 expectation that corporate gets nothing at all: corporate
+  // holds `add_note`, so it gets a note-only composer — and still no outbound send.
+  it('offers a role without `reply` the note composer and no outbound send', async () => {
+    mount(aConversationDetail(), 'corporate')
+    expect(await screen.findByRole('textbox')).toHaveAttribute(
+      'placeholder',
+      'Internal note — not sent to the guest',
     )
-    await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument())
-    expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Note' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('button', { name: 'Reply' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^send$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /attach/i })).not.toBeInTheDocument()
   })
+
+  it('posts a note through the notes endpoint, not the messages endpoint', async () => {
+    mount(aConversationDetail(), 'corporate')
+    const box = await screen.findByRole('textbox')
+    await userEvent.type(box, 'Raised WO #204 to Engineering, urgent.')
+    await userEvent.click(screen.getByRole('button', { name: /add note/i }))
+    await waitFor(() => expect(notePosts()).toHaveLength(1))
+    expect(JSON.parse(String(notePosts()[0]![1]!.body))).toEqual({
+      body: 'Raised WO #204 to Engineering, urgent.',
+    })
+    expect(
+      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/messages') && i?.method === 'POST'),
+    ).toBe(false)
+    await waitFor(() => expect(box).toHaveValue(''))
+  })
+
+  // The toggle keys off `add_note`, never `reply` — gating it on `reply` is what left
+  // corporate with nothing it could do anywhere in the inbox.
+  it('shows the Reply/Note toggle to a role that holds both capabilities', async () => {
+    mount()
+    expect(await screen.findByRole('button', { name: 'Reply' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Note' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('drops the SMS-only affordances when switched to Note mode', async () => {
+    mount()
+    await userEvent.type(await screen.findByRole('textbox'), 'Hello there')
+    expect(screen.getByTestId('segment-counter')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Note' }))
+    expect(screen.queryByTestId('segment-counter')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /attach/i })).not.toBeInTheDocument()
+  })
+
+  it('does not open the quick-reply palette in Note mode', async () => {
+    mount()
+    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
+    await userEvent.type(screen.getByRole('textbox'), '/wifi')
+    expect(screen.queryByTestId('qr-q-1')).not.toBeInTheDocument()
+  })
+
+  // Consent governs outbound SMS, not internal notes: an opted-out guest must not stop
+  // staff recording one.
+  it('posts a note for an opted-out guest, and hides the SMS consent warning', async () => {
+    mount(aConversationDetail({ guest: aGuest({ smsConsentStatus: 'opted_out' }) }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
+    expect(screen.queryByText(/opted out of SMS/i)).not.toBeInTheDocument()
+    const box = screen.getByRole('textbox')
+    expect(box).toBeEnabled()
+    await userEvent.type(box, 'Guest opted out — call room 412 instead.')
+    await userEvent.keyboard('{Control>}{Enter}{/Control}')
+    await waitFor(() => expect(notePosts()).toHaveLength(1))
+    expect(JSON.parse(String(notePosts()[0]![1]!.body))).toEqual({
+      body: 'Guest opted out — call room 412 instead.',
+    })
+  })
+
+  it('gives the note text back when the server rejects it', async () => {
+    mount()
+    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
+    const box = screen.getByRole('textbox')
+    await userEvent.type(box, 'A note')
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: 'Not allowed' } }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    await userEvent.keyboard('{Control>}{Enter}{/Control}')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Not allowed')
+    await waitFor(() => expect(box).toHaveValue('A note'))
+  })
+
 })

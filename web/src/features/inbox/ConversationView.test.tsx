@@ -1,5 +1,7 @@
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { NoteOut } from '../../api/types'
 import { RealtimeProvider } from '../../api/ws'
 import { SessionProvider } from '../../auth/SessionContext'
 import { ToastProvider } from '../../components/ui'
@@ -100,6 +102,40 @@ describe('ConversationView', () => {
     expect(warnings.length).toBeGreaterThan(0)
     // "does not disable the thread" is half the title and was never asserted.
     expect(screen.getByRole('textbox')).toBeEnabled()
+  })
+
+  // R1.1: nothing in the product could create a note before this. The whole loop is under
+  // test — POST /notes, then the invalidated detail query putting it in the thread.
+  it('writes an internal note and shows it in the thread', async () => {
+    let notes: NoteOut[] = []
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/notes') && init?.method === 'POST') {
+        const sent = JSON.parse(String(init.body)) as { body: string }
+        const created = aNote({ id: 'n-new', body: sent.body })
+        notes = [created]
+        return Promise.resolve(
+          new Response(JSON.stringify(created), {
+            status: 201,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+      }
+      // Everything but the conversation detail itself is a list route here.
+      const body = url.includes('/users')
+        ? [aStaffUser()]
+        : url.includes('/conversations/c-1')
+          ? aConversationDetail({ notes })
+          : []
+      return Promise.resolve(
+        new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+      )
+    })
+    mount()
+    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
+    await userEvent.type(screen.getByRole('textbox'), 'Raised WO #204 to Engineering.')
+    await userEvent.click(screen.getByRole('button', { name: /add note/i }))
+    expect(await screen.findByTestId('note')).toHaveTextContent('Raised WO #204 to Engineering.')
   })
 
   it('shows an error state when the conversation cannot be loaded', async () => {
