@@ -28,6 +28,51 @@ npm run test:server   # pytest, including the §11.1 acceptance suite
 Note: npm ≥ 11.19 blocks package install scripts by default; the server has no native dependencies, so this
 does not affect the Python side. If a Node package needs its install script, run `npm install-scripts approve <pkg>`.
 
+## Web client
+Requires Node 20+.
+```bash
+cd web
+npm install
+npm run dev        # http://127.0.0.1:5173
+```
+Run the server in a second terminal (`.\start.bat` on Windows, or `npm run server` from the repo
+root). Vite proxies `/api`, `/ws` and `/a/<short-code>` to `127.0.0.1:5200`, so there is no CORS to
+configure in development. The dev server binds IPv4 explicitly, so reach it on `127.0.0.1`, not
+`localhost`.
+
+| Command (from `web/`) | What it does |
+|---|---|
+| `npm run dev` | Vite dev server on 5173 |
+| `npm run build` | Type-check and build to `web/dist` |
+| `npm test` | Vitest unit and component tests |
+| `npm run test:e2e` | Playwright; starts both servers itself |
+| `npm run gen:types` | Regenerate `src/api/types.generated.ts` from `src/api/schema.json` |
+
+`npm run test:e2e` starts the API itself by running `python ../server/dev_start.py`, so activate the
+venv first — the `python` it finds on PATH has to be the one the server is installed into. Once per
+machine, install the browser it drives: `npx playwright install chromium`.
+
+### Regenerating the API types
+`web/src/api/schema.json` is written by the server, so after any change to a Pydantic
+request/response model:
+```bash
+npm run schema      # from the repo root — writes web/src/api/schema.json
+cd web && npm run gen:types
+```
+Both files are committed. `server/tests/test_schema_export.py` fails if the schema is stale, and a
+Vitest fails if the generated types are.
+
+### The phone simulator
+`http://127.0.0.1:5173/sim` — dev builds only. Pick a seeded guest, text the hotel, and watch the
+staff inbox react. Quick buttons cover `STOP`, `HELP`, a maintenance complaint and a card number
+(to demonstrate redaction). Numbers ending `0000` fail delivery on purpose with mock error `30007`
+so the retry path can be exercised.
+
+### Themes
+Dark is the default. The **Theme** control in the left nav toggles light, and the choice is saved
+per user (`PATCH /api/auth/prefs`), so it follows them to another machine. With no saved choice the
+device's `prefers-color-scheme` decides.
+
 ## Seeded logins (password for all: `Password123!`)
 | Email | Role | Lands on |
 |---|---|---|
@@ -41,6 +86,7 @@ does not affect the Python side. If a Node package needs its install script, run
 | blake@lsi.test / bea@lsi.test | Lakeside Inn admin / agent | — |
 
 `ava@hvh.test` is a good default: HVH holds all 30 seeded conversations, so it lands on a populated inbox.
+The same credentials sign in to the web client at `http://127.0.0.1:5173/login`.
 
 ## Texting the hotel without Twilio
 The SMS wire is mocked (`SMS_ADAPTER=mock`). Send an inbound text exactly as Twilio would:
