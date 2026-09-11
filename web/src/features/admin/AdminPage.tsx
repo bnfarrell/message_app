@@ -2,6 +2,7 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { cn } from '../../lib/cn'
 import { AssetsAdmin } from './AssetsAdmin'
 import { CategoriesAdmin } from './CategoriesAdmin'
+import { DepartmentsAdmin } from './DepartmentsAdmin'
 import { QuickRepliesAdmin } from './QuickRepliesAdmin'
 import { UsersAdmin } from './UsersAdmin'
 
@@ -11,13 +12,14 @@ import { UsersAdmin } from './UsersAdmin'
 // "/app/admin/quick-replies" resolves to ".../quick-replies/users" instead of ".../users".
 const LIVE = [
   { to: '/app/admin/users', label: 'Users & roles' },
+  { to: '/app/admin/departments', label: 'Departments' },
   { to: '/app/admin/quick-replies', label: 'Quick replies' },
   { to: '/app/admin/assets', label: 'Digital assets' },
   { to: '/app/admin/categories', label: 'Resolution categories' },
 ]
 
 // Shown deliberately (mockup Admin.dc.html): an admin should see the product's shape.
-const PHASE_2 = ['Departments', 'Property settings', 'Automations', 'Blocked numbers', 'Integrations']
+const PHASE_2 = ['Property settings', 'Automations', 'Blocked numbers', 'Integrations']
 
 export function AdminPage() {
   return (
@@ -58,6 +60,7 @@ export function AdminPage() {
       <Routes>
         <Route index element={<Navigate to="users" replace />} />
         <Route path="users" element={<UsersAdmin />} />
+        <Route path="departments" element={<DepartmentsAdmin />} />
         <Route path="quick-replies" element={<QuickRepliesAdmin />} />
         <Route path="assets" element={<AssetsAdmin />} />
         <Route path="categories" element={<CategoriesAdmin />} />
