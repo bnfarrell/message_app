@@ -15,6 +15,9 @@ export const qk = {
 
   quickReplies: (propertyId: string, q?: string) => ['quickReplies', propertyId, q ?? ''] as const,
   quickRepliesAll: (propertyId: string) => ['quickReplies', propertyId] as const,
+  quickReplyVariables: (propertyId: string) => ['quickReplyVariables', propertyId] as const,
+  quickReplyPreview: (propertyId: string, body: string) =>
+    ['quickReplyPreview', propertyId, body] as const,
   assets: (propertyId: string) => ['assets', propertyId] as const,
   assetsAll: (propertyId: string) => ['assets', propertyId] as const,
   categories: (propertyId: string) => ['categories', propertyId] as const,

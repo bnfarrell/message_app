@@ -4,7 +4,7 @@ import { ApiError, api, propertyPath } from '../client'
 import { qk } from '../queryKeys'
 import type {
   AssetIn, AssetOut, AssetPatch, CategoryIn, CategoryOut, CategoryPatch,
-  QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderedQuickReply,
+  PreviewRequest, QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderedQuickReply,
 } from '../types'
 
 export function useQuickReplies(q?: string) {
@@ -27,6 +27,36 @@ export function useRenderQuickReply() {
         method: 'POST',
         json: { conversationId },
       }),
+  })
+}
+
+/** The names the server's interpolator actually supports; the mockup's list is stale. */
+export function useQuickReplyVariables() {
+  const { propertyId } = useSession()
+  return useQuery<string[], ApiError>({
+    queryKey: qk.quickReplyVariables(propertyId),
+    queryFn: () => api<string[]>(propertyPath(propertyId, 'quick-replies/variables')),
+    staleTime: Infinity, // a code-level constant on the server
+  })
+}
+
+/**
+ * Renders an unsaved body against the server's sample values, and returns the authoritative
+ * `segments`/`characters`. Deliberately `/preview`, not `/render`: `/render` bumps `usageCount`,
+ * needs a saved row plus a real conversation, and is gated on `reply`, which `corporate` — a role
+ * that reaches this screen — does not hold. Pass an already-debounced body; the key is the body.
+ */
+export function useQuickReplyPreview(body: string) {
+  const { propertyId } = useSession()
+  return useQuery<RenderedQuickReply, ApiError>({
+    queryKey: qk.quickReplyPreview(propertyId, body),
+    queryFn: () =>
+      api<RenderedQuickReply>(propertyPath(propertyId, 'quick-replies/preview'), {
+        method: 'POST',
+        json: { body } satisfies PreviewRequest,
+      }),
+    enabled: body.length > 0, // the server rejects an empty body with a 400
+    staleTime: 5 * 60_000,
   })
 }
 
