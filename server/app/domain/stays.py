@@ -12,7 +12,10 @@ def find_in_house_for_guest(db: Session, property_id: str, guest_id: str) -> Sta
     return db.scalar(
         select(Stay).where(Stay.property_id == property_id, Stay.guest_id == guest_id,
                            Stay.status == StayStatus.checked_in)
-        .order_by(Stay.actual_checkin_at.desc())
+        # nulls_last + an id tiebreak: a NULL actual_checkin_at sorts FIRST under DESC on
+        # PostgreSQL, so without this a stay whose check-in timestamp never got written would
+        # become "the" in-house stay and attach the wrong room number to an inbound SMS.
+        .order_by(Stay.actual_checkin_at.desc().nulls_last(), Stay.id.desc())
     )
 
 

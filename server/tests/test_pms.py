@@ -168,3 +168,34 @@ def test_same_external_id_in_two_properties_is_processed_twice(app, fx, database
         # ...and the key is still idempotent within each property.
         assert handle_event(db, _event(fx, eid="R-1001", phone="+15551110001",
                                        room="301")) is False
+
+
+def test_status_and_check_in_timestamp_are_written_together(app, fx, database):
+    """The attribute loop copies `status` straight off the event, so an event that merely
+    *carries* status=checked_in (here a room change) used to set the status without ever setting
+    actual_checkin_at. stays.find_in_house_for_guest orders on that column, where NULL sorts
+    FIRST under DESC on PostgreSQL — the NULL row becomes "the" in-house stay and attaches the
+    wrong room number to an inbound SMS."""
+    ev = _event(fx, eid="R-77", type="stay.room_changed", phone="+15554440000", room="600")
+    with database.session() as db:
+        assert handle_event(db, ev) is True
+        s = db.scalar(select(Stay).where(Stay.pms_reservation_id == "R-77"))
+        assert s.status == StayStatus.checked_in
+        assert s.actual_checkin_at is not None, "checked_in stay left with a NULL check-in time"
+
+
+def test_in_house_lookup_prefers_a_stay_with_a_real_check_in_time(app, fx, database):
+    """Belt and braces for the ordering itself: even if a NULL slips in, the stay that actually
+    recorded a check-in must win."""
+    from app.domain import stays as stays_domain
+
+    with database.session() as db:
+        guest = fx.guest_inhouse_a
+        ghost = Stay(guest_id=guest.id, property_id=fx.property_a.id,
+                     pms_reservation_id="RES-GHOST", room_number="999",
+                     status=StayStatus.checked_in, arrival_date=clock.now().date(),
+                     departure_date=clock.now().date(), actual_checkin_at=None)
+        db.add(ghost)
+        db.flush()
+        found = stays_domain.find_in_house_for_guest(db, fx.property_a.id, guest.id)
+        assert found.room_number == "412"

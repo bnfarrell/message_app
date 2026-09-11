@@ -75,11 +75,19 @@ def handle_event(db: Session, event: PmsEvent, integration_key: str = "mock") ->
         setattr(stay, attr, getattr(event.stay, attr))
     stay.raw_pms = event.raw
     now = clock.now()
-    if event.type == "stay.checked_in" and stay.actual_checkin_at is None:
-        stay.actual_checkin_at = now
     if event.type == "stay.checked_out":
         stay.status = StayStatus.checked_out
-        stay.actual_checkout_at = stay.actual_checkout_at or now
+    # The attribute loop above copies `status` straight off the event, so keying the timestamp
+    # off event.type alone left a stay with status=checked_in and actual_checkin_at NULL whenever
+    # the status arrived on some other event type (e.g. a room_changed carrying the current
+    # status). stays.find_in_house_for_guest orders on actual_checkin_at, where NULL sorts first
+    # on PostgreSQL — so that row became "the" in-house stay and attached the wrong room number
+    # to an inbound SMS. Write status and its timestamp together instead.
+    if (stay.status in (StayStatus.checked_in, StayStatus.checked_out)
+            and stay.actual_checkin_at is None):
+        stay.actual_checkin_at = now
+    if stay.status == StayStatus.checked_out and stay.actual_checkout_at is None:
+        stay.actual_checkout_at = now
     db.flush()
     row.processed_at = now
     audit.record(db, event.property_id, None, f"pms.{event.type}", "stay", stay.id,
