@@ -11,6 +11,7 @@ security regression. Short codes differ between seed runs; everything else does 
 from __future__ import annotations
 
 import random
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -194,18 +195,22 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
             return g
 
         def make_stay(g, room, status, arrival, nights, res_id=None):
+            # `stay_count` and `is_return_guest` are set from the rows that actually exist, in
+            # one pass once every stay has been created (see below).
+            departure = arrival + timedelta(days=nights)
             s = Stay(guest_id=g.id, property_id=g.property_id,
                      pms_reservation_id=res_id or f"RES-{room}-{rng.randint(1000, 9999)}",
                      room_number=room, room_type=rng.choice(data.ROOM_TYPES),
                      rate_code=rng.choice(data.RATE_CODES),
-                     status=status, arrival_date=arrival,
-                     departure_date=arrival + timedelta(days=nights),
+                     status=status, arrival_date=arrival, departure_date=departure,
                      adults=rng.choice([1, 2, 2, 2, 3]), children=rng.choice([0, 0, 0, 1, 2]),
-                     is_return_guest=rng.random() < 0.3, stay_count=rng.randint(1, 6),
                      actual_checkin_at=(datetime.combine(arrival, datetime.min.time(), tzinfo=UTC)
                                         + timedelta(hours=15))
                      if status != StayStatus.reserved else None,
-                     actual_checkout_at=now - timedelta(hours=rng.randint(20, 40))
+                     # Anchored to the departure date rather than to `now`: a stay that ended a
+                     # year ago must not claim it checked out yesterday.
+                     actual_checkout_at=(datetime.combine(departure, datetime.min.time(),
+                                                          tzinfo=UTC) + timedelta(hours=11))
                      if status == StayStatus.checked_out else None,
                      raw_pms={"seed": True})
             db.add(s)
@@ -236,9 +241,31 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
         lena = make_guest(hvh, "Lena", "Park", "+15553104411", None, SmsConsentStatus.opted_out)
         lena.sms_consent_source = "sms_keyword"
         make_stay(lena, "301", StayStatus.checked_out, today - timedelta(days=4), 2)
-        for _ in range(3):
+        # Two repeat guests with a real history. Every guest had exactly one stay, so the guest
+        # panel's "Previous stays" was empty for all of them — including Sarah, whose seeded
+        # internal note says "Gold member, 4th stay". These rows make that note true.
+        for days_ago, nights in ((421, 2), (250, 3), (96, 2)):
+            make_stay(sarah, rng.choice(rooms), StayStatus.checked_out,
+                      today - timedelta(days=days_ago), nights)
+        make_stay(tom, rng.choice(rooms), StayStatus.checked_out,
+                  today - timedelta(days=163), 1)
+        for _ in range(6):
             g = make_guest(lsi)
             make_stay(g, str(rng.randint(101, 140)), StayStatus.checked_in, today, 2)
+
+        # `stay_count` and `is_return_guest` are denormalised PMS fields the guest panel renders
+        # ("4th stay") beside the stay list it renders from the rows. They were random, so 95 of
+        # 106 stays claimed a repeat visit that no row backed. Derive both from the rows instead,
+        # in one place, so the two can never disagree again.
+        by_guest: dict[str, list[Stay]] = defaultdict(list)
+        for s in stays:
+            by_guest[s.guest_id].append(s)
+        for guest_stays in by_guest.values():
+            for n, s in enumerate(sorted(guest_stays, key=lambda x: (x.arrival_date, x.id)),
+                                  start=1):
+                s.stay_count = n
+                s.is_return_guest = n > 1
+        db.flush()
 
         # ---- content
         for shortcut, title, body, dept in data.QUICK_REPLIES:
@@ -462,6 +489,50 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
         card_conv = convs[3]
         add_msg(card_conv, Direction.inbound, "you can charge it to **** **** **** 4242",
                 now - timedelta(minutes=5), redacted=True)
+
+        # spec §8 calls for a conversation with no stay behind it, and there was none: a guest who
+        # texts while not in-house. `room_number` is null on this one and quick-reply
+        # interpolation has to fall back.
+        diego = make_guest(hvh, "Diego", "Ruiz")
+        nostay_conv = Conversation(property_id=hvh.id, guest_id=diego.id, stay_id=None,
+                                   status=ConversationStatus.open, channel_primary=Channel.sms)
+        db.add(nostay_conv)
+        db.flush()
+        at = now - timedelta(minutes=34)
+        add_msg(nostay_conv, Direction.inbound,
+                "Hi — I have a reservation for next Thursday. Is early check-in possible?", at)
+        nostay_conv.last_guest_message_at = at
+        nostay_conv.sla_due_at = at + timedelta(minutes=15)
+        convs.append(nostay_conv)
+
+        # ---- Lakeside Inn conversations. Property B had none at all, so switching property
+        # landed on an empty inbox and made the switcher look broken.
+        lsi_stays = [s for s in stays if s.property_id == lsi.id]
+        for idx, (kind, minutes_ago) in enumerate((("fresh", 4), ("fresh", 26), ("answered", 95),
+                                                   ("archived", 1700))):
+            stay = lsi_stays[idx]
+            opener = openers[(idx + 7) % len(openers)][0]
+            c = Conversation(property_id=lsi.id, guest_id=stay.guest_id, stay_id=stay.id,
+                             status=ConversationStatus.open, channel_primary=Channel.sms)
+            db.add(c)
+            db.flush()
+            at = now - timedelta(minutes=minutes_ago)
+            add_msg(c, Direction.inbound, opener, at)
+            c.last_guest_message_at = at
+            if kind == "fresh":
+                c.sla_due_at = at + timedelta(minutes=15)
+            else:
+                add_msg(c, Direction.outbound, data.STAFF_REPLIES[1], at + timedelta(minutes=3),
+                        bea)
+                c.last_staff_message_at = at + timedelta(minutes=3)
+                c.first_response_seconds = 180
+                c.assigned_user_id = bea.id
+                if kind == "archived":
+                    c.status = ConversationStatus.archived
+                    c.archived_at = at + timedelta(hours=2)
+                    # No resolution category: every seeded category belongs to Harbourview, and
+                    # pointing a Lakeside conversation at one would be a tenancy bug in the data.
+            convs.append(c)
         db.flush()
 
         # Fill remaining open work orders to reach 15 active (not verified/cancelled).
