@@ -36,6 +36,17 @@ describe('api client', () => {
     expect(new Headers(init.headers).get('Content-Type')).toBe('application/json')
   })
 
+  it('sends a raw body and does not set a JSON content type when `body` is used instead of `json`', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }))
+    await api('/api/hooks/sms/inbound', {
+      method: 'POST',
+      body: new URLSearchParams({ From: '+15551234567' }),
+    })
+    const init = vi.mocked(fetch).mock.calls[0]![1]!
+    expect(String(init.body)).toBe('From=%2B15551234567')
+    expect(new Headers(init.headers).get('Content-Type')).toBeNull()
+  })
+
   it('resolves to undefined on 204 without trying to parse a body', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }))
     await expect(api('/api/p/p1/notifications/n1/read', { method: 'POST' })).resolves

@@ -1,4 +1,4 @@
-export type ApiInit = Omit<RequestInit, 'body'> & { json?: unknown }
+export type ApiInit = Omit<RequestInit, 'body'> & { json?: unknown; body?: BodyInit }
 
 export class ApiError extends Error {
   readonly status: number
@@ -37,7 +37,7 @@ function errorFrom(status: number, body: unknown, fallback: string): ApiError {
 }
 
 export async function api<T>(path: string, init: ApiInit = {}): Promise<T> {
-  const { json, headers, ...rest } = init
+  const { json, headers, body, ...rest } = init
   const requestHeaders = new Headers(headers)
   if (json !== undefined) requestHeaders.set('Content-Type', 'application/json')
 
@@ -47,7 +47,7 @@ export async function api<T>(path: string, init: ApiInit = {}): Promise<T> {
       ...rest,
       headers: requestHeaders,
       credentials: 'same-origin',
-      body: json === undefined ? undefined : JSON.stringify(json),
+      body: json === undefined ? body : JSON.stringify(json),
     })
   } catch (cause) {
     throw new ApiError(0, 'NETWORK', 'Could not reach the server. Check your connection.', cause)
