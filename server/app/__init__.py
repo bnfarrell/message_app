@@ -24,12 +24,16 @@ def create_app(config: Config | None = None) -> Flask:
     register_error_handlers(app)
 
     from app.api import (
+        assets,
         auth,
+        categories,
         conversations,
         departments,
         health,
         hooks,
         notifications,
+        quick_replies,
+        short_links,
         users,
         work_orders,
     )
@@ -41,6 +45,10 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(notifications.bp)
     app.register_blueprint(conversations.bp)
     app.register_blueprint(work_orders.bp)
+    app.register_blueprint(quick_replies.bp)
+    app.register_blueprint(assets.bp)
+    app.register_blueprint(categories.bp)
+    app.register_blueprint(short_links.bp)
     app.register_blueprint(hooks.bp)
 
     import os
