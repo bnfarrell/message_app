@@ -30,6 +30,14 @@ export function useLogout() {
     // Clear unconditionally: a failed logout must not leave another user's cache on screen.
     onSettled: () => {
       client.clear()
+      try {
+        // The stored active property is this user's choice, not the machine's. On a shared
+        // front-desk terminal the next person to sign in would otherwise land on it if they
+        // happen to hold a membership there too.
+        localStorage.removeItem('activePropertyId')
+      } catch {
+        /* private mode / blocked storage: there was nothing stored to clear */
+      }
     },
   })
 }
