@@ -2202,6 +2202,10 @@
           "default": null,
           "title": "Address"
         },
+        "autoResolveHours": {
+          "title": "Autoresolvehours",
+          "type": "integer"
+        },
         "brand": {
           "anyOf": [
             {
@@ -2221,6 +2225,18 @@
         "currency": {
           "title": "Currency",
           "type": "string"
+        },
+        "helpText": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Helptext"
         },
         "id": {
           "title": "Id",
@@ -2266,6 +2282,10 @@
           "default": null,
           "title": "Primarycolor"
         },
+        "slaMinutes": {
+          "title": "Slaminutes",
+          "type": "integer"
+        },
         "smsNumber": {
           "anyOf": [
             {
@@ -2288,14 +2308,16 @@
         "name",
         "code",
         "timezone",
-        "currency"
+        "currency",
+        "slaMinutes",
+        "autoResolveHours"
       ],
       "title": "PropertySettingsOut",
       "type": "object"
     },
     "PropertySettingsPatch": {
       "additionalProperties": false,
-      "description": "`code` is intentionally absent: it is unique across the whole install and identifies the\nproperty, so renaming it is not a settings edit. `Property.settings` (an untyped JSON bag) is\nintentionally absent too \u2014 nothing in the UI needs it. `timezone`, `phone` and `sms_number`\ncarry only their column lengths here; their real validation lives in app/domain/properties.py\nbeside the reason each one is load-bearing.",
+      "description": "`code` is intentionally absent: it is unique across the whole install and identifies the\nproperty, so renaming it is not a settings edit. `Property.settings` (an untyped JSON bag) is\nintentionally absent too; its three live keys are exposed above as typed validated fields\ninstead (`slaMinutes`, `autoResolveHours`, `helpText`). `timezone`, `phone` and `sms_number`\ncarry only their column lengths here; their real validation lives in app/domain/properties.py\nbeside the reason each one is load-bearing.",
       "properties": {
         "address": {
           "anyOf": [
@@ -2309,6 +2331,19 @@
           ],
           "default": null,
           "title": "Address"
+        },
+        "autoResolveHours": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Autoresolvehours"
         },
         "brand": {
           "anyOf": [
@@ -2335,6 +2370,19 @@
           ],
           "default": null,
           "title": "Currency"
+        },
+        "helpText": {
+          "anyOf": [
+            {
+              "maxLength": 1600,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Helptext"
         },
         "logoUrl": {
           "anyOf": [
@@ -2388,6 +2436,19 @@
           ],
           "default": null,
           "title": "Primarycolor"
+        },
+        "slaMinutes": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slaminutes"
         },
         "smsNumber": {
           "anyOf": [

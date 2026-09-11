@@ -15,12 +15,16 @@ class PropertySettingsOut(CamelModel):
     currency: str
     logo_url: str | None = None
     primary_color: str | None = None
+    sla_minutes: int
+    auto_resolve_hours: int
+    help_text: str | None = None
 
 
 class PropertySettingsPatch(CamelModel):
     """`code` is intentionally absent: it is unique across the whole install and identifies the
     property, so renaming it is not a settings edit. `Property.settings` (an untyped JSON bag) is
-    intentionally absent too — nothing in the UI needs it. `timezone`, `phone` and `sms_number`
+    intentionally absent too; its three live keys are exposed above as typed validated fields
+    instead (`slaMinutes`, `autoResolveHours`, `helpText`). `timezone`, `phone` and `sms_number`
     carry only their column lengths here; their real validation lives in app/domain/properties.py
     beside the reason each one is load-bearing."""
 
@@ -33,3 +37,6 @@ class PropertySettingsPatch(CamelModel):
     currency: str | None = Field(default=None, pattern=r"^[A-Za-z]{3}$")
     logo_url: str | None = Field(default=None, max_length=500)
     primary_color: str | None = Field(default=None, max_length=16)
+    sla_minutes: int | None = Field(default=None, gt=0)
+    auto_resolve_hours: int | None = Field(default=None, gt=0)
+    help_text: str | None = Field(default=None, max_length=1600)
