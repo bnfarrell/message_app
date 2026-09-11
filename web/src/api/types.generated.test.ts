@@ -25,6 +25,13 @@ const json2tsPackageJson = require.resolve('json-schema-to-typescript/package.js
 const json2tsBin = (require(json2tsPackageJson) as { bin: { json2ts: string } }).bin.json2ts
 const json2tsCli = join(dirname(json2tsPackageJson), json2tsBin)
 
+// Compare content, not line endings: the committed blob's CRLF-vs-LF state is a
+// platform/checkout artifact (no .gitattributes normalises it repo-wide — that's
+// Task 21's job), while json2ts emits native line endings for whatever platform
+// it runs on. Without normalising, this guard would only ever pass on the OS
+// that originally generated the committed file.
+const normalizeNewlines = (text: string): string => text.replace(/\r\n/g, '\n')
+
 describe('generated API types', () => {
   it('are exactly what the generator produces from the committed schema', () => {
     const dir = mkdtempSync(join(tmpdir(), 'json2ts-'))
@@ -36,7 +43,12 @@ describe('generated API types', () => {
          '--style.singleQuote', '--no-additionalProperties', '--unreachableDefinitions'],
         { stdio: 'pipe' },
       )
-      expect(readFileSync(committed, 'utf8')).toBe(readFileSync(out, 'utf8'))
+      const committedContent = normalizeNewlines(readFileSync(committed, 'utf8'))
+      const freshContent = normalizeNewlines(readFileSync(out, 'utf8'))
+      expect(
+        committedContent,
+        'web/src/api/types.generated.ts is stale relative to web/src/api/schema.json — run `npm run gen:types` and commit the result',
+      ).toBe(freshContent)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
