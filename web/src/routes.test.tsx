@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Role } from './api/types'
 import { AppRoutes } from './routes'
@@ -6,6 +6,13 @@ import { renderWithProviders, sessionFixture } from './test/harness'
 
 function mountAt(route: string, role: Role) {
   return renderWithProviders(<AppRoutes />, { route, session: sessionFixture({ role }) })
+}
+
+// Task 9's AppShell nav repeats the same labels ("Inbox", "Board", ...) as these
+// Placeholder screen titles, so queries here must be scoped to the routed screen body
+// (the <main> landmark) rather than matching text anywhere in the shell, nav included.
+async function mainScreen() {
+  return within(await screen.findByRole('main'))
 }
 
 describe('AppRoutes', () => {
@@ -32,39 +39,41 @@ describe('AppRoutes', () => {
 
   it('sends an agent from /app to the inbox', async () => {
     mountAt('/app', 'agent')
-    expect(await screen.findByText('Inbox')).toBeInTheDocument()
+    expect(await (await mainScreen()).findByText('Inbox')).toBeInTheDocument()
   })
 
   it('sends dept_staff from /app to the board', async () => {
     mountAt('/app', 'dept_staff')
-    expect(await screen.findByText('Board')).toBeInTheDocument()
+    expect(await (await mainScreen()).findByText('Board')).toBeInTheDocument()
   })
 
   it('sends a manager from /app to analytics', async () => {
     mountAt('/app', 'manager')
-    expect(await screen.findByText('Analytics')).toBeInTheDocument()
+    expect(await (await mainScreen()).findByText('Analytics')).toBeInTheDocument()
   })
 
   it('keeps an agent out of analytics, bouncing them to their landing screen', async () => {
     mountAt('/app/analytics', 'agent')
-    expect(await screen.findByText('Inbox')).toBeInTheDocument()
-    expect(screen.queryByText('Analytics')).not.toBeInTheDocument()
+    const main = await mainScreen()
+    expect(await main.findByText('Inbox')).toBeInTheDocument()
+    expect(main.queryByText('Analytics')).not.toBeInTheDocument()
   })
 
   it('keeps a manager out of admin', async () => {
     mountAt('/app/admin/users', 'manager')
-    expect(await screen.findByText('Analytics')).toBeInTheDocument()
-    expect(screen.queryByText('Admin')).not.toBeInTheDocument()
+    const main = await mainScreen()
+    expect(await main.findByText('Analytics')).toBeInTheDocument()
+    expect(main.queryByText('Admin')).not.toBeInTheDocument()
   })
 
   it('lets an admin into admin', async () => {
     mountAt('/app/admin/users', 'admin')
-    expect(await screen.findByText('Admin')).toBeInTheDocument()
+    expect(await (await mainScreen()).findByText('Admin')).toBeInTheDocument()
   })
 
   it('redirects an unknown path to /app', async () => {
     mountAt('/nonsense', 'agent')
-    expect(await screen.findByText('Inbox')).toBeInTheDocument()
+    expect(await (await mainScreen()).findByText('Inbox')).toBeInTheDocument()
   })
 
   it('sends an unauthenticated visitor to /login', async () => {
