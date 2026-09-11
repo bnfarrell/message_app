@@ -1,11 +1,19 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Role } from '../api/types'
 import { SessionProvider } from '../auth/SessionContext'
 import { ThemeProvider } from '../theme/ThemeContext'
 import { renderWithProviders, sessionFixture } from '../test/harness'
 import { AppShell } from './AppShell'
+
+// Reports where the router actually landed after a property switch — the thing at risk
+// is the navigation target, not just that setPropertyId was called.
+function LocationDisplay() {
+  const location = useLocation()
+  return <div data-testid="location">{location.pathname}</div>
+}
 
 function mount(
   opts: { role?: Role; withSecondProperty?: boolean; secondRole?: Role; unreadCount?: number } = {},
@@ -17,6 +25,22 @@ function mount(
           <p>screen body</p>
         </AppShell>
       </ThemeProvider>
+    </SessionProvider>,
+    { session: sessionFixture(opts), route: '/app/inbox' },
+  )
+}
+
+function mountWithLocation(
+  opts: { role?: Role; withSecondProperty?: boolean; secondRole?: Role; unreadCount?: number } = {},
+) {
+  return renderWithProviders(
+    <SessionProvider>
+      <ThemeProvider>
+        <AppShell unreadCount={opts.unreadCount}>
+          <p>screen body</p>
+        </AppShell>
+      </ThemeProvider>
+      <LocationDisplay />
     </SessionProvider>,
     { session: sessionFixture(opts), route: '/app/inbox' },
   )
@@ -57,7 +81,9 @@ describe('AppShell', () => {
     expect(screen.queryByRole('link', { name: /board/i })).not.toBeInTheDocument()
   })
 
-  it('shows Admin only to admin', async () => {
+  it('shows Admin to a role with manage_admin', async () => {
+    // manage_admin is {admin, corporate} on the server — admin is not the only role
+    // that sees this link, so this only asserts admin sees it, not exclusivity.
     mount({ role: 'admin' })
     expect(await screen.findByRole('link', { name: /admin/i })).toBeInTheDocument()
   })
@@ -108,5 +134,15 @@ describe('AppShell', () => {
     await userEvent.click(await screen.findByRole('button', { name: /switch property/i }))
     await userEvent.click(screen.getByRole('menuitem', { name: /Lakeside Inn/ }))
     expect(localStorage.getItem('activePropertyId')).toBe('prop-b')
+  })
+
+  it('switching to a property where the role differs lands on that role landing screen', async () => {
+    // Agent at Harbourview, admin at Lakeside — the switch must route by the *target*
+    // membership's role, not the current session's role.
+    mountWithLocation({ role: 'agent', withSecondProperty: true, secondRole: 'admin' })
+    await userEvent.click(await screen.findByRole('button', { name: /switch property/i }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /Lakeside Inn/ }))
+    expect(await screen.findByTestId('location')).toHaveTextContent('/app/analytics')
+    expect(screen.getByTestId('location')).not.toHaveTextContent('/app/inbox')
   })
 })

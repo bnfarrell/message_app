@@ -70,7 +70,7 @@ export function AppShell({
               >
                 <NavIcon name={item.icon} />
                 <span className="flex-1">{item.label}</span>
-                {item.label === 'Alerts' && unreadCount ? (
+                {item.to === '/app/notifications' && unreadCount ? (
                   <Badge tone="danger" className="font-mono">
                     <span data-testid="unread-badge">{unreadCount}</span>
                   </Badge>
