@@ -5,4 +5,5 @@ test-results/
 .env
 .env.local
 *.tsbuildinfo
+.tsbuild/
 /*.config.d.ts
