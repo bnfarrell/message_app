@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.errors import Conflict, NotFound
-from app.models import ResolutionCategory
+from app.models import Conversation, ResolutionCategory
 from app.schemas.content import CategoryIn, CategoryOut, CategoryPatch
 
 
@@ -47,4 +47,6 @@ def delete(db: Session, property_id: str, category_id: str) -> None:
     c = get(db, property_id, category_id)
     if db.scalar(select(ResolutionCategory.id).where(ResolutionCategory.parent_id == c.id)):
         raise Conflict("Delete or move the child categories first")
+    if db.scalar(select(Conversation.id).where(Conversation.resolution_category_id == c.id)):
+        raise Conflict("Reassign the conversations using this category first")
     db.delete(c)

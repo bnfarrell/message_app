@@ -68,3 +68,52 @@ def test_resolution_categories_tree(app, fx, client, login):
     assert admin.delete(f"{base}/{parent['id']}").status_code == 409  # has children
     assert admin.delete(f"{base}/{child['id']}").status_code == 204
     assert admin.delete(f"{base}/{parent['id']}").status_code == 204
+
+
+def test_render_quick_reply_respects_viewer_scope(app, fx, client, database, login):
+    """A dept_staff caller must not be able to render a quick reply against a conversation outside
+    their department — the same viewer check that gates GET/PATCH/notes/messages on conversations
+    (see test_dept_staff_sees_only_their_department_or_own_conversations) must also gate render."""
+    base = f"/api/p/{fx.property_a.id}/quick-replies"
+    admin = login("admin@hvh.test")
+    qr = admin.post(base, json={"shortcut": "/ac", "title": "AC", "body": "On it."}).get_json()
+    inbound(client, fx, fx.guest_nostay_a.phone_e164, "hi")
+    cid = _cid(database, fx.guest_nostay_a.id)  # unassigned: invisible to any dept_staff
+    eng = login("engineer@hvh.test")
+    assert eng.post(f"{base}/{qr['id']}/render", json={"conversationId": cid}).status_code == 403
+
+
+def test_assets_require_manage_admin(app, fx, client, login):
+    base = f"/api/p/{fx.property_a.id}/assets"
+    admin = login("admin@hvh.test")
+    a = admin.post(base, json={"name": "Map", "type": "map", "url": "https://example.test/map.pdf"}).get_json()
+    agent = login("agent@hvh.test")
+    resp = agent.post(base, json={"name": "x", "type": "link", "url": "https://example.test/x"})
+    assert resp.status_code == 403
+    assert agent.patch(f"{base}/{a['id']}", json={"name": "y"}).status_code == 403
+    assert agent.delete(f"{base}/{a['id']}").status_code == 403
+
+
+def test_resolution_categories_require_manage_admin(app, fx, client, login):
+    base = f"/api/p/{fx.property_a.id}/resolution-categories"
+    admin = login("admin@hvh.test")
+    c = admin.post(base, json={"name": "Plumbing"}).get_json()
+    agent = login("agent@hvh.test")
+    assert agent.post(base, json={"name": "x"}).status_code == 403
+    assert agent.patch(f"{base}/{c['id']}", json={"name": "y"}).status_code == 403
+    assert agent.delete(f"{base}/{c['id']}").status_code == 403
+
+
+def test_resolution_category_delete_blocked_by_conversation_reference(app, fx, client, database,
+                                                                       login):
+    """A category still referenced by a conversation's resolution_category_id (FK, no ondelete)
+    must be rejected with a clean 409, not an unhandled IntegrityError/500."""
+    base = f"/api/p/{fx.property_a.id}/resolution-categories"
+    admin = login("admin@hvh.test")
+    cat = admin.post(base, json={"name": "Noise complaint"}).get_json()
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "loud neighbors")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    resp = admin.patch(f"/api/p/{fx.property_a.id}/conversations/{cid}",
+                       json={"status": "archived", "resolutionCategoryId": cat["id"]})
+    assert resp.status_code == 200
+    assert admin.delete(f"{base}/{cat['id']}").status_code == 409

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain import conversations as conv_domain
@@ -64,10 +65,18 @@ def _assert_shortcut_free(db: Session, property_id: str, shortcut: str, exclude_
 
 
 def create(db: Session, property_id: str, data: QuickReplyIn) -> QuickReply:
+    # The pre-check below narrows the common case to a clean 409, but two requests can still race
+    # between the check and the insert; the DB's unique constraint is the real guard, so catch its
+    # violation too rather than let a collision surface as an unhandled IntegrityError (see Task 16
+    # review round 1, matching the app.domain.guests.find_or_create_by_phone remedy).
     _assert_shortcut_free(db, property_id, data.shortcut)
     r = QuickReply(property_id=property_id, **data.model_dump())
-    db.add(r)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(r)
+            db.flush()
+    except IntegrityError:
+        raise Conflict(f"Shortcut {data.shortcut} is already in use") from None
     return r
 
 
@@ -78,7 +87,11 @@ def update(db: Session, property_id: str, quick_reply_id: str, data: QuickReplyP
         _assert_shortcut_free(db, property_id, changes["shortcut"], exclude_id=r.id)
     for k, v in changes.items():
         setattr(r, k, v)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.flush()
+    except IntegrityError:
+        raise Conflict(f"Shortcut {changes.get('shortcut')} is already in use") from None
     return r
 
 
