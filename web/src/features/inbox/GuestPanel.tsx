@@ -1,8 +1,36 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import type { ConversationDetail } from '../../api/types'
+import { useGuest } from '../../api/hooks/users'
+import type { ConversationDetail, StayOut } from '../../api/types'
+import { useSession } from '../../auth/SessionContext'
 import { Badge } from '../../components/ui'
 import { ordinal } from '../../lib/ordinal'
+
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+
+/** `YYYY-MM-DD` only — parsed by hand so a date-only string is not shifted by the local zone. */
+function ymd(date: string): [number, number, number] {
+  const [y, m, d] = date.split('-').map(Number)
+  return [y ?? 0, m ?? 1, d ?? 1]
+}
+
+/**
+ * "JUN 2026 · 2N · CHECKED OUT". The mockup's line also carries a conversation count and a
+ * star rating; `StayOut` has neither field, so neither is rendered.
+ */
+function stayLine(stay: StayOut): string {
+  const [ay, am, ad] = ymd(stay.arrivalDate)
+  const [dy, dm, dd] = ymd(stay.departureDate)
+  const nights = Math.max(
+    0,
+    Math.round((Date.UTC(dy, dm - 1, dd) - Date.UTC(ay, am - 1, ad)) / 86_400_000),
+  )
+  return [
+    `${MONTHS[am - 1] ?? '—'} ${ay}`,
+    `${nights}N`,
+    stay.status.replace('_', ' ').toUpperCase(),
+  ].join(' · ')
+}
 
 const CONSENT: Record<string, { tone: 'ok' | 'danger' | 'neutral'; label: string }> = {
   opted_in: { tone: 'ok', label: 'Opted in' },
@@ -30,9 +58,15 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
 
 export function GuestPanel({ conversation }: { conversation: ConversationDetail }) {
   const { guest, stay, workOrders, draftPrompts, notes } = conversation
+  const { can } = useSession()
   const name = [guest.firstName, guest.lastName].filter(Boolean).join(' ') || guest.phoneE164
   const consent = CONSENT[guest.smsConsentStatus] ?? CONSENT['unknown']!
   const pending = draftPrompts.filter((p) => p.status === 'pending')
+  // GET /guests/<id> is gated on `view_all_conversations` server-side, which dept_staff
+  // lacks — asking for it as dept_staff would only earn a 403.
+  const canSeeHistory = can('view_all_conversations')
+  const guestDetail = useGuest(canSeeHistory ? guest.id : undefined)
+  const previousStays = (guestDetail.data?.stays ?? []).filter((s) => s.id !== stay?.id)
 
   return (
     // §5.2: three columns only at ≥1024px. Below that the guest panel must be genuinely
@@ -105,6 +139,22 @@ export function GuestPanel({ conversation }: { conversation: ConversationDetail 
           </ul>
         )}
       </Section>
+
+      {canSeeHistory ? (
+        <Section title="Previous stays">
+          {guestDetail.isPending ? null : previousStays.length === 0 ? (
+            <p className="text-xs text-text3">None</p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {previousStays.map((s) => (
+                <li key={s.id} className="font-mono text-xs text-text2">
+                  {stayLine(s)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+      ) : null}
     </aside>
   )
 }
