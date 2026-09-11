@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 from collections import deque
+from datetime import datetime, timezone
 
 from flask import Blueprint, request
 from sqlalchemy import select
@@ -64,10 +65,23 @@ def sim_thread():
         return ok(conversations.guest_thread(db, property_id, phone))
 
 
+def _parse_since(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError as e:
+        raise ValidationFailed("since must be an ISO datetime") from e
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
 @bp.get("/sim/events")
 def sim_events():
+    since = _parse_since(request.args.get("since"))
     with _events_lock:
         snapshot = list(_events)
+    if since is not None:
+        snapshot = [e for e in snapshot if e.at > since]
     return ok([SimEvent(type=e.type, property_id=e.property_id, at=e.at, payload=e.payload) for e in snapshot])
 
 
@@ -77,6 +91,8 @@ def _pms(stay_id: str, type: str):
         if stay is None:
             raise NotFound("Stay not found")
         event = pms_adapter.event_for(db, stay.property_id, stay_id, type)
+        if event is None:
+            raise NotFound("Stay not found")
         handle_event(db, event, integration_key=pms_adapter.integration_key)
     return no_content()
 
