@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import builtins
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,6 +19,7 @@ from app.models import (
     UserAccount,
     WorkOrder,
     WorkOrderEvent,
+    WorkOrderPhoto,
 )
 from app.realtime.broadcast import queue_event
 from app.schemas.enums import (
@@ -26,6 +29,7 @@ from app.schemas.enums import (
     Priority,
     Role,
     WorkOrderEventType,
+    WorkOrderPhotoKind,
     WorkOrderStatus,
     WorkOrderType,
 )
@@ -34,6 +38,7 @@ from app.schemas.work_orders import (
     WorkOrderDetail,
     WorkOrderEventOut,
     WorkOrderOut,
+    WorkOrderPhotoOut,
     WorkOrderPrefill,
 )
 
@@ -248,6 +253,92 @@ def set_priority(db: Session, property_id: str, work_order_id: str, actor_user_i
     return wo
 
 
+# 8 MiB: comfortably above a full-resolution phone JPEG (2-5 MB is typical) with room to spare,
+# and small enough that a row stays cheap to SELECT whole on either dialect, since neither SQLite
+# nor psycopg streams a BLOB/BYTEA here. Enforced on the bytes actually received, not on the
+# declared Content-Length, which the client controls.
+MAX_PHOTO_BYTES = 8 * 1024 * 1024
+# Sniffed from the bytes rather than trusted from the multipart part's Content-Type: the client
+# declares that, and it is the value this server serves the bytes back with.
+IMAGE_SIGNATURES = (
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+)
+
+
+def sniff_image_type(data: bytes) -> str | None:
+    """The content type these bytes really are, or None if they are not an accepted image."""
+    for signature, content_type in IMAGE_SIGNATURES:
+        if data.startswith(signature):
+            return content_type
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def photo_url(property_id: str, work_order_id: str, photo_id: str) -> str:
+    return f"/api/p/{property_id}/work-orders/{work_order_id}/photos/{photo_id}"
+
+
+def photo_out(photo: WorkOrderPhoto, uploader: UserAccount | None) -> WorkOrderPhotoOut:
+    return WorkOrderPhotoOut(
+        id=photo.id, work_order_id=photo.work_order_id, kind=photo.kind,
+        content_type=photo.content_type, byte_size=photo.byte_size,
+        uploaded_by_user_id=photo.uploaded_by_user_id,
+        uploaded_by_name=f"{uploader.first_name} {uploader.last_name}" if uploader else None,
+        url=photo_url(photo.property_id, photo.work_order_id, photo.id),
+        created_at=photo.created_at)
+
+
+def attach_photo(db: Session, property_id: str, work_order_id: str, actor_user_id: str, *,
+                 kind: WorkOrderPhotoKind, data: bytes) -> WorkOrderPhotoOut:
+    wo = get(db, property_id, work_order_id)
+    if not data:
+        raise ValidationFailed("A photo file is required", details={"photo": "required"})
+    if len(data) > MAX_PHOTO_BYTES:
+        raise ValidationFailed(
+            f"A photo must be {MAX_PHOTO_BYTES // (1024 * 1024)} MB or smaller",
+            details={"photo": "file_too_large"})
+    content_type = sniff_image_type(data)
+    if content_type is None:
+        raise ValidationFailed("A photo must be a JPEG, PNG or WebP image",
+                               details={"photo": "unsupported_image_type"})
+    photo = WorkOrderPhoto(work_order_id=wo.id, property_id=property_id, kind=kind,
+                           uploaded_by_user_id=actor_user_id, content_type=content_type,
+                           byte_size=len(data), data=data)
+    db.add(photo)
+    db.flush()
+    # The mockup's timeline records the attachment ("Eli · after photo attached · 18:56"), so it
+    # is an event on the work order, not just a row of its own.
+    _event(db, wo, actor_user_id, WorkOrderEventType.photo_attached, to_value=kind.value)
+    wo.updated_at = clock.now()
+    audit.record(db, property_id, actor_user_id, "work_order.photo_attached", "work_order_photo",
+                 photo.id, after={"work_order_id": wo.id, "kind": kind.value,
+                                  "content_type": content_type, "byte_size": len(data)})
+    _emit(db, wo, "work_order.updated")
+    return photo_out(photo, db.get(UserAccount, actor_user_id))
+
+
+def get_photo(db: Session, property_id: str, work_order_id: str, photo_id: str) -> WorkOrderPhoto:
+    """A photo id is a guessable handle, so the lookup is scoped by property and work order and
+    never by the id alone — the route's require_property is not the only thing standing between
+    one property and another's images."""
+    photo = db.scalar(select(WorkOrderPhoto).where(
+        WorkOrderPhoto.id == photo_id, WorkOrderPhoto.property_id == property_id,
+        WorkOrderPhoto.work_order_id == work_order_id))
+    if photo is None:
+        raise NotFound("Photo not found")
+    return photo
+
+
+def list_photos(db: Session, work_order_id: str) -> builtins.list[WorkOrderPhotoOut]:
+    rows = db.execute(select(WorkOrderPhoto, UserAccount)
+                      .outerjoin(UserAccount, UserAccount.id == WorkOrderPhoto.uploaded_by_user_id)
+                      .where(WorkOrderPhoto.work_order_id == work_order_id)
+                      .order_by(WorkOrderPhoto.created_at, WorkOrderPhoto.id)).all()
+    return [photo_out(p, u) for p, u in rows]
+
+
 def list(db: Session, property_id: str, *, status: str | None = None,
          type: WorkOrderType | None = None,
          dept: str | None = None, assignee: str | None = None, mine_user_id: str | None = None,
@@ -309,6 +400,7 @@ def detail(db: Session, property_id: str, work_order_id: str, *, viewer_role: Ro
             room = st.room_number if st else None
     base = WorkOrderOut.model_validate(wo).model_dump()
     return WorkOrderDetail(**base, guest_name=guest_name, room_number=room or wo.location_ref,
+                           photos=list_photos(db, wo.id),
                            events=[WorkOrderEventOut(
                                id=e.id, user_id=e.user_id,
                                user_name=f"{u.first_name} {u.last_name}" if u else None,

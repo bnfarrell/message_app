@@ -111,6 +111,12 @@ class WorkOrderEventType(StrEnum):
     assigned = "assigned"
     commented = "commented"
     priority_changed = "priority_changed"
+    photo_attached = "photo_attached"
+
+
+class WorkOrderPhotoKind(StrEnum):
+    before = "before"
+    after = "after"
 
 
 class DraftPromptStatus(StrEnum):

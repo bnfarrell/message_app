@@ -13,7 +13,8 @@ from app.schemas.enums import ConversationStatus, SmsConsentStatus
 EXPECTED_TABLES = {
     "property", "user_account", "property_membership", "department", "guest", "stay",
     "conversation", "message", "internal_note", "resolution_category", "work_order",
-    "work_order_event", "draft_prompt", "quick_reply", "digital_asset", "user_session",
+    "work_order_event", "work_order_photo", "draft_prompt", "quick_reply", "digital_asset",
+    "user_session",
     "job", "notification", "audit_log", "pms_event", "alembic_version",
 }
 

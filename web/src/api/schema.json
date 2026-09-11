@@ -3420,6 +3420,13 @@
         "locationType": {
           "$ref": "#/$defs/LocationType"
         },
+        "photos": {
+          "items": {
+            "$ref": "#/$defs/WorkOrderPhotoOut"
+          },
+          "title": "Photos",
+          "type": "array"
+        },
         "priority": {
           "$ref": "#/$defs/Priority"
         },
@@ -3522,7 +3529,8 @@
         "locationType",
         "createdAt",
         "updatedAt",
-        "events"
+        "events",
+        "photos"
       ],
       "title": "WorkOrderDetail",
       "type": "object"
@@ -3617,7 +3625,8 @@
         "status_changed",
         "assigned",
         "commented",
-        "priority_changed"
+        "priority_changed",
+        "photo_attached"
       ],
       "title": "WorkOrderEventType",
       "type": "string"
@@ -3964,6 +3973,96 @@
         }
       },
       "title": "WorkOrderPatch",
+      "type": "object"
+    },
+    "WorkOrderPhotoKind": {
+      "enum": [
+        "before",
+        "after"
+      ],
+      "title": "WorkOrderPhotoKind",
+      "type": "string"
+    },
+    "WorkOrderPhotoOut": {
+      "additionalProperties": false,
+      "properties": {
+        "byteSize": {
+          "title": "Bytesize",
+          "type": "integer"
+        },
+        "contentType": {
+          "title": "Contenttype",
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/WorkOrderPhotoKind"
+        },
+        "uploadedByName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uploadedbyname"
+        },
+        "uploadedByUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uploadedbyuserid"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "workOrderId": {
+          "title": "Workorderid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "workOrderId",
+        "kind",
+        "contentType",
+        "byteSize",
+        "url",
+        "createdAt"
+      ],
+      "title": "WorkOrderPhotoOut",
+      "type": "object"
+    },
+    "WorkOrderPhotoUpload": {
+      "additionalProperties": false,
+      "description": "The non-file half of the multipart body. The file itself arrives as the `photo` part.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/WorkOrderPhotoKind"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "WorkOrderPhotoUpload",
       "type": "object"
     },
     "WorkOrderPrefill": {

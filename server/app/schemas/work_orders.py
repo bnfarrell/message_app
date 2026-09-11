@@ -7,6 +7,7 @@ from app.schemas.enums import (
     LocationType,
     Priority,
     WorkOrderEventType,
+    WorkOrderPhotoKind,
     WorkOrderStatus,
     WorkOrderType,
 )
@@ -70,8 +71,28 @@ class WorkOrderEventOut(CamelModel):
     created_at: datetime
 
 
+class WorkOrderPhotoUpload(CamelModel):
+    """The non-file half of the multipart body. The file itself arrives as the `photo` part."""
+
+    kind: WorkOrderPhotoKind
+
+
+class WorkOrderPhotoOut(CamelModel):
+    id: str
+    work_order_id: str
+    kind: WorkOrderPhotoKind
+    content_type: str
+    byte_size: int
+    uploaded_by_user_id: str | None = None
+    uploaded_by_name: str | None = None
+    # Ready to drop into an <img src>; the bytes are behind the same property gate as this record.
+    url: str
+    created_at: datetime
+
+
 class WorkOrderDetail(WorkOrderOut):
     events: list[WorkOrderEventOut]
+    photos: list[WorkOrderPhotoOut]
     guest_name: str | None = None
     room_number: str | None = None
 

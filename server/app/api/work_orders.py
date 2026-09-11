@@ -1,4 +1,4 @@
-from flask import Blueprint, g, request
+from flask import Blueprint, Response, g, request
 
 from app.api._util import db_session, ok, parse_body, parse_query
 from app.auth.decorators import require_auth, require_capability, require_property
@@ -11,10 +11,15 @@ from app.schemas.work_orders import (
     WorkOrderListQuery,
     WorkOrderOut,
     WorkOrderPatch,
+    WorkOrderPhotoUpload,
 )
 
 bp = Blueprint("work_orders", __name__, url_prefix="/api/p/<property_id>/work-orders")
 CLOSING = {WorkOrderStatus.complete, WorkOrderStatus.verified, WorkOrderStatus.cancelled}
+# Multipart framing — boundaries and part headers — around a photo at the cap. Generous, because
+# this only decides whether the body is worth reading at all; work_orders.attach_photo re-checks
+# the bytes themselves, which is the check that counts.
+MULTIPART_OVERHEAD_BYTES = 4096
 
 
 @bp.get("")
@@ -64,6 +69,51 @@ def get_work_order(property_id: str, work_order_id: str):
         return ok(work_orders.detail(db, g.property_id, work_order_id,
                                      viewer_role=g.membership.role, viewer_user_id=g.user.id,
                                      viewer_department_id=g.membership.department_id))
+
+
+@bp.post("/<work_order_id>/photos")
+@require_auth
+@require_property
+def add_work_order_photo(property_id: str, work_order_id: str):
+    """multipart/form-data: a `photo` file part and a `kind` field of "before" or "after".
+
+    No capability gate, deliberately: PATCH above carries none either beyond `close_work_order`
+    for a closing status, so attaching a photo is gated exactly like leaving a comment on the
+    same work order. Inventing a capability here would put this route out of step with the one
+    beside it.
+    """
+    # Before request.form or request.files, either of which makes Werkzeug read the whole body.
+    # Content-Length is the client's claim, so this only avoids buffering an obviously oversized
+    # upload; the authoritative check is on the bytes.
+    if (request.content_length or 0) > work_orders.MAX_PHOTO_BYTES + MULTIPART_OVERHEAD_BYTES:
+        raise ValidationFailed(
+            f"A photo must be {work_orders.MAX_PHOTO_BYTES // (1024 * 1024)} MB or smaller",
+            details={"photo": "file_too_large"})
+    meta = parse_body(WorkOrderPhotoUpload)
+    upload = request.files.get("photo")
+    if upload is None:
+        raise ValidationFailed("A photo file is required", details={"photo": "required"})
+    # cap + 1 is enough to know it is over the cap without holding any more of it than that.
+    data = upload.read(work_orders.MAX_PHOTO_BYTES + 1)
+    with db_session() as db:
+        return ok(work_orders.attach_photo(db, g.property_id, work_order_id, g.user.id,
+                                           kind=meta.kind, data=data), 201)
+
+
+@bp.get("/<work_order_id>/photos/<photo_id>")
+@require_auth
+@require_property
+def get_work_order_photo(property_id: str, work_order_id: str, photo_id: str):
+    with db_session() as db:
+        photo = work_orders.get_photo(db, g.property_id, work_order_id, photo_id)
+        body, content_type = photo.data, photo.content_type
+    return Response(body, mimetype=content_type, headers={
+        "Content-Disposition": "inline",
+        # The stored bytes are what a sniffing browser must not reinterpret, and nothing may
+        # replace a photo once attached, so it can be cached for as long as the session lasts.
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=86400",
+    })
 
 
 @bp.patch("/<work_order_id>")

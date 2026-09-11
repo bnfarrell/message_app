@@ -392,7 +392,8 @@ export type Tovalue = string | null;
  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
  * via the `definition` "WorkOrderEventType".
  */
-export type WorkOrderEventType = 'created' | 'status_changed' | 'assigned' | 'commented' | 'priority_changed';
+export type WorkOrderEventType =
+  'created' | 'status_changed' | 'assigned' | 'commented' | 'priority_changed' | 'photo_attached';
 export type Userid1 = string | null;
 export type Username = string | null;
 export type Events = WorkOrderEventOut[];
@@ -400,6 +401,20 @@ export type Guestname = string | null;
 export type Guestnotifiedat1 = string | null;
 export type Id18 = string;
 export type Locationref1 = string | null;
+export type Bytesize = number;
+export type Contenttype = string;
+export type Createdat6 = string;
+export type Id19 = string;
+/**
+ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * via the `definition` "WorkOrderPhotoKind".
+ */
+export type WorkOrderPhotoKind = 'before' | 'after';
+export type Uploadedbyname = string | null;
+export type Uploadedbyuserid = string | null;
+export type Url3 = string;
+export type Workorderid1 = string;
+export type Photos = WorkOrderPhotoOut[];
 export type Reportedbyuserid = string | null;
 export type Roomnumber3 = string | null;
 export type Sourceconversationid1 = string | null;
@@ -416,12 +431,12 @@ export type Status1 = string | null;
 export type Acknowledgedat1 = string | null;
 export type Assigneduserid6 = string | null;
 export type Completedat2 = string | null;
-export type Createdat6 = string;
+export type Createdat7 = string;
 export type Departmentid14 = string | null;
 export type Description5 = string | null;
 export type Dueat2 = string | null;
 export type Guestnotifiedat2 = string | null;
-export type Id19 = string;
+export type Id20 = string;
 export type Locationref2 = string | null;
 export type Reportedbyuserid1 = string | null;
 export type Sourceconversationid2 = string | null;
@@ -1126,6 +1141,7 @@ export interface WorkOrderDetail {
   id: Id18;
   locationRef?: Locationref1;
   locationType: LocationType1;
+  photos: Photos;
   priority: Priority;
   reportedByUserId?: Reportedbyuserid;
   roomNumber?: Roomnumber3;
@@ -1154,6 +1170,21 @@ export interface WorkOrderEventOut {
 }
 /**
  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * via the `definition` "WorkOrderPhotoOut".
+ */
+export interface WorkOrderPhotoOut {
+  byteSize: Bytesize;
+  contentType: Contenttype;
+  createdAt: Createdat6;
+  id: Id19;
+  kind: WorkOrderPhotoKind;
+  uploadedByName?: Uploadedbyname;
+  uploadedByUserId?: Uploadedbyuserid;
+  url: Url3;
+  workOrderId: Workorderid1;
+}
+/**
+ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
  * via the `definition` "WorkOrderListQuery".
  */
 export interface WorkOrderListQuery {
@@ -1172,12 +1203,12 @@ export interface WorkOrderOut {
   acknowledgedAt?: Acknowledgedat1;
   assignedUserId?: Assigneduserid6;
   completedAt?: Completedat2;
-  createdAt: Createdat6;
+  createdAt: Createdat7;
   departmentId?: Departmentid14;
   description?: Description5;
   dueAt?: Dueat2;
   guestNotifiedAt?: Guestnotifiedat2;
-  id: Id19;
+  id: Id20;
   locationRef?: Locationref2;
   locationType: LocationType1;
   priority: Priority;
@@ -1202,6 +1233,15 @@ export interface WorkOrderPatch {
   departmentId?: Departmentid15;
   priority?: Priority | null;
   status?: WorkOrderStatus | null;
+}
+/**
+ * The non-file half of the multipart body. The file itself arrives as the `photo` part.
+ *
+ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * via the `definition` "WorkOrderPhotoUpload".
+ */
+export interface WorkOrderPhotoUpload {
+  kind: WorkOrderPhotoKind;
 }
 /**
  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
