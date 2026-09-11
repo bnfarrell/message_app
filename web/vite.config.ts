@@ -24,5 +24,16 @@ export default defineConfig({
     css: false,
     // Unit and component tests only. tests/e2e/ belongs to Playwright.
     include: ['src/**/*.test.{ts,tsx}'],
+    poolOptions: {
+      // Node's own global `localStorage` (stable since Node 22) shadows jsdom's working
+      // implementation: vitest only copies a jsdom window property onto the test global when
+      // that key isn't already present on `global`, so Node's stub (which throws without
+      // --localstorage-file) wins and jsdom's storage never gets installed. Disabling Node's
+      // built-in lets vitest fall through to jsdom's real localStorage/sessionStorage.
+      // Vitest's default pool is 'forks', not 'threads' -- set execArgv on both so the fix
+      // holds regardless of which pool a future config change (or CLI flag) selects.
+      threads: { execArgv: ['--no-experimental-webstorage'] },
+      forks: { execArgv: ['--no-experimental-webstorage'] },
+    },
   },
 })
