@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useSession } from '../auth/SessionContext'
 import { landingPath } from '../auth/capabilities'
 import { useTheme } from '../theme/ThemeContext'
@@ -7,7 +7,7 @@ import { cn } from '../lib/cn'
 import { Avatar, Badge, Dropdown } from './ui'
 import { NavIcon } from './NavIcon'
 import { CommandPalette } from './CommandPalette'
-import { visibleNavGroups } from './navModel'
+import { isNavItemActive, visibleNavGroups } from './navModel'
 
 const ROLE_LABELS: Record<string, string> = {
   agent: 'Agent',
@@ -32,6 +32,7 @@ export function AppShell({
   const { user, membership, memberships, role, can, setPropertyId, logout } = useSession()
   const { resolved, setTheme } = useTheme()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
 
   const groups = visibleNavGroups(can)
   const nextTheme = resolved === 'dark' ? 'light' : 'dark'
@@ -116,16 +117,15 @@ export function AppShell({
               <ul className="flex flex-col gap-0.5">
                 {group.items.map((item) => (
                   <li key={item.to}>
-                    <NavLink
+                    <Link
                       to={item.to}
-                      className={({ isActive }) =>
-                        cn(
-                          RAIL_ITEM,
-                          isActive
-                            ? 'bg-navActiveBg text-navActiveText'
-                            : 'text-navTextMuted hover:text-navText',
-                        )
-                      }
+                      aria-current={isNavItemActive(item, pathname) ? 'page' : undefined}
+                      className={cn(
+                        RAIL_ITEM,
+                        isNavItemActive(item, pathname)
+                          ? 'bg-navActiveBg text-navActiveText'
+                          : 'text-navTextMuted hover:text-navText',
+                      )}
                     >
                       <NavIcon name={item.icon} />
                       <span className="flex-1">{item.label}</span>
@@ -134,7 +134,7 @@ export function AppShell({
                           <span data-testid="unread-badge">{unreadCount}</span>
                         </Badge>
                       ) : null}
-                    </NavLink>
+                    </Link>
                   </li>
                 ))}
               </ul>

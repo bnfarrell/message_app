@@ -1,7 +1,20 @@
 import type { Capability } from '../auth/capabilities'
 import type { IconName } from './NavIcon'
 
-export type NavItem = { label: string; to: string; icon: IconName; needs: Capability[] }
+export type NavItem = {
+  label: string
+  to: string
+  icon: IconName
+  needs: Capability[]
+  /** Path prefixes that count as "inside this section", when they are not just `to`.
+   *
+   * A rail entry needs one path to navigate to and a possibly broader one to light up for.
+   * React Router's own `isActive` only knows `to`, so it lights an entry on `to` and its
+   * descendants — and an entry that points at one screen of a section (Admin lands on Users &
+   * roles) went dark on every sibling screen of that same section, which is what a user
+   * reported for Admin on Departments. */
+  match?: string[]
+}
 export type NavGroup = { heading: string; items: NavItem[] }
 
 // `needs` is an OR: any one capability is enough to see the item. An empty `needs` is
@@ -15,7 +28,9 @@ export const NAV_GROUPS: NavGroup[] = [
       // @require_capability gate on the list endpoint, so it genuinely can read (and note) every
       // conversation — the Inbox stays visible, read-only.
       { label: 'Inbox', to: '/app/inbox', icon: 'inbox', needs: ['reply', 'view_all_conversations'] },
-      { label: 'Board', to: '/app/board', icon: 'board', needs: ['create_work_order', 'close_work_order'] },
+      // A work order opens at /app/work-orders/:id, a sibling of the board rather than a child
+      // of it — the same shape as the Admin defect, so it is listed here too.
+      { label: 'Board', to: '/app/board', icon: 'board', needs: ['create_work_order', 'close_work_order'], match: ['/app/board', '/app/work-orders'] },
       { label: 'Alerts', to: '/app/notifications', icon: 'alerts', needs: [] },
     ],
   },
@@ -30,7 +45,15 @@ export const NAV_GROUPS: NavGroup[] = [
     // sub-nav, including the three greyed Phase 2 items; hoisting the screens here would either
     // duplicate that navigation or force permanently-disabled entries into the global rail.
     heading: 'Admin',
-    items: [{ label: 'Admin', to: '/app/admin/users', icon: 'admin', needs: ['manage_admin'] }],
+    items: [
+      {
+        label: 'Admin',
+        to: '/app/admin/users',
+        icon: 'admin',
+        needs: ['manage_admin'],
+        match: ['/app/admin'],
+      },
+    ],
   },
 ]
 
@@ -46,6 +69,14 @@ export const ADMIN_SECTIONS = [
   { to: '/app/admin/categories', label: 'Resolution categories' },
   { to: '/app/admin/property', label: 'Property settings' },
 ]
+
+/** Whether `pathname` is inside this item's section. Compared by whole path segments, so
+ *  /app/administration can never light the /app/admin entry. */
+export function isNavItemActive(item: NavItem, pathname: string): boolean {
+  return (item.match ?? [item.to]).some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  )
+}
 
 /** The rail and the command palette must never disagree about what a role can reach. */
 export function visibleNavGroups(can: (capability: Capability) => boolean): NavGroup[] {

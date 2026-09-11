@@ -18,7 +18,13 @@ function LocationDisplay() {
 }
 
 function mount(
-  opts: { role?: Role; withSecondProperty?: boolean; secondRole?: Role; unreadCount?: number } = {},
+  opts: {
+    role?: Role
+    withSecondProperty?: boolean
+    secondRole?: Role
+    unreadCount?: number
+    route?: string
+  } = {},
 ) {
   return renderWithProviders(
     <SessionProvider>
@@ -28,7 +34,7 @@ function mount(
         </AppShell>
       </ThemeProvider>
     </SessionProvider>,
-    { session: sessionFixture(opts), route: '/app/inbox' },
+    { session: sessionFixture(opts), route: opts.route ?? '/app/inbox' },
   )
 }
 
@@ -97,6 +103,37 @@ describe('AppShell', () => {
       'page',
     )
     expect(screen.getByRole('link', { name: /board/i })).not.toHaveAttribute('aria-current')
+  })
+
+  it('keeps the Admin rail entry lit on every screen inside the section', async () => {
+    // Reported from the running app: the Admin pill lit only on Users & roles, because
+    // /app/admin/departments is a sibling of the link's target, not a descendant of it.
+    const { unmount } = mount({ role: 'admin', route: '/app/admin/departments' })
+    expect(await screen.findByRole('link', { name: /admin/i })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    unmount()
+
+    mount({ role: 'admin', route: '/app/admin/users' })
+    expect(await screen.findByRole('link', { name: /admin/i })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+  })
+
+  it('does not light the Admin entry from outside the section', async () => {
+    mount({ role: 'admin', route: '/app/analytics' })
+    expect(await screen.findByRole('link', { name: /admin/i })).not.toHaveAttribute('aria-current')
+    expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('keeps Board lit on a work order, which lives outside /app/board', async () => {
+    mount({ role: 'supervisor', route: '/app/work-orders/w-204' })
+    expect(await screen.findByRole('link', { name: /board/i })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
   })
 
   it('shows an unread badge on Alerts only when there is something unread', async () => {
