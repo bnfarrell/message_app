@@ -5,7 +5,7 @@ cd /d "%~dp0"
 REM ---------------------------------------------------------------------------
 REM Cold-starts BOTH halves of the app and opens a browser.
 REM
-REM   API  (Flask)  http://127.0.0.1:5000  - migrates, seeds if empty, runs the
+REM   API  (Flask)  http://127.0.0.1:5200  - migrates, seeds if empty, runs the
 REM                                          job worker and the SLA sweep
 REM   Web  (Vite)   http://127.0.0.1:5173  - the React client you actually look at
 REM
@@ -53,7 +53,7 @@ if not exist "web\node_modules" (
 )
 
 echo.
-echo Starting the API on http://127.0.0.1:5000 ...
+echo Starting the API on http://127.0.0.1:5200 ...
 start "Harbourview API" ".venv\Scripts\python.exe" "server\dev_start.py"
 
 echo Starting the web client on http://127.0.0.1:5173 ...

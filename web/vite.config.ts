@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
-const API = 'http://127.0.0.1:5000'
+const API = 'http://127.0.0.1:5200'
 
 /**
  * True only if the currently-running Node binary accepts `flag` as a CLI argument.

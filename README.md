@@ -22,7 +22,7 @@ python -m venv .venv
 cd server && pip install -e ".[dev]" && cd ..
 cp server/.env.example server/.env
 npm run seed          # wipes and recreates server/data/app.db with realistic data
-npm run server        # http://127.0.0.1:5000  (API + WebSocket + job worker)
+npm run server        # http://127.0.0.1:5200  (API + WebSocket + job worker)
 npm run test:server   # pytest, including the §11.1 acceptance suite
 ```
 Note: npm ≥ 11.19 blocks package install scripts by default; the server has no native dependencies, so this
@@ -45,7 +45,7 @@ does not affect the Python side. If a Node package needs its install script, run
 ## Texting the hotel without Twilio
 The SMS wire is mocked (`SMS_ADAPTER=mock`). Send an inbound text exactly as Twilio would:
 ```bash
-curl -X POST http://127.0.0.1:5000/api/hooks/sms/inbound -H "X-Mock-Secret: dev" \
+curl -X POST http://127.0.0.1:5200/api/hooks/sms/inbound -H "X-Mock-Secret: dev" \
   --data-urlencode From=+15551234567 --data-urlencode To=+15550100 \
   --data-urlencode "Body=The AC in 412 is broken" --data-urlencode MessageSid=SM123
 ```

@@ -96,7 +96,7 @@ def main() -> int:
     else:
         print("Database already has data, skipping seed.")
 
-    port = int(os.getenv("PORT", "5000"))
+    port = int(os.getenv("PORT", "5200"))
     print(f"\nStarting server at http://127.0.0.1:{port}")
     print(f"Log in as {SEEDED_EMAIL} / {SEEDED_PASSWORD}\n")
 

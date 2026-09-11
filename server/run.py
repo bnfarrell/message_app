@@ -10,5 +10,5 @@ if __name__ == "__main__":
     os.environ.setdefault("USE_RELOADER", "1")
     cfg = Config.from_env()
     app = create_app(cfg)
-    app.run(host="127.0.0.1", port=int(os.getenv("PORT", "5000")), debug=cfg.USE_RELOADER,
+    app.run(host="127.0.0.1", port=int(os.getenv("PORT", "5200")), debug=cfg.USE_RELOADER,
             threaded=True)
