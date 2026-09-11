@@ -98,7 +98,8 @@ start "" http://127.0.0.1:5173/
 echo.
 echo ---------------------------------------------------------------------------
 echo   App:   http://127.0.0.1:5173/
-echo   Login: ava@hvh.test  /  Password123!
+echo   Login: ava@hvh.test  /  Password123!   ^(agent - inbox^)
+echo          alex@hvh.test /  Password123!   ^(admin - admin screens^)
 echo.
 echo   Two windows are now running: "Harbourview API" and "Harbourview Web".
 echo   Close both to stop the app.

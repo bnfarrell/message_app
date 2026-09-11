@@ -85,7 +85,10 @@ device's `prefers-color-scheme` decides.
 | casey@group.test | corporate (HVH + LSI) | Analytics |
 | blake@lsi.test / bea@lsi.test | Lakeside Inn admin / agent | — |
 
-`ava@hvh.test` is a good default: HVH holds all 30 seeded conversations, so it lands on a populated inbox.
+`ava@hvh.test` is a good default **for the inbox**: HVH holds all 30 seeded conversations, so it
+lands on a populated one. She is an `agent`, though, so she cannot open Admin at all — the
+nav item is hidden and the route 403s. Use **`alex@hvh.test`** for the admin screens, or
+`morgan@hvh.test` for Analytics as a duty manager.
 The same credentials sign in to the web client at `http://127.0.0.1:5173/login`.
 
 ## Texting the hotel without Twilio
