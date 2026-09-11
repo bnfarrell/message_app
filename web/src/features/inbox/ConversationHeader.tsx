@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import type { ConversationDetail } from '../../api/types'
 import { useRealtime } from '../../api/ws'
 import { useSession } from '../../auth/SessionContext'
@@ -23,6 +24,15 @@ export function ConversationHeader({ conversation }: { conversation: Conversatio
 
   return (
     <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+      {/* §5.2: below md the list is hidden and this thread is the only pane — the only
+          way back is otherwise the browser button. Hidden at md+, where the list is
+          visible alongside the thread and back navigation is redundant. */}
+      <Link
+        to="/app/inbox"
+        className="flex items-center gap-1 text-sm font-semibold text-text3 hover:text-text md:hidden"
+      >
+        ← Back
+      </Link>
       <span className="font-mono text-xl font-bold text-roomNum">{stay?.roomNumber ?? '—'}</span>
       <div className="min-w-0">
         <p className="truncate text-sm font-bold">{name}</p>

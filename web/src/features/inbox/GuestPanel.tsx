@@ -34,7 +34,10 @@ export function GuestPanel({ conversation }: { conversation: ConversationDetail 
   const pending = draftPrompts.filter((p) => p.status === 'pending')
 
   return (
-    <aside className="w-[300px] flex-none overflow-y-auto border-l border-border bg-bg2">
+    // §5.2: three columns only at ≥1024px. Below that the guest panel must be genuinely
+    // absent, not zero-width — `hidden` (not a width collapse) keeps its border from
+    // still occupying the two-column layout.
+    <aside className="hidden w-[300px] flex-none overflow-y-auto border-l border-border bg-bg2 lg:block">
       <Section title="Guest">
         <p className="text-sm font-semibold">{name}</p>
         <p className="font-mono text-xs text-text3">{guest.phoneE164}</p>

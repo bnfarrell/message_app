@@ -45,14 +45,45 @@ describe('ConversationList', () => {
   })
 
   it('preserves the server order and does not re-sort', async () => {
+    // Fix-round (A4): the previous fixtures put the newer-timestamp row first, so a bug
+    // that added a client-side sort by lastGuestMessageAt descending would reproduce the
+    // same expected order undetected. These three rows are chosen so that no single-key
+    // sort — ascending or descending, on any field ConversationSummary carries — can
+    // reproduce the expected ['205', '412', '118'] order: id, roomNumber,
+    // lastGuestMessageAt, slaDueAt, assignedUserId and guest name were each checked in
+    // both directions and none lines up with this order (see the Task 14 fix report).
     respondWith([
-      aConversation({ id: 'c-1', roomNumber: '412', lastGuestMessageAt: '2026-09-10T18:41:00Z' }),
-      aConversation({ id: 'c-2', roomNumber: '118', lastGuestMessageAt: '2026-09-10T17:00:00Z' }),
+      aConversation({
+        id: 'c-2',
+        roomNumber: '205',
+        guest: aGuest({ firstName: 'Nora', lastName: 'Diaz' }),
+        lastGuestMessageAt: '2026-09-10T17:30:00Z',
+        slaDueAt: '2026-09-10T17:45:00Z',
+        assignedUserId: 'u-b',
+        openWorkOrderCount: 1,
+      }),
+      aConversation({
+        id: 'c-1',
+        roomNumber: '412',
+        lastGuestMessageAt: '2026-09-10T18:41:00Z',
+        slaDueAt: '2026-09-10T18:56:00Z',
+        assignedUserId: null,
+        openWorkOrderCount: 0,
+      }),
+      aConversation({
+        id: 'c-3',
+        roomNumber: '118',
+        guest: aGuest({ firstName: 'Milo', lastName: 'Ahn' }),
+        lastGuestMessageAt: '2026-09-10T17:00:00Z',
+        slaDueAt: '2026-09-10T16:30:00Z',
+        assignedUserId: 'u-a',
+        openWorkOrderCount: 2,
+      }),
     ])
     mount()
-    await screen.findByText('412')
+    await screen.findByText('205')
     const rooms = screen.getAllByTestId('row-room').map((el) => el.textContent)
-    expect(rooms).toEqual(['412', '118'])
+    expect(rooms).toEqual(['205', '412', '118'])
   })
 
   it('prefixes an answered conversation with You:', async () => {
