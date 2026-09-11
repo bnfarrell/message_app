@@ -1,0 +1,10 @@
+{
+  "name": "concierge",
+  "private": true,
+  "scripts": {
+    "server": "cd server && python run.py",
+    "seed": "cd server && python -m seed.seed",
+    "test:server": "cd server && python -m pytest -q",
+    "schema": "cd server && python -m app.schemas.export_json_schema"
+  }
+}

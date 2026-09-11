@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Flask
+from flask import Flask, request
 
 from app.config import Config
 from app.errors import register_error_handlers
@@ -12,6 +12,15 @@ def create_app(config: Config | None = None) -> Flask:
     app.config["APP"] = config
     app.config["TESTING"] = config.TESTING
     app.config["SECRET_KEY"] = config.SESSION_SECRET
+
+    if not config.is_production:
+        import email_validator
+
+        # RFC 2606 reserved test domains (e.g. "hvh.test") back every seeded demo account;
+        # email-validator otherwise rejects them as "special-use", which would make a freshly
+        # seeded dev database impossible to log into (tests/conftest.py sets this same flag
+        # for the test process). Never enabled in production.
+        email_validator.TEST_ENVIRONMENT = True
 
     from app.db import Database
 
@@ -58,6 +67,16 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(short_links.bp)
     app.register_blueprint(hooks.bp)
     app.register_blueprint(analytics.bp)
+
+    @app.after_request
+    def _cors(resp):
+        origin = request.headers.get("Origin")
+        if origin and origin == config.CORS_ORIGIN:
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Access-Control-Allow-Credentials"] = "true"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Mock-Secret"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
+        return resp
 
     if not config.is_production:
         from app.api import dev
