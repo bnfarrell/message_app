@@ -144,10 +144,20 @@ export function AppShell({
       </nav>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Left of the palette trigger is left empty on purpose: the screens carry their own
-            headers, and inventing breadcrumbs here would duplicate them. */}
-        <header className="flex h-12 flex-none items-center justify-end gap-2 border-b border-border bg-surface px-3">
-          <CommandPalette />
+        {/* The rest of the bar is left empty on purpose: the screens carry their own headers,
+            and inventing breadcrumbs here would duplicate them. */}
+        <header className="relative flex h-12 flex-none items-center justify-end gap-2 border-b border-border bg-surface px-3">
+          {/*
+            Centred against the content column from `xl` up, by absolute positioning rather than
+            by flex order: ordering would make its position depend on the width of the right-hand
+            group, so it would visibly drift as the signed-in user's name changes length.
+            Below `xl` it returns to normal flow at the left of the bar — a truly centred control
+            cannot be both wide and clear of the right-hand group on a narrow laptop (at 1024px
+            the free half-width is about 90px), and a flex child cannot overlap its siblings.
+          */}
+          <span className="mr-auto min-w-0 w-[320px] max-w-[40vw] xl:absolute xl:inset-y-0 xl:left-1/2 xl:mr-0 xl:flex xl:w-[380px] xl:max-w-none xl:-translate-x-1/2 xl:items-center 2xl:w-[420px]">
+            <CommandPalette />
+          </span>
 
           <span className="flex items-center gap-2 pl-1">
             <Avatar name={`${user.firstName} ${user.lastName}`} tone="accent" />

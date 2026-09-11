@@ -471,3 +471,67 @@ the message bubbles are unchanged. It reads more defined, not heavier.
 
 The `smoke.spec.ts` delivery-status failure. Noted in the original report as pre-existing and
 left to its own diagnosis.
+
+---
+
+# F7 — the search trigger, centred and enlarged
+
+A direct request from the user looking at the running app: move the Ctrl+K trigger toward the
+centre and make it larger.
+
+Screenshots: `s1-fix1-search-1440-dark.png`, `s1-fix1-search-1440-light.png`,
+`s1-fix1-search-1024-light.png`.
+
+## The control
+
+`h-8 → h-9` (36px in a 48px bar), `text-xs → text-sm`, `px-2.5 → px-3`, magnifier up to 16px,
+and the width goes from shrink-to-fit (149px measured) to a real field:
+**320px / 380px at `xl` / 420px at `2xl`**, capped by `max-w-[40vw]`. The `Ctrl K` badge moved to
+the far end of the control with `ml-auto`, the way a search field puts its shortcut hint, instead
+of sitting tight against the label. The magnifier, the badge, `aria-label="Jump to a screen
+(Ctrl K)"` and `aria-keyshortcuts` are all unchanged.
+
+## Centring: absolute, and only from `xl` up
+
+Absolute centring from `xl` (1280px) and above, exactly as the review reasoned — centring by flex
+order would tie the control's position to the width of the right-hand group, so it would drift as
+the signed-in user's name changes length.
+
+**Below `xl` it returns to normal flow at the left of the bar, and that is a deliberate
+departure.** I measured the right-hand group at 285px plus gaps, which fixes how much room a
+centred control actually has: at 1440 the free half-width is 307px (a 420px control fits easily),
+at 1280 it is 219px, but at **1024 it is about 90px** — a centred control there could only be
+~180px wide, which is narrower than the one we started from. Rather than ship a control that
+gets *smaller* as it centres, below `xl` it is a normal flex child, where overlap is impossible
+by construction. `1280px` is the width at which true centring and a real field size stop
+competing.
+
+Measured in Chromium, no navigation between reads:
+
+| viewport | header | trigger | centred? | gap to right group | page scrolls x |
+| --- | --- | --- | --- | --- | --- |
+| 1920 | 208–1920 (centre 1064) | 854–1274, **420 × 36** | yes, centre 1064 | 349px | no |
+| 1440 | 208–1440 (centre 824) | 634–1014, **380 × 36** | yes, centre 824 | 129px | no |
+| 1280 | 208–1280 (centre 744) | 554–934, **380 × 36** | yes, centre 744 | 49px | no |
+| 1024 | 208–1024 | 220–540, **320 × 36**, in flow | no, by design | 187px | no |
+| 760 | 208–760 | 220–524, **304 × 36** (40vw cap) | no, by design | 13px | no |
+
+No overlap and no horizontal page scroll at any width tested.
+
+## Contrast against the top bar, both themes
+
+| | label on bar | border on bar |
+| --- | --- | --- |
+| light | `--text3` on `--surface` — **4.87:1** | `--border3` on `--surface` — **3.49:1** |
+| dark | `--text3` on `--surface` — **4.96:1** | `--border3` on `--surface` — **3.30:1** |
+
+Text clears 4.5:1 and the boundary clears 3:1 in both themes — the latter only because F6 raised
+`--border3` in the same round, which is worth noting: at the old `#c3ccd9` this newly prominent
+control would have had a 1.62:1 outline.
+
+## Behaviour unchanged
+
+Nothing about the palette itself moved. The suite is still green on all of it: Ctrl+K and Cmd+K
+open it, Ctrl+K is still ignored while the caret is in a text box, focus still returns to this
+trigger on close, it still makes no server call, and the capability filtering is untouched.
+520 passing, 0 failed.
