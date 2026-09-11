@@ -37,7 +37,8 @@ def test_resolve_database_url_ignores_process_cwd(tmp_path, monkeypatch):
     assert resolved == f"sqlite:///{(tmp_path / 'data' / 'app.db').resolve().as_posix()}"
 
 
-def test_is_db_empty_before_and_after_migration_and_seed(tmp_path):
+def test_is_db_empty_before_and_after_migration_and_seed(tmp_path, monkeypatch):
+    monkeypatch.setattr(dev_start, "SERVER_DIR", tmp_path)
     url = f"sqlite:///{(tmp_path / 'app.db').as_posix()}"
     # no file yet: Database() creates it lazily, table absent -> empty
     assert dev_start.is_db_empty(url)
@@ -47,9 +48,10 @@ def test_is_db_empty_before_and_after_migration_and_seed(tmp_path):
     assert not dev_start.is_db_empty(url)
 
 
-def test_prepare_is_idempotent_and_never_reseeds_over_existing_data(tmp_path):
+def test_prepare_is_idempotent_and_never_reseeds_over_existing_data(tmp_path, monkeypatch):
     # This is the launcher's core safety property: running it twice (e.g. double-clicking
     # start.bat again) must not duplicate seeded rows.
+    monkeypatch.setattr(dev_start, "SERVER_DIR", tmp_path)
     url = f"sqlite:///{(tmp_path / 'app.db').as_posix()}"
     first_seeded, first_summary = dev_start.prepare(url)
     second_seeded, second_summary = dev_start.prepare(url)

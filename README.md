@@ -21,7 +21,7 @@ python -m venv .venv
 # Windows Git Bash: . .venv/Scripts/activate   PowerShell: .venv\Scripts\Activate.ps1   macOS/Linux: . .venv/bin/activate
 cd server && pip install -e ".[dev]" && cd ..
 cp server/.env.example server/.env
-npm run seed          # creates server/data/app.db with realistic data
+npm run seed          # wipes and recreates server/data/app.db with realistic data
 npm run server        # http://127.0.0.1:5000  (API + WebSocket + job worker)
 npm run test:server   # pytest, including the §11.1 acceptance suite
 ```

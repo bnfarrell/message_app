@@ -92,7 +92,7 @@ def main() -> int:
               f"{summary.messages} messages, "
               f"{summary.work_orders} work orders.")
     else:
-        print("Database already has data — skipping seed.")
+        print("Database already has data, skipping seed.")
 
     port = int(os.getenv("PORT", "5000"))
     print(f"\nStarting server at http://127.0.0.1:{port}")
