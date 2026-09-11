@@ -55,6 +55,12 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(hooks.bp)
     app.register_blueprint(analytics.bp)
 
+    if not config.is_production:
+        from app.api import dev
+
+        dev.install_event_recorder()
+        app.register_blueprint(dev.bp)
+
     import os
 
     from app.queue import jobs as _jobs
