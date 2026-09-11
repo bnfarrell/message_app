@@ -65,3 +65,17 @@ def test_prepare_is_idempotent_and_never_reseeds_over_existing_data(tmp_path, mo
         count = session.scalar(select(func.count()).select_from(Property))
     db.engine.dispose()
     assert count == first_summary.properties
+
+
+def test_port_is_taken_detects_a_listening_socket_and_a_free_port():
+    # The guard this backs exists because werkzeug sets SO_REUSEADDR: on Windows a second dev
+    # server binds an already-listening port silently, and the two processes then have separate
+    # realtime connection registries, so WebSocket events are dropped with no error.
+    import socket
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        assert dev_start.port_is_taken(port) is True
+    assert dev_start.port_is_taken(port) is False

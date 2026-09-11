@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import socket
 import sys
 from pathlib import Path
 
@@ -59,6 +60,20 @@ def is_db_empty(database_url: str) -> bool:
         db.engine.dispose()
 
 
+def port_is_taken(port: int) -> bool:
+    """True if something already answers on 127.0.0.1:<port>.
+
+    Werkzeug sets SO_REUSEADDR, so on Windows a second dev server binds an already-listening
+    port and reports nothing. Two API processes then share a database but not the realtime
+    connection registry (`app/realtime/registry.py` is a plain in-process dict): the browser's
+    WebSocket lives in one process while the job worker that broadcasts may be in the other, so
+    events are dropped with no error anywhere. Refuse to be the second process.
+    """
+    with socket.socket() as probe:
+        probe.settimeout(0.5)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
 def prepare(database_url: str):
     """Ensure `data/`, migrate to head, and seed only if empty.
 
@@ -85,6 +100,14 @@ def main() -> int:
     cfg = Config.from_env()
     cfg = dataclasses.replace(cfg, DATABASE_URL=resolve_database_url(cfg.DATABASE_URL))
 
+    port = int(os.getenv("PORT", "5200"))
+    # Skipped in the reloader child, which its own parent already vetted.
+    if os.environ.get("WERKZEUG_RUN_MAIN") != "true" and port_is_taken(port):
+        print(f"A server is already listening on http://127.0.0.1:{port} — not starting a second "
+              "one. Two API processes silently break realtime delivery; stop the running server "
+              "(or set PORT) and try again.", file=sys.stderr)
+        return 1
+
     print(f"Preparing {cfg.DATABASE_URL} ...")
     seeded, summary = prepare(cfg.DATABASE_URL)
     if seeded:
@@ -96,7 +119,6 @@ def main() -> int:
     else:
         print("Database already has data, skipping seed.")
 
-    port = int(os.getenv("PORT", "5200"))
     print(f"\nStarting server at http://127.0.0.1:{port}")
     print(f"Log in as {SEEDED_EMAIL} / {SEEDED_PASSWORD}\n")
 
