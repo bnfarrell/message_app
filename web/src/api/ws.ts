@@ -136,6 +136,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let disposed = false
     setPresenceMap({})
+    attempt.current = 0
 
     function connect() {
       if (disposed) return
@@ -151,6 +152,12 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       }
 
       ws.onmessage = (raw: MessageEvent) => {
+        // An abandoned socket (superseded by a property switch or a fresh reconnect) can
+        // still deliver a queued message after socket.current has moved on. Only the live
+        // socket's events are ours to act on — an abandoned one's presence.update would
+        // otherwise write into the new property's presence map with no property check at all.
+        if (socket.current !== ws) return
+
         let event: ServerEvent
         try {
           event = JSON.parse(String(raw.data)) as ServerEvent
@@ -187,6 +194,11 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       }
 
       ws.onclose = (event: CloseEvent) => {
+        // Identity, not `disposed`, is the real question: is this still the socket we're
+        // reporting status for? A socket abandoned by a property switch (superseded by a
+        // new one, still live) can complete its close handshake late; without this guard
+        // that late event would stamp `status: 'closed'` over an already-open connection.
+        if (socket.current !== ws) return
         setStatus('closed')
         if (disposed) return
         // 4401 = the session is gone. The 401 path owns that; retrying is a login storm.
@@ -205,8 +217,13 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       disposed = true
       clearInterval(beat)
       if (retryTimer.current) clearTimeout(retryTimer.current)
-      socket.current?.close()
+      // Null the ref before closing so that even a synchronously-firing close (a fake
+      // socket in tests; some real implementations queue it as a same-tick microtask)
+      // sees a mismatch against the identity guards above and no-ops, rather than racing
+      // a state update into a component that's mid-unmount or already showing a new socket.
+      const current = socket.current
       socket.current = null
+      current?.close()
     }
   }, [propertyId, client, send])
 

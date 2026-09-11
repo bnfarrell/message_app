@@ -1,6 +1,6 @@
 import { act, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SessionProvider } from '../auth/SessionContext'
+import { SessionProvider, useSession } from '../auth/SessionContext'
 import { renderWithProviders, sessionFixture } from '../test/harness'
 import { qk } from './queryKeys'
 import { RealtimeProvider, invalidationsFor, useRealtime } from './ws'
@@ -62,6 +62,29 @@ function mount() {
       </RealtimeProvider>
     </SessionProvider>,
     { session: sessionFixture({ role: 'agent' }) },
+  )
+}
+
+/** Like Probe, but also exposes a way to switch the active property mid-test. */
+function SwitchableProbe() {
+  const { status } = useRealtime()
+  const { setPropertyId } = useSession()
+  return (
+    <div>
+      <span data-testid="status">{status}</span>
+      <button onClick={() => setPropertyId('prop-b')}>switch property</button>
+    </div>
+  )
+}
+
+function mountSwitchable() {
+  return renderWithProviders(
+    <SessionProvider>
+      <RealtimeProvider>
+        <SwitchableProbe />
+      </RealtimeProvider>
+    </SessionProvider>,
+    { session: sessionFixture({ role: 'agent', withSecondProperty: true }) },
   )
 }
 
@@ -273,14 +296,29 @@ describe('RealtimeProvider', () => {
     expect(spy).toHaveBeenCalled()
   })
 
+  it('does not invalidate anything on a plain first connection', async () => {
+    const { client } = mount()
+    const spy = vi.spyOn(client, 'invalidateQueries')
+    await waitFor(() => expect(FakeSocket.instances).toHaveLength(1))
+    act(() => FakeSocket.latest().open())
+    act(() =>
+      FakeSocket.latest().emit({ type: 'subscribed', propertyId: 'prop-a', at: 'x', payload: {} }),
+    )
+    expect(spy).not.toHaveBeenCalled()
+  })
+
   it('reconnects with backoff after an unexpected close', async () => {
     mount()
     await waitFor(() => expect(FakeSocket.instances).toHaveLength(1))
     act(() => FakeSocket.latest().open())
     act(() => FakeSocket.latest().die(1006))
     expect(screen.getByTestId('status')).toHaveTextContent('closed')
-    act(() => vi.advanceTimersByTime(2000))
-    await waitFor(() => expect(FakeSocket.instances.length).toBeGreaterThanOrEqual(2))
+    // The first backoff step is 1000ms plus up to 250ms of jitter: nothing should have
+    // reconnected yet at 900ms, but the window is guaranteed closed by 1300ms.
+    act(() => vi.advanceTimersByTime(900))
+    expect(FakeSocket.instances).toHaveLength(1)
+    act(() => vi.advanceTimersByTime(400))
+    await waitFor(() => expect(FakeSocket.instances).toHaveLength(2))
   })
 
   it('does not reconnect after 4401 — a dead session must not become a retry loop', async () => {
@@ -304,6 +342,38 @@ describe('RealtimeProvider', () => {
     act(() =>
       FakeSocket.latest().emit({ type: 'subscribed', propertyId: 'prop-a', at: 'x', payload: {} }),
     )
-    expect(spy).toHaveBeenCalled()
+    // Unscoped: a reconnect can't know what it missed, so it must invalidate everything
+    // rather than some specific key — toHaveBeenCalledWith() asserts zero arguments.
+    expect(spy).toHaveBeenCalledWith()
+  })
+
+  it('does not let a socket abandoned by a property switch stamp a stale close over the new one', async () => {
+    mountSwitchable()
+    await waitFor(() => expect(FakeSocket.instances).toHaveLength(1))
+    const socket1 = FakeSocket.latest()
+    act(() => socket1.open())
+    act(() =>
+      socket1.emit({ type: 'subscribed', propertyId: 'prop-a', at: 'x', payload: {} }),
+    )
+    expect(screen.getByTestId('status')).toHaveTextContent('open')
+
+    // Switching property runs socket1's cleanup — which calls close() on it — and opens
+    // socket2 for the new property. A real socket's close handshake doesn't complete
+    // synchronously, so its resulting close event can legitimately arrive after socket2 is
+    // already open and acked; `die()` drives that arrival explicitly, at exactly the moment
+    // this test needs, rather than racing it against the suite's `shouldAdvanceTime` clock.
+    act(() => screen.getByRole('button', { name: 'switch property' }).click())
+    await waitFor(() => expect(FakeSocket.instances).toHaveLength(2))
+    const socket2 = FakeSocket.latest()
+    act(() => socket2.open())
+    act(() =>
+      socket2.emit({ type: 'subscribed', propertyId: 'prop-b', at: 'x', payload: {} }),
+    )
+    expect(screen.getByTestId('status')).toHaveTextContent('open')
+
+    // socket1's close finally arrives now — after socket2 is already open and acked for
+    // the new property. It must not be able to report on a connection it no longer owns.
+    act(() => socket1.die(1000))
+    expect(screen.getByTestId('status')).toHaveTextContent('open')
   })
 })
