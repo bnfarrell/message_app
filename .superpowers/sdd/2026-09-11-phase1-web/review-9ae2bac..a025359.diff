@@ -1,0 +1,767 @@
+# Review package: 9ae2bac..a025359
+
+## Commits
+a025359 feat(web): finish the quick-replies panel against the mockup
+778eeed feat(web): hooks for the quick-reply preview and variables endpoints
+
+## Files changed
+ web/src/api/hooks/content.ts                      |  32 ++-
+ web/src/api/queryKeys.ts                          |   3 +
+ web/src/features/admin/QuickRepliesAdmin.test.tsx | 267 ++++++++++++++++++++--
+ web/src/features/admin/QuickRepliesAdmin.tsx      | 191 +++++++++++++---
+ 4 files changed, 445 insertions(+), 48 deletions(-)
+
+## Diff
+diff --git a/web/src/api/hooks/content.ts b/web/src/api/hooks/content.ts
+index 159e19d..1d451ab 100644
+--- a/web/src/api/hooks/content.ts
++++ b/web/src/api/hooks/content.ts
+@@ -1,17 +1,17 @@
+ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+ import { useSession } from '../../auth/SessionContext'
+ import { ApiError, api, propertyPath } from '../client'
+ import { qk } from '../queryKeys'
+ import type {
+   AssetIn, AssetOut, AssetPatch, CategoryIn, CategoryOut, CategoryPatch,
+-  QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderedQuickReply,
++  PreviewRequest, QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderedQuickReply,
+ } from '../types'
+ 
+ export function useQuickReplies(q?: string) {
+   const { propertyId } = useSession()
+   return useQuery<QuickReplyOut[], ApiError>({
+     queryKey: qk.quickReplies(propertyId, q),
+     queryFn: () =>
+       api<QuickReplyOut[]>(
+         propertyPath(propertyId, `quick-replies${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+       ),
+@@ -23,20 +23,50 @@ export function useRenderQuickReply() {
+   const { propertyId } = useSession()
+   return useMutation<RenderedQuickReply, ApiError, { id: string; conversationId: string }>({
+     mutationFn: ({ id, conversationId }) =>
+       api<RenderedQuickReply>(propertyPath(propertyId, `quick-replies/${id}/render`), {
+         method: 'POST',
+         json: { conversationId },
+       }),
+   })
+ }
+ 
++/** The names the server's interpolator actually supports; the mockup's list is stale. */
++export function useQuickReplyVariables() {
++  const { propertyId } = useSession()
++  return useQuery<string[], ApiError>({
++    queryKey: qk.quickReplyVariables(propertyId),
++    queryFn: () => api<string[]>(propertyPath(propertyId, 'quick-replies/variables')),
++    staleTime: Infinity, // a code-level constant on the server
++  })
++}
++
++/**
++ * Renders an unsaved body against the server's sample values, and returns the authoritative
++ * `segments`/`characters`. Deliberately `/preview`, not `/render`: `/render` bumps `usageCount`,
++ * needs a saved row plus a real conversation, and is gated on `reply`, which `corporate` — a role
++ * that reaches this screen — does not hold. Pass an already-debounced body; the key is the body.
++ */
++export function useQuickReplyPreview(body: string) {
++  const { propertyId } = useSession()
++  return useQuery<RenderedQuickReply, ApiError>({
++    queryKey: qk.quickReplyPreview(propertyId, body),
++    queryFn: () =>
++      api<RenderedQuickReply>(propertyPath(propertyId, 'quick-replies/preview'), {
++        method: 'POST',
++        json: { body } satisfies PreviewRequest,
++      }),
++    enabled: body.length > 0, // the server rejects an empty body with a 400
++    staleTime: 5 * 60_000,
++  })
++}
++
+ export function useAssets() {
+   const { propertyId } = useSession()
+   return useQuery<AssetOut[], ApiError>({
+     queryKey: qk.assets(propertyId),
+     queryFn: () => api<AssetOut[]>(propertyPath(propertyId, 'assets')),
+     staleTime: 60_000,
+   })
+ }
+ 
+ export function useCategories() {
+diff --git a/web/src/api/queryKeys.ts b/web/src/api/queryKeys.ts
+index d093cf1..b333c04 100644
+--- a/web/src/api/queryKeys.ts
++++ b/web/src/api/queryKeys.ts
+@@ -8,20 +8,23 @@ export const qk = {
+ 
+   workOrders: (propertyId: string, params: Record<string, string | boolean | null>) =>
+     ['workOrders', propertyId, params] as const,
+   workOrdersAll: (propertyId: string) => ['workOrders', propertyId] as const,
+   workOrder: (propertyId: string, id: string) => ['workOrder', propertyId, id] as const,
+   workOrderPrefill: (propertyId: string, conversationId: string) =>
+     ['workOrderPrefill', propertyId, conversationId] as const,
+ 
+   quickReplies: (propertyId: string, q?: string) => ['quickReplies', propertyId, q ?? ''] as const,
+   quickRepliesAll: (propertyId: string) => ['quickReplies', propertyId] as const,
++  quickReplyVariables: (propertyId: string) => ['quickReplyVariables', propertyId] as const,
++  quickReplyPreview: (propertyId: string, body: string) =>
++    ['quickReplyPreview', propertyId, body] as const,
+   assets: (propertyId: string) => ['assets', propertyId] as const,
+   assetsAll: (propertyId: string) => ['assets', propertyId] as const,
+   categories: (propertyId: string) => ['categories', propertyId] as const,
+   categoriesAll: (propertyId: string) => ['categories', propertyId] as const,
+   departments: (propertyId: string) => ['departments', propertyId] as const,
+   staff: (propertyId: string) => ['staff', propertyId] as const,
+   staffAll: (propertyId: string) => ['staff', propertyId] as const,
+   guest: (propertyId: string, id: string) => ['guest', propertyId, id] as const,
+ 
+   notifications: (propertyId: string, unreadOnly: boolean) =>
+diff --git a/web/src/features/admin/QuickRepliesAdmin.test.tsx b/web/src/features/admin/QuickRepliesAdmin.test.tsx
+index d4959f8..60c6cef 100644
+--- a/web/src/features/admin/QuickRepliesAdmin.test.tsx
++++ b/web/src/features/admin/QuickRepliesAdmin.test.tsx
+@@ -1,54 +1,89 @@
+ import { screen, waitFor } from '@testing-library/react'
+ import userEvent from '@testing-library/user-event'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import type { RenderedQuickReply } from '../../api/types'
+ import { SessionProvider } from '../../auth/SessionContext'
+ import { aDepartment, aQuickReply } from '../../test/factories'
+ import { renderWithProviders, sessionFixture } from '../../test/harness'
+ import { QuickRepliesAdmin } from './QuickRepliesAdmin'
+ 
+ const REPLIES = [
+   aQuickReply({ id: 'q1', shortcut: '/wifi', title: 'WiFi details', usageCount: 212 }),
+   aQuickReply({ id: 'q2', shortcut: '/shuttle', title: 'Airport shuttle', active: false, usageCount: 0 }),
+ ]
+ 
+-function serve() {
++// What GET /quick-replies/variables answers — server/app/domain/quick_replies.py VARIABLES.
++const VARIABLES = [
++  'guest_first_name', 'room_number', 'property_name', 'agent_first_name', 'departure_date',
++]
++// server/app/domain/quick_replies.py FALLBACKS, which is what a preview with no conversation uses.
++const FALLBACKS: Record<string, string> = {
++  guest_first_name: 'there', room_number: 'your room', property_name: 'the hotel',
++  agent_first_name: 'the front desk', departure_date: 'soon',
++}
++
++/** Bodies POSTed to /quick-replies/preview, in order — the debounce assertion counts these. */
++const previewed: string[] = []
++/** Lets a test pin the numbers the server returns, so a client-side count cannot produce them. */
++let previewOverride: Partial<RenderedQuickReply> | null = null
++
++function json(body: unknown, status = 200) {
++  return Promise.resolve(
++    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }),
++  )
++}
++
++type Handler = (url: string, init?: RequestInit) => Promise<Response> | null
++
++/**
++ * `extra` beats every built-in route. A test that needs one call to fail must go through here
++ * rather than `mockResolvedValueOnce`: the debounced preview fires on its own schedule, so a
++ * one-shot mock can land on the preview instead of the write it was meant for.
++ */
++function serve(extra?: Handler) {
+   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+-    if (init && init.method && init.method !== 'GET') {
+-      return Promise.resolve(
+-        new Response(JSON.stringify(aQuickReply()), {
+-          status: 200,
+-          headers: { 'Content-Type': 'application/json' },
+-        }),
+-      )
++    const url = String(input)
++    const override = extra?.(url, init)
++    if (override) return override
++    if (url.includes('/quick-replies/preview')) {
++      const sent = JSON.parse(String(init!.body)) as { body: string }
++      previewed.push(sent.body)
++      const rendered = sent.body.replace(/\{\{([a-z_]+)\}\}/g, (m, k: string) => FALLBACKS[k] ?? m)
++      return json({ body: rendered, characters: rendered.length, segments: 1, ...previewOverride })
+     }
+-    const body = String(input).includes('/departments') ? [aDepartment()] : REPLIES
+-    return Promise.resolve(
+-      new Response(JSON.stringify(body), {
+-        status: 200,
+-        headers: { 'Content-Type': 'application/json' },
+-      }),
+-    )
++    if (init && init.method && init.method !== 'GET') return json(aQuickReply())
++    if (url.includes('/quick-replies/variables')) return json(VARIABLES)
++    if (url.includes('/departments')) return json([aDepartment()])
++    return json(REPLIES)
+   })
+ }
+ 
+ function mount() {
+   return renderWithProviders(
+     <SessionProvider>
+       <QuickRepliesAdmin />
+     </SessionProvider>,
+     { session: sessionFixture({ role: 'admin' }), route: '/app/admin/quick-replies' },
+   )
+ }
+ 
++/** The panel's field errors and the counter both key off the last request, so read it back. */
++function lastBody(method: string): Record<string, unknown> {
++  const call = vi.mocked(fetch).mock.calls.filter(([, i]) => i?.method === method).at(-1)
++  return JSON.parse(String(call![1]!.body)) as Record<string, unknown>
++}
++
+ describe('QuickRepliesAdmin', () => {
+   beforeEach(() => {
++    previewed.length = 0
++    previewOverride = null
+     vi.stubGlobal('fetch', vi.fn())
+     serve()
+   })
+   afterEach(() => {
+     vi.unstubAllGlobals()
+   })
+ 
+   it('lists replies with shortcut, title and usage', async () => {
+     mount()
+     expect(await screen.findByText('/wifi')).toBeInTheDocument()
+@@ -125,25 +160,24 @@ describe('QuickRepliesAdmin', () => {
+     await userEvent.click(await screen.findByText('WiFi details'))
+     await userEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+     await userEvent.click(screen.getByRole('button', { name: 'Keep' }))
+     expect(screen.queryByText(/cannot be undone/i)).not.toBeInTheDocument()
+   })
+ 
+   it('shows the server error in the panel and keeps it open', async () => {
+     mount()
+     await userEvent.click(await screen.findByText('WiFi details'))
+     await screen.findByLabelText('Title')
+-    vi.mocked(fetch).mockResolvedValueOnce(
+-      new Response(
+-        JSON.stringify({ error: { code: 'VALIDATION_FAILED', message: 'Shortcut already exists' } }),
+-        { status: 400, headers: { 'Content-Type': 'application/json' } },
+-      ),
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Shortcut already exists' } }, 400)
++        : null,
+     )
+     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+     expect(await screen.findByRole('alert')).toHaveTextContent('Shortcut already exists')
+     expect(screen.getByLabelText('Title')).toBeInTheDocument()
+   })
+ 
+   it('filters by shortcut or text', async () => {
+     mount()
+     await screen.findByText('/wifi')
+     await userEvent.type(screen.getByPlaceholderText(/search/i), 'shuttle')
+@@ -174,11 +208,204 @@ describe('QuickRepliesAdmin', () => {
+     await userEvent.click(await screen.findByText('WiFi details'))
+     const title = await screen.findByLabelText('Title')
+     await userEvent.clear(title)
+     await userEvent.type(title, 'WiFi info')
+     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+ 
+     // A save that only invalidated the exact (unfiltered) key would never re-fetch the
+     // still-active filtered query, so `filteredGets()` would stay flat at `before`.
+     await waitFor(() => expect(filteredGets()).toBeGreaterThan(before))
+   })
++
++  // --- A2: the chips, the counter, the preview, and the two missing inputs ---
++
++  it('renders one Insert chip per variable the server supports', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('WiFi details'))
++    await screen.findByLabelText('Body')
++    // Five, not the mockup's four: the mockup omits property_name (ruling D68), and the list is
++    // fetched rather than hardcoded, so a server-side change reaches the UI on its own.
++    for (const name of VARIABLES) {
++      expect(await screen.findByRole('button', { name })).toBeInTheDocument()
++    }
++  })
++
++  it('inserts a variable at the caret, not at the end, and leaves the caret after it', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
++    const body = (await screen.findByLabelText('Body')) as HTMLTextAreaElement
++    await user.type(body, 'Hi , welcome')
++    await screen.findByRole('button', { name: 'guest_first_name' })
++    body.setSelectionRange(3, 3) // between "Hi " and ","
++    await user.click(screen.getByRole('button', { name: 'guest_first_name' }))
++
++    expect(body).toHaveValue('Hi {{guest_first_name}}, welcome')
++    expect(body).toHaveFocus()
++    expect(body.selectionStart).toBe(3 + '{{guest_first_name}}'.length)
++    expect(body.selectionEnd).toBe(body.selectionStart)
++  })
++
++  it('replaces the selection when the chip is clicked with text selected', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
++    const body = (await screen.findByLabelText('Body')) as HTMLTextAreaElement
++    await user.type(body, 'Hi NAME, welcome')
++    await screen.findByRole('button', { name: 'guest_first_name' })
++    body.setSelectionRange(3, 7) // "NAME"
++    await user.click(screen.getByRole('button', { name: 'room_number' }))
++
++    expect(body).toHaveValue('Hi {{room_number}}, welcome')
++  })
++
++  it('renders the counter from the server response, never from a local count', async () => {
++    // Numbers no client-side counter could produce for an 11-character, one-segment body. If the
++    // counter is ever recomputed in TypeScript this test fails.
++    previewOverride = { characters: 4242, segments: 3 }
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
++    await user.type(await screen.findByLabelText('Body'), 'Short body.')
++    expect(await screen.findByText('4242 chars · 3 segments')).toBeInTheDocument()
++  })
++
++  it('pluralises a single segment', async () => {
++    previewOverride = { characters: 138, segments: 1 }
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
++    await user.type(await screen.findByLabelText('Body'), 'Short body.')
++    expect(await screen.findByText('138 chars · 1 segment')).toBeInTheDocument()
++  })
++
++  it('previews the draft body against the sample values, with no conversation', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
++    const body = await screen.findByLabelText('Body')
++    // Built with the chips rather than typed: userEvent treats `{{` as an escape sequence, and
++    // this exercises the chip and the preview together anyway.
++    await user.type(body, 'Hi ')
++    await user.click(await screen.findByRole('button', { name: 'guest_first_name' }))
++    await user.type(body, ' in ')
++    await user.click(screen.getByRole('button', { name: 'room_number' }))
++    expect(body).toHaveValue('Hi {{guest_first_name}} in {{room_number}}')
++    expect(await screen.findByText('Hi there in your room')).toBeInTheDocument()
++    expect(screen.getByText(/Preview · sample values/)).toBeInTheDocument()
++    // No conversation is chosen, fetched or sent - Property B has none, and a stored-row render
++    // could not show an unsaved draft anyway.
++    expect(lastBody('POST')).toEqual({ body: 'Hi {{guest_first_name}} in {{room_number}}' })
++    expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('/conversations'))).toBe(false)
++  })
++
++  it('debounces the preview instead of firing one request per keystroke', async () => {
++    // Real keystroke spacing, deliberately: with `delay: null` the whole burst lands inside one
++    // task and even a 0 ms debounce coalesces it, which would make this test unable to fail.
++    const user = userEvent.setup({ delay: 20 })
++    mount()
++    await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
++    const body = await screen.findByLabelText('Body')
++    expect(previewed).toEqual([]) // empty body: the server 400s on one, so it is never asked
++
++    const text = 'The pool is open 7 AM to 10 PM.' // 31 keystrokes, ~20 ms apart
++    await user.type(body, text)
++    await waitFor(() => expect(previewed.at(-1)).toBe(text))
++    // Undebounced this is one round trip per character; 300 ms of quiet makes it one in total.
++    expect(previewed.length).toBeLessThan(5)
++    await waitFor(() => expect(screen.getByText(/chars/)).toBeInTheDocument())
++  })
++
++  it('sends locale on patch and it survives the round trip', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi details'))
++    const locale = await screen.findByLabelText('Locale')
++    expect(locale).toHaveValue('en')
++    await user.clear(locale)
++    await user.type(locale, 'fr-CA')
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++    // A1 added `locale` to QuickReplyPatch; the old code stripped it from the payload.
++    await waitFor(() => expect(lastBody('PATCH')).toMatchObject({ locale: 'fr-CA' }))
++  })
++
++  it('caps locale at the eight characters the column holds', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi details'))
++    const locale = await screen.findByLabelText('Locale')
++    await user.clear(locale)
++    await user.type(locale, 'abcdefghij')
++    expect(locale).toHaveValue('abcdefgh')
++  })
++
++  it('sends category on patch', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi details'))
++    await user.type(await screen.findByLabelText('Category'), 'connectivity')
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++    await waitFor(() => expect(lastBody('PATCH')).toMatchObject({ category: 'connectivity' }))
++  })
++
++  it('clears category back to null when the input is emptied', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi details'))
++    const category = await screen.findByLabelText('Category')
++    await user.type(category, 'connectivity')
++    await user.clear(category)
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++    // `category` is nullable on the server, so clearing it is a real edit, not a 400.
++    await waitFor(() => expect(lastBody('PATCH')).toMatchObject({ category: null }))
++  })
++
++  it('shows a 400 that names a field against that field, not only in the banner', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi details'))
++    await screen.findByLabelText('Locale')
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: locale',
++                          details: { locale: 'required' } } }, 400)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++
++    const message = await screen.findByText('required')
++    // It must sit with the Locale input, not float somewhere in the panel.
++    expect(message.parentElement).toContainElement(screen.getByLabelText('Locale'))
++  })
++
++  it('surfaces a Pydantic field rejection against its input too', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi details'))
++    await screen.findByLabelText('Shortcut')
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Invalid request body',
++                          details: [{ type: 'string_pattern_mismatch', loc: ['shortcut'],
++                                      msg: 'String should match pattern' }] } }, 400)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++
++    const message = await screen.findByText('String should match pattern')
++    expect(message.parentElement).toContainElement(screen.getByLabelText('Shortcut'))
++  })
++
++  it('shows the preview error instead of passing a stale render off as current', async () => {
++    serve((url) =>
++      url.includes('/quick-replies/preview')
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Body is too long' } }, 400)
++        : null,
++    )
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
++    await user.type(await screen.findByLabelText('Body'), 'Anything at all.')
++    expect(await screen.findByText(/Preview unavailable: Body is too long/)).toBeInTheDocument()
++    expect(screen.queryByText(/chars/)).not.toBeInTheDocument()
++  })
+ })
+diff --git a/web/src/features/admin/QuickRepliesAdmin.tsx b/web/src/features/admin/QuickRepliesAdmin.tsx
+index ffea6b9..9f25a34 100644
+--- a/web/src/features/admin/QuickRepliesAdmin.tsx
++++ b/web/src/features/admin/QuickRepliesAdmin.tsx
+@@ -1,17 +1,20 @@
+-import { useState } from 'react'
++import { useEffect, useRef, useState } from 'react'
++import { ApiError } from '../../api/client'
+ import {
+   useCreateQuickReply, useDeleteQuickReply, usePatchQuickReply, useQuickReplies,
++  useQuickReplyPreview, useQuickReplyVariables,
+ } from '../../api/hooks/content'
+ import { useDepartments } from '../../api/hooks/users'
+ import type { QuickReplyOut } from '../../api/types'
+ import { Badge, Button, EmptyState, Input, Spinner, Textarea } from '../../components/ui'
++import { cn } from '../../lib/cn'
+ import { AdminTable, type Column } from './AdminTable'
+ import { EditPanel } from './EditPanel'
+ 
+ type Draft = {
+   id?: string
+   shortcut: string
+   title: string
+   body: string
+   departmentId: string | null
+   category: string | null
+@@ -19,36 +22,90 @@ type Draft = {
+   active: boolean
+ }
+ 
+ const EMPTY: Draft = {
+   shortcut: '', title: '', body: '', departmentId: null, category: null, locale: 'en', active: true,
+ }
+ 
+ const LABEL = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
+ const SELECT = 'h-11 w-full rounded border border-border3 bg-surface2 px-3 text-sm text-text focus:border-accent focus:outline-none'
+ 
++/**
++ * A PATCH that clears a NOT NULL field answers 400 with `details: {"<camelCaseField>": "required"}`;
++ * a body Pydantic rejects answers 400 with `details` as its error list, each entry's `loc` ending
++ * in the field name. Both name the input the admin typed in, so both are rendered against it
++ * rather than only in the panel's banner.
++ */
++function fieldErrors(error: unknown): Record<string, string> {
++  const details = error instanceof ApiError ? error.details : undefined
++  if (!details || typeof details !== 'object') return {}
++  if (!Array.isArray(details)) {
++    return Object.fromEntries(
++      Object.entries(details as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
++    )
++  }
++  const out: Record<string, string> = {}
++  for (const item of details as { loc?: unknown[]; msg?: string }[]) {
++    const field = item.loc?.[item.loc.length - 1]
++    if (typeof field === 'string' && item.msg && !(field in out)) out[field] = item.msg
++  }
++  return out
++}
++
++/** Keeps the preview to one request per pause, not one per keystroke. */
++function useDebounced(value: string, ms: number): string {
++  const [settled, setSettled] = useState(value)
++  useEffect(() => {
++    const timer = setTimeout(() => setSettled(value), ms)
++    return () => clearTimeout(timer)
++  }, [value, ms])
++  return settled
++}
++
+ export function QuickRepliesAdmin() {
+   const [search, setSearch] = useState('')
+   const { data, isPending, error } = useQuickReplies(search || undefined)
+   const { data: departments } = useDepartments()
++  const { data: variables } = useQuickReplyVariables()
+   const create = useCreateQuickReply()
+   const patch = usePatchQuickReply()
+   const remove = useDeleteQuickReply()
+   const [draft, setDraft] = useState<Draft | null>(null)
+   const [selected, setSelected] = useState<QuickReplyOut | null>(null)
++  const bodyRef = useRef<HTMLTextAreaElement>(null)
++  const pendingCaret = useRef<number | null>(null)
++
++  const body = draft?.body ?? ''
++  const debouncedBody = useDebounced(body, 300)
++  const preview = useQuickReplyPreview(debouncedBody)
++  // The rendered text belongs to `debouncedBody`; until that catches up and the request settles,
++  // what is on screen describes an older draft, so it is labelled rather than passed off as current.
++  const previewStale = debouncedBody !== body || preview.isFetching
+ 
+   const rows = data ?? []
+   const activeCount = rows.filter((r) => r.active).length
+   const pending = create.isPending || patch.isPending || remove.isPending
+-  const failure = (create.error ?? patch.error ?? remove.error)?.message ?? null
++  const failed = create.error ?? patch.error ?? remove.error
++  const failure = failed?.message ?? null
++  const fields = fieldErrors(failed)
+   const draftId = draft?.id
+ 
++  // A chip insert changes the controlled value, so the caret can only be placed once React has
++  // committed it — otherwise the browser drops it at the end of the new text.
++  useEffect(() => {
++    const caret = pendingCaret.current
++    if (caret === null) return
++    pendingCaret.current = null
++    bodyRef.current?.focus()
++    bodyRef.current?.setSelectionRange(caret, caret)
++  }, [body])
++
+   const columns: Column<QuickReplyOut>[] = [
+     { key: 'shortcut', head: 'Shortcut', mono: true, render: (r) => r.shortcut },
+     { key: 'title', head: 'Title', render: (r) => r.title },
+     {
+       key: 'body',
+       head: 'Body',
+       render: (r) => <span className="text-text3">{r.body.slice(0, 70)}…</span>,
+     },
+     {
+       key: 'dept',
+@@ -70,34 +127,40 @@ export function QuickRepliesAdmin() {
+       shortcut: reply.shortcut,
+       title: reply.title,
+       body: reply.body,
+       departmentId: reply.departmentId ?? null,
+       category: reply.category ?? null,
+       locale: reply.locale,
+       active: reply.active,
+     })
+   }
+ 
++  function insertVariable(name: string) {
++    if (!draft) return
++    const token = `{{${name}}}`
++    const el = bodyRef.current
++    const start = el?.selectionStart ?? draft.body.length
++    const end = el?.selectionEnd ?? draft.body.length
++    pendingCaret.current = start + token.length
++    setDraft({ ...draft, body: draft.body.slice(0, start) + token + draft.body.slice(end) })
++  }
++
+   function save() {
+     if (!draft || !draft.shortcut.trim() || !draft.title.trim() || !draft.body.trim()) return
+     const done = () => {
+       setDraft(null)
+       setSelected(null)
+     }
+-    if (draft.id) {
+-      // The server's QuickReplyPatch has no `locale` field (extra="forbid" rejects it), unlike
+-      // QuickReplyIn on create — send only what patch actually accepts.
+-      const { id, shortcut, title, body, departmentId, category, active } = draft
+-      patch.mutate({ id, shortcut, title, body, departmentId, category, active }, { onSuccess: done })
+-    } else {
+-      create.mutate(draft, { onSuccess: done })
+-    }
++    // Every field on the draft is patchable: A1 added `locale` to QuickReplyPatch, so the old
++    // "strip locale, extra=forbid rejects it" carve-out is gone.
++    if (draft.id) patch.mutate(draft, { onSuccess: done })
++    else create.mutate(draft, { onSuccess: done })
+   }
+ 
+   return (
+     <div className="flex min-h-0 flex-1">
+       <div className="flex min-w-0 flex-1 flex-col">
+         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+           <div>
+             <h1 className="text-base font-bold">Quick replies</h1>
+             <p className="text-xs text-text3">
+               {activeCount} active · {rows.length - activeCount} inactive
+@@ -152,48 +215,122 @@ export function QuickRepliesAdmin() {
+               ? () =>
+                   remove.mutate({ id: draftId }, {
+                     onSuccess: () => {
+                       setDraft(null)
+                       setSelected(null)
+                     },
+                   })
+               : undefined
+           }
+         >
+-          <div>
+-            <label className={LABEL} htmlFor="qr-shortcut">Shortcut</label>
+-            <Input id="qr-shortcut" value={draft.shortcut}
+-                   onChange={(e) => setDraft({ ...draft, shortcut: e.target.value })} />
++          <div className="grid grid-cols-2 gap-3">
++            <div>
++              <label className={LABEL} htmlFor="qr-shortcut">Shortcut</label>
++              <Input id="qr-shortcut" className="font-mono" value={draft.shortcut}
++                     onChange={(e) => setDraft({ ...draft, shortcut: e.target.value })} />
++              <FieldError message={fields.shortcut} />
++            </div>
++            <div>
++              <label className={LABEL} htmlFor="qr-dept">Department</label>
++              <select id="qr-dept" className={SELECT} value={draft.departmentId ?? ''}
++                      onChange={(e) => setDraft({ ...draft, departmentId: e.target.value || null })}>
++                <option value="">All</option>
++                {(departments ?? []).map((d) => (
++                  <option key={d.id} value={d.id}>{d.name}</option>
++                ))}
++              </select>
++              <FieldError message={fields.departmentId} />
++            </div>
+           </div>
+           <div>
+             <label className={LABEL} htmlFor="qr-title">Title</label>
+             <Input id="qr-title" value={draft.title}
+                    onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
++            <FieldError message={fields.title} />
+           </div>
+           <div>
+             <label className={LABEL} htmlFor="qr-body">Body</label>
+-            <Textarea id="qr-body" rows={6} value={draft.body}
++            <Textarea id="qr-body" ref={bodyRef} rows={6} value={draft.body}
+                       onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
+-            <p className="mt-1 text-xs text-text3">
+-              {'{{guest_first_name}}'} and {'{{room_number}}'} are filled in when sent.
+-            </p>
+-          </div>
+-          <div>
+-            <label className={LABEL} htmlFor="qr-dept">Department</label>
+-            <select id="qr-dept" className={SELECT} value={draft.departmentId ?? ''}
+-                    onChange={(e) => setDraft({ ...draft, departmentId: e.target.value || null })}>
+-              <option value="">All</option>
+-              {(departments ?? []).map((d) => (
+-                <option key={d.id} value={d.id}>{d.name}</option>
++            <FieldError message={fields.body} />
++            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-text3">
++              Insert:
++              {(variables ?? []).map((name) => (
++                <button
++                  key={name}
++                  type="button"
++                  // Keeps the textarea's selection alive across the click, so the token lands
++                  // where the caret already was rather than at the end of the body.
++                  onMouseDown={(e) => e.preventDefault()}
++                  onClick={() => insertVariable(name)}
++                  className="rounded-md bg-tagBg px-2 py-1 font-mono text-xs text-roomNum hover:bg-sel"
++                >
++                  {name}
++                </button>
+               ))}
+-            </select>
++            </div>
+           </div>
++
++          {draft.body ? (
++            <div>
++              {/* Not "Preview as <guest>": this renders the server's sample values, so naming a
++                  real guest would be a lie. See the A2 report's disclosed divergences. */}
++              <span className={LABEL}>Preview · sample values</span>
++              {preview.error ? (
++                <p className="rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
++                  Preview unavailable: {preview.error.message}
++                </p>
++              ) : (
++                <>
++                  <div
++                    aria-busy={previewStale}
++                    className={cn(
++                      'rounded px-3 py-2 text-sm leading-relaxed bg-outBg text-outText',
++                      previewStale && 'opacity-60',
++                    )}
++                  >
++                    {preview.data?.body ?? draft.body}
++                  </div>
++                  <p className="mt-1 font-mono text-xs text-text3">
++                    {previewStale || !preview.data
++                      ? 'Updating…'
++                      // Server-computed: server/app/domain/sms.py is the count that bills.
++                      : `${preview.data.characters} chars · ${preview.data.segments} segment${
++                          preview.data.segments === 1 ? '' : 's'
++                        }`}
++                  </p>
++                </>
++              )}
++            </div>
++          ) : null}
++
++          <div className="grid grid-cols-2 gap-3">
++            <div>
++              <label className={LABEL} htmlFor="qr-category">Category</label>
++              <Input id="qr-category" value={draft.category ?? ''}
++                     placeholder="Optional"
++                     onChange={(e) => setDraft({ ...draft, category: e.target.value || null })} />
++              <FieldError message={fields.category} />
++            </div>
++            <div>
++              <label className={LABEL} htmlFor="qr-locale">Locale</label>
++              <Input id="qr-locale" value={draft.locale} maxLength={8}
++                     onChange={(e) => setDraft({ ...draft, locale: e.target.value })} />
++              <FieldError message={fields.locale} />
++            </div>
++          </div>
++
+           <label className="flex items-center gap-2 text-sm">
+             <input type="checkbox" checked={draft.active}
+                    onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />
+             Active
+           </label>
+         </EditPanel>
+       ) : null}
+     </div>
+   )
+ }
++
++function FieldError({ message }: { message?: string }) {
++  if (!message) return null
++  return <p className="mt-1 text-xs text-dangerText">{message}</p>
++}

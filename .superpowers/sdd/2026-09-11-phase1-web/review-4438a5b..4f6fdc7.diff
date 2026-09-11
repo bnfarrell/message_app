@@ -1,0 +1,2006 @@
+# Review package: 4438a5b..4f6fdc7
+
+## Commits
+4f6fdc7 feat(web): Property settings goes from greyed to live
+818855e feat(web): Departments becomes full CRUD
+4a12e63 fix(web): clear the stored property when a session dies on its own (D56)
+2fc4a37 fix(server): a validation 400 must not echo the caller's raw input (D91)
+5719987 feat(web): give the shared normaliser human copy for reason codes (D93)
+0c8fd1e test(web): restore real timers after every test (D92)
+
+## Files changed
+ server/app/api/_util.py                            |   8 +-
+ server/app/errors.py                               |   5 +-
+ server/tests/test_errors.py                        |  49 ++++
+ web/src/api/fieldErrors.test.ts                    |  54 +++-
+ web/src/api/fieldErrors.ts                         |  28 +-
+ web/src/api/hooks/auth.ts                          |  10 +-
+ web/src/api/hooks/properties.ts                    |  37 +++
+ web/src/api/hooks/users.ts                         |  29 +-
+ web/src/api/queryKeys.ts                           |   1 +
+ web/src/auth/RequireAuth.test.tsx                  |  36 ++-
+ web/src/auth/RequireAuth.tsx                       |  14 +
+ web/src/auth/SessionContext.tsx                    |   7 +-
+ web/src/auth/storage.ts                            |  26 ++
+ web/src/features/admin/AdminPage.test.tsx          |  25 +-
+ web/src/features/admin/AdminPage.tsx               |   5 +-
+ web/src/features/admin/DepartmentsAdmin.test.tsx   | 213 ++++++++++++++
+ web/src/features/admin/DepartmentsAdmin.tsx        | 167 ++++++++++-
+ .../features/admin/PropertySettingsAdmin.test.tsx  | 230 +++++++++++++++
+ web/src/features/admin/PropertySettingsAdmin.tsx   | 316 +++++++++++++++++++++
+ web/src/features/admin/QuickRepliesAdmin.test.tsx  |  14 +-
+ web/vitest.setup.ts                                |  17 ++
+ 21 files changed, 1233 insertions(+), 58 deletions(-)
+
+## Diff
+diff --git a/server/app/api/_util.py b/server/app/api/_util.py
+index 0b95120..93f4562 100644
+--- a/server/app/api/_util.py
++++ b/server/app/api/_util.py
+@@ -18,28 +18,32 @@ def db_session() -> Iterator[Session]:
+         yield db
+ 
+ 
+ def parse_body[M: BaseModel](model: type[M]) -> M:
+     data = request.get_json(silent=True)
+     if data is None:
+         data = request.form.to_dict() if request.form else {}
+     try:
+         return model.model_validate(data)
+     except ValidationError as e:
+-        raise ValidationFailed("Invalid request body", details=e.errors(include_url=False)) from e
++        # include_input=False: `input` echoes the admin's raw typing straight back into the
++        # error body, and nothing reads it — web/src/api/fieldErrors.ts says so in its own comment.
++        raise ValidationFailed("Invalid request body",
++                               details=e.errors(include_url=False, include_input=False)) from e
+ 
+ 
+ def parse_query[M: BaseModel](model: type[M]) -> M:
+     try:
+         return model.model_validate(request.args.to_dict())
+     except ValidationError as e:
+-        raise ValidationFailed("Invalid query", details=e.errors(include_url=False)) from e
++        raise ValidationFailed("Invalid query",
++                               details=e.errors(include_url=False, include_input=False)) from e
+ 
+ 
+ def serialize(obj: Any) -> Any:
+     if isinstance(obj, BaseModel):
+         return obj.model_dump(mode="json", by_alias=True)
+     if isinstance(obj, list):
+         return [serialize(o) for o in obj]
+     if isinstance(obj, dict):
+         return {k: serialize(v) for k, v in obj.items()}
+     return obj
+diff --git a/server/app/errors.py b/server/app/errors.py
+index 6b71a68..894ee90 100644
+--- a/server/app/errors.py
++++ b/server/app/errors.py
+@@ -77,16 +77,19 @@ class RateLimited(AppError):
+     code = "RATE_LIMITED"
+ 
+ 
+ def register_error_handlers(app: Flask) -> None:
+     @app.errorhandler(AppError)
+     def _app_error(e: AppError):
+         return jsonify(e.to_body()), e.status
+ 
+     @app.errorhandler(ValidationError)
+     def _pydantic_error(e: ValidationError):
+-        return jsonify(ValidationFailed("Invalid request", details=e.errors()).to_body()), 400
++        # Same two arguments as _util.parse_body: no pydantic.dev URL, and no echo of the
++        # caller's raw input, which nothing reads.
++        details = e.errors(include_url=False, include_input=False)
++        return jsonify(ValidationFailed("Invalid request", details=details).to_body()), 400
+ 
+     @app.errorhandler(HTTPException)
+     def _http_error(e: HTTPException):
+         code = (e.name or "error").upper().replace(" ", "_")
+         return jsonify({"error": {"code": code, "message": e.description}}), e.code or 500
+diff --git a/server/tests/test_errors.py b/server/tests/test_errors.py
+index 17de40e..4bf4fc2 100644
+--- a/server/tests/test_errors.py
++++ b/server/tests/test_errors.py
+@@ -1,8 +1,57 @@
+ from app.errors import AppError
+ 
+ 
+ def test_code_override_derives_matching_default_message():
+     err = AppError(code="CUSTOM_THING")
+     body = err.to_body()
+     assert body["error"]["code"] == "CUSTOM_THING"
+     assert body["error"]["message"] == "Custom thing"
++
++
++def test_a_validation_400_does_not_echo_the_raw_input_back(app, fx, login):
++    """Ruling D91. Pydantic's `input` key repeated whatever the caller typed, verbatim and in
++    full, into an error body that nothing reads it from — the client's shared normaliser
++    (web/src/api/fieldErrors.ts) takes the field from `loc` and the wording from `msg` and says
++    in its own comment that `input` is deliberately ignored."""
++    raw = "9" * 99  # smsNumber is capped at 32, so this is rejected before any domain code runs
++    res = login("admin@hvh.test").patch(f"/api/p/{fx.property_a.id}/settings",
++                                        json={"smsNumber": raw})
++    assert res.status_code == 400
++    body = res.get_json()
++    assert raw not in res.get_data(as_text=True)
++    entry = body["error"]["details"][0]
++    assert "input" not in entry and "url" not in entry
++    # The shape the client codes against is otherwise unchanged.
++    assert entry["loc"] == ["smsNumber"] and entry["msg"] and entry["type"]
++
++
++def test_a_query_validation_400_does_not_echo_the_raw_input_either(app, fx, login):
++    raw = "not-a-number-" + "x" * 80
++    res = login("agent@hvh.test").get(f"/api/p/{fx.property_a.id}/conversations?limit={raw}")
++    assert res.status_code == 400
++    assert raw not in res.get_data(as_text=True)
++    assert "input" not in res.get_json()["error"]["details"][0]
++
++
++def test_the_bare_pydantic_error_handler_strips_input_and_url(app):
++    """errors.py's ValidationError handler is the third site: it called e.errors() with no
++    arguments, so it leaked the raw input *and* a pydantic.dev documentation URL. It is reached
++    only by a ValidationError escaping a view rather than by parse_body, so it is invoked
++    directly here."""
++    import pydantic
++
++    from app.schemas.properties import PropertySettingsPatch
++
++    handler = app.error_handler_spec[None][None][pydantic.ValidationError]
++    raw = "z" * 99
++    try:
++        PropertySettingsPatch(smsNumber=raw)
++    except pydantic.ValidationError as e:
++        with app.test_request_context():
++            response, status = handler(e)
++        assert status == 400
++        assert raw not in response.get_data(as_text=True)
++        entry = response.get_json()["error"]["details"][0]
++        assert "input" not in entry and "url" not in entry
++    else:
++        raise AssertionError("expected the over-length smsNumber to be rejected")
+diff --git a/web/src/api/fieldErrors.test.ts b/web/src/api/fieldErrors.test.ts
+index 50c450b..7d0da05 100644
+--- a/web/src/api/fieldErrors.test.ts
++++ b/web/src/api/fieldErrors.test.ts
+@@ -1,43 +1,77 @@
+ import { describe, expect, it } from 'vitest'
+ import { ApiError } from './client'
+ import { fieldErrors } from './fieldErrors'
+ 
+ function failure(details: unknown, message = 'Invalid request body'): ApiError {
+   return new ApiError(400, 'VALIDATION_FAILED', message, details)
+ }
+ 
+ describe('fieldErrors', () => {
+   describe('the object shape — domain validators and patch_changes', () => {
+-    it('keys a reason code by the camelCase field the server named', () => {
++    it('keys the copy by the camelCase field the server named', () => {
+       expect(fieldErrors(failure({ escalationMinutes: 'required' }))).toEqual({
+-        escalationMinutes: 'required',
++        escalationMinutes: 'This field is required.',
+       })
+     })
+ 
+     it('carries every field in one failure', () => {
+       // update_settings can refuse several cleared fields at once.
+       expect(fieldErrors(failure({ name: 'required', currency: 'required' }))).toEqual({
+-        name: 'required',
+-        currency: 'required',
++        name: 'This field is required.',
++        currency: 'This field is required.',
+       })
+     })
+ 
+-    it('passes the reason code through verbatim, for the form to word', () => {
+-      // normalize_phone raises a code, not a sentence, and not the raw input.
+-      expect(fieldErrors(failure({ smsNumber: 'invalid_phone_number' }))).toEqual({
+-        smsNumber: 'invalid_phone_number',
++    it('stringifies a non-string value rather than rendering [object Object]', () => {
++      expect(fieldErrors(failure({ slaMinutes: 0 }))).toEqual({ slaMinutes: '0' })
++    })
++  })
++
++  describe('reason codes become copy (D93)', () => {
++    // Every code server/app/ raises today. Grepped, not guessed: `details={` outside
++    // `e.errors(...)` appears in _patch.py, guests.py and properties.py and nowhere else.
++    const SERVER_CODES = ['required', 'invalid_phone_number', 'invalid_timezone']
++
++    it.each(SERVER_CODES)('words %s as a sentence rather than leaving the code on screen', (code) => {
++      const shown = fieldErrors(failure({ smsNumber: code })).smsNumber!
++      expect(shown).not.toBe(code)
++      expect(shown).not.toMatch(/_/) // no snake_case survivor
++      expect(shown).toMatch(/^[A-Z].*\.$/) // a capitalised sentence, ending in a full stop
++    })
++
++    it('names the phone format instead of saying invalid_phone_number under a Phone box', () => {
++      expect(fieldErrors(failure({ phone: 'invalid_phone_number' }))).toEqual({
++        phone: 'Enter a valid phone number, for example +1 555 012 3456.',
+       })
+     })
+ 
+-    it('stringifies a non-string value rather than rendering [object Object]', () => {
+-      expect(fieldErrors(failure({ slaMinutes: 0 }))).toEqual({ slaMinutes: '0' })
++    it('says what a time zone has to be', () => {
++      expect(fieldErrors(failure({ timezone: 'invalid_timezone' }))).toEqual({
++        timezone: 'Not a recognised IANA time zone.',
++      })
++    })
++
++    it('passes an unknown code through verbatim rather than swallowing it', () => {
++      // A code this map has not caught up with must still reach the admin: ugly beats absent,
++      // and a generic apology would hide that the server said something specific.
++      expect(fieldErrors(failure({ brand: 'not_a_code_we_know' }))).toEqual({
++        brand: 'not_a_code_we_know',
++      })
++    })
++
++    it('leaves the array shape alone — msg is already a sentence', () => {
++      // The map is keyed on codes; a Pydantic msg that happened to collide would still be wrong
++      // to rewrite, so the array branch never consults it.
++      expect(fieldErrors(failure([{ loc: ['name'], msg: 'required' }]))).toEqual({
++        name: 'required',
++      })
+     })
+   })
+ 
+   describe('the array shape — parse_body forwarding Pydantic', () => {
+     it('takes the field from loc and the wording from msg', () => {
+       expect(
+         fieldErrors(
+           failure([
+             {
+               type: 'string_too_long',
+diff --git a/web/src/api/fieldErrors.ts b/web/src/api/fieldErrors.ts
+index fbd5584..0e57d9a 100644
+--- a/web/src/api/fieldErrors.ts
++++ b/web/src/api/fieldErrors.ts
+@@ -1,44 +1,68 @@
+ import { ApiError } from './client'
+ 
+ /** One Pydantic error, as `app/api/_util.parse_body` forwards it (`e.errors(include_url=False)`). */
+ type PydanticError = { loc?: unknown[]; msg?: string }
+ 
++/**
++ * Human copy for the reason codes the object shape carries (ruling D93).
++ *
++ * The two shapes differ in what the value *means*, not only in structure: the array shape's `msg`
++ * is already an English sentence, while the object shape's value is a bare code meant to be worded
++ * by whoever renders it. `required` reads acceptably raw; `invalid_phone_number` under a Phone box
++ * does not. Mapping here rather than in each screen means every current and future form gets the
++ * same wording for the same failure, and a new form gets it for free.
++ *
++ * These are every code `server/app/` raises today — `app/domain/_patch.py` (`required`),
++ * `app/domain/guests.py` (`invalid_phone_number`) and `app/domain/properties.py`
++ * (`invalid_timezone`). An unlisted code falls through **verbatim** rather than being swallowed or
++ * replaced by a generic apology: a code on screen is ugly but actionable, and it names the gap.
++ */
++const REASON_COPY: Record<string, string> = {
++  required: 'This field is required.',
++  invalid_phone_number: 'Enter a valid phone number, for example +1 555 012 3456.',
++  invalid_timezone: 'Not a recognised IANA time zone.',
++}
++
+ /**
+  * Maps a 400's `details` onto the form inputs it names, so a failure lands on the field the admin
+  * typed in rather than only in a banner.
+  *
+  * The server has **two** shapes for `details` and neither is going away. A1 left them alone
+  * deliberately: unifying them means changing `parse_body` for every endpoint in the product, and
+  * it interacts with a separate unfixed defect there. So this normaliser is the contract.
+  *
+  * - `app/api/_util.parse_body` forwards Pydantic's error **array**:
+  *   `[{ loc: ["smsNumber"], msg: "String should have at most 32 characters", type, ctx, input }]`.
+  *   The field is `loc`'s last element; the message is `msg`.
+  * - `app/domain/_patch.patch_changes` and the domain validators raise an **object** keyed by field:
+  *   `{ "escalationMinutes": "required", "smsNumber": "invalid_phone_number" }`. The value there is
+- *   a reason **code**, not a sentence — a form maps it to its own wording.
++ *   a reason **code**, not a sentence. `REASON_COPY` below turns it into one, so a form can
++ *   render what it gets either way.
+  *
+  * Both key on the camelCase name the client sent, so the result can be indexed by the form's own
+  * field names either way. A key the form has no input for is simply never looked up; the panel's
+  * banner still carries the top-level `message`, so nothing is lost.
+  *
+  * `input` is deliberately never read. It echoes the admin's raw typing back, which tells them
+  * nothing they cannot already see in the box they typed it into.
+  */
+ export function fieldErrors(error: unknown): Record<string, string> {
+   const details = error instanceof ApiError ? error.details : undefined
+   if (!details || typeof details !== 'object') return {}
+ 
+   if (!Array.isArray(details)) {
+     return Object.fromEntries(
+-      Object.entries(details as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
++      Object.entries(details as Record<string, unknown>).map(([k, v]) => {
++        const code = String(v)
++        return [k, REASON_COPY[code] ?? code]
++      }),
+     )
+   }
+ 
+   const out: Record<string, string> = {}
+   for (const item of details as PydanticError[]) {
+     // `loc` ends in an array index for a list field's nth element, which names no input. Such an
+     // error is left out rather than keyed under a number; the banner still reports it.
+     const field = item.loc?.[item.loc.length - 1]
+     if (typeof field === 'string' && item.msg && !(field in out)) out[field] = item.msg
+   }
+diff --git a/web/src/api/hooks/auth.ts b/web/src/api/hooks/auth.ts
+index 582811d..1dbabce 100644
+--- a/web/src/api/hooks/auth.ts
++++ b/web/src/api/hooks/auth.ts
+@@ -1,11 +1,12 @@
+ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
++import { clearActivePropertyId } from '../../auth/storage'
+ import { ApiError, api } from '../client'
+ import { qk } from '../queryKeys'
+ import type { LoginRequest, SessionOut } from '../types'
+ 
+ export function useSessionQuery() {
+   return useQuery<SessionOut, ApiError>({
+     queryKey: qk.session,
+     queryFn: () => api<SessionOut>('/api/auth/me'),
+     // A 401 here is the answer ("not logged in"), not a transient failure worth retrying.
+     retry: false,
+@@ -23,28 +24,21 @@ export function useLogin() {
+   })
+ }
+ 
+ export function useLogout() {
+   const client = useQueryClient()
+   return useMutation<void, ApiError, void>({
+     mutationFn: () => api<void>('/api/auth/logout', { method: 'POST' }),
+     // Clear unconditionally: a failed logout must not leave another user's cache on screen.
+     onSettled: () => {
+       client.clear()
+-      try {
+-        // The stored active property is this user's choice, not the machine's. On a shared
+-        // front-desk terminal the next person to sign in would otherwise land on it if they
+-        // happen to hold a membership there too.
+-        localStorage.removeItem('activePropertyId')
+-      } catch {
+-        /* private mode / blocked storage: there was nothing stored to clear */
+-      }
++      clearActivePropertyId()
+     },
+   })
+ }
+ 
+ export function useSetPrefs() {
+   const client = useQueryClient()
+   return useMutation<SessionOut, ApiError, { theme: 'dark' | 'light' | 'system' }>({
+     mutationFn: (body) => api<SessionOut>('/api/auth/prefs', { method: 'PATCH', json: body }),
+     onSuccess: (session) => {
+       client.setQueryData(qk.session, session)
+diff --git a/web/src/api/hooks/properties.ts b/web/src/api/hooks/properties.ts
+new file mode 100644
+index 0000000..e4d9a57
+--- /dev/null
++++ b/web/src/api/hooks/properties.ts
+@@ -0,0 +1,37 @@
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
++import { useSession } from '../../auth/SessionContext'
++import { ApiError, api, propertyPath } from '../client'
++import { qk } from '../queryKeys'
++import type { PropertySettingsOut, PropertySettingsPatch } from '../types'
++
++/** Readable by any member; only `manage_admin` may PATCH. */
++export function usePropertySettings() {
++  const { propertyId } = useSession()
++  return useQuery<PropertySettingsOut, ApiError>({
++    queryKey: qk.propertySettings(propertyId),
++    queryFn: () => api<PropertySettingsOut>(propertyPath(propertyId, 'settings')),
++    // The settings screen seeds its form from this data, so a background refetch — on window
++    // focus, say — would replace a half-typed draft with the stored record. The save below writes
++    // the server's own response back into the cache, so nothing goes stale while the screen is up.
++    staleTime: Infinity,
++  })
++}
++
++/**
++ * The response is the full settings object *after* normalisation — phone and smsNumber come back
++ * E.164 and currency upper-cased, not as they were typed — so it is written straight into the
++ * cache rather than merely invalidated. Re-reading it into the form is the point: an admin who
++ * typed "(555) 012-3456" needs to see what was actually stored.
++ */
++export function usePatchPropertySettings() {
++  const { propertyId } = useSession()
++  const client = useQueryClient()
++  return useMutation<PropertySettingsOut, ApiError, PropertySettingsPatch>({
++    mutationFn: (patch) =>
++      api<PropertySettingsOut>(propertyPath(propertyId, 'settings'), {
++        method: 'PATCH',
++        json: patch,
++      }),
++    onSuccess: (settings) => client.setQueryData(qk.propertySettings(propertyId), settings),
++  })
++}
+diff --git a/web/src/api/hooks/users.ts b/web/src/api/hooks/users.ts
+index cbe62e0..78488ff 100644
+--- a/web/src/api/hooks/users.ts
++++ b/web/src/api/hooks/users.ts
+@@ -1,25 +1,52 @@
+ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+ import { useSession } from '../../auth/SessionContext'
+ import { ApiError, api, propertyPath } from '../client'
+ import { qk } from '../queryKeys'
+-import type { CreateStaffRequest, DepartmentOut, GuestDetail, StaffPatch, StaffUserOut } from '../types'
++import type {
++  CreateStaffRequest, DepartmentIn, DepartmentOut, DepartmentPatch, GuestDetail, StaffPatch,
++  StaffUserOut,
++} from '../types'
+ 
+ export function useDepartments() {
+   const { propertyId } = useSession()
+   return useQuery<DepartmentOut[], ApiError>({
+     queryKey: qk.departments(propertyId),
+     queryFn: () => api<DepartmentOut[]>(propertyPath(propertyId, 'departments')),
+     staleTime: 5 * 60_000, // departments change about never
+   })
+ }
+ 
++/**
++ * Department pickers on Users, Quick replies, Digital assets, the inbox filter and the work-order
++ * form all read `useDepartments`, so a mutation that did not invalidate `qk.departments` would show
++ * up as a wrong dropdown three screens away rather than as a broken Departments screen. That key is
++ * the whole prefix — `['departments', propertyId]` — so invalidating it reaches every reader.
++ */
++function useDepartmentWrite<TBody, TResult>(method: 'POST' | 'PATCH' | 'DELETE') {
++  const { propertyId } = useSession()
++  const client = useQueryClient()
++  return useMutation<TResult, ApiError, TBody & { id?: string }>({
++    mutationFn: (body) => {
++      const { id, ...rest } = body as { id?: string }
++      const path = propertyPath(propertyId, id ? `departments/${id}` : 'departments')
++      return api<TResult>(path, { method, json: method === 'DELETE' ? undefined : rest })
++    },
++    onSuccess: () => void client.invalidateQueries({ queryKey: qk.departments(propertyId) }),
++  })
++}
++
++export const useCreateDepartment = () => useDepartmentWrite<DepartmentIn, DepartmentOut>('POST')
++export const usePatchDepartment = () => useDepartmentWrite<DepartmentPatch, DepartmentOut>('PATCH')
++/** 409 CONFLICT while the department is still referenced; its `message` names what to fix. */
++export const useDeleteDepartment = () => useDepartmentWrite<{ id: string }, void>('DELETE')
++
+ export function useStaff() {
+   const { propertyId } = useSession()
+   return useQuery<StaffUserOut[], ApiError>({
+     queryKey: qk.staff(propertyId),
+     queryFn: () => api<StaffUserOut[]>(propertyPath(propertyId, 'users')),
+     staleTime: 5 * 60_000,
+   })
+ }
+ 
+ export function useGuest(id: string | undefined) {
+diff --git a/web/src/api/queryKeys.ts b/web/src/api/queryKeys.ts
+index b333c04..187dff3 100644
+--- a/web/src/api/queryKeys.ts
++++ b/web/src/api/queryKeys.ts
+@@ -16,20 +16,21 @@ export const qk = {
+   quickReplies: (propertyId: string, q?: string) => ['quickReplies', propertyId, q ?? ''] as const,
+   quickRepliesAll: (propertyId: string) => ['quickReplies', propertyId] as const,
+   quickReplyVariables: (propertyId: string) => ['quickReplyVariables', propertyId] as const,
+   quickReplyPreview: (propertyId: string, body: string) =>
+     ['quickReplyPreview', propertyId, body] as const,
+   assets: (propertyId: string) => ['assets', propertyId] as const,
+   assetsAll: (propertyId: string) => ['assets', propertyId] as const,
+   categories: (propertyId: string) => ['categories', propertyId] as const,
+   categoriesAll: (propertyId: string) => ['categories', propertyId] as const,
+   departments: (propertyId: string) => ['departments', propertyId] as const,
++  propertySettings: (propertyId: string) => ['propertySettings', propertyId] as const,
+   staff: (propertyId: string) => ['staff', propertyId] as const,
+   staffAll: (propertyId: string) => ['staff', propertyId] as const,
+   guest: (propertyId: string, id: string) => ['guest', propertyId, id] as const,
+ 
+   notifications: (propertyId: string, unreadOnly: boolean) =>
+     ['notifications', propertyId, unreadOnly] as const,
+   notificationsAll: (propertyId: string) => ['notifications', propertyId] as const,
+   unreadCount: (propertyId: string) => ['unreadCount', propertyId] as const,
+ 
+   analyticsOverview: (propertyId: string, from: string, to: string) =>
+diff --git a/web/src/auth/RequireAuth.test.tsx b/web/src/auth/RequireAuth.test.tsx
+index f8585fa..4f8ea01 100644
+--- a/web/src/auth/RequireAuth.test.tsx
++++ b/web/src/auth/RequireAuth.test.tsx
+@@ -1,51 +1,54 @@
+ import { screen } from '@testing-library/react'
+ import { useEffect } from 'react'
+ import { Route, Routes } from 'react-router-dom'
+ import { afterEach, describe, expect, it, vi } from 'vitest'
+ import { api } from '../api/client'
+ import { renderWithProviders, sessionFixture } from '../test/harness'
+ import { RequireAuth } from './RequireAuth'
++import { ACTIVE_PROPERTY_KEY } from './storage'
+ 
+ // Fires two API calls that each independently discover the dead session at roughly the
+ // same time — the way two components each awaiting their own query might on a screen
+ // with more than one data source.
+ function ExpiringScreen() {
+   useEffect(() => {
+     void api('/api/dead-endpoint-a').catch(() => {})
+     void api('/api/dead-endpoint-b').catch(() => {})
+   }, [])
+   return <div>Protected</div>
+ }
+ 
+ function unauthorizedResponse() {
+   return new Response(
+     JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Session expired' } }),
+     { status: 401, headers: { 'Content-Type': 'application/json' } },
+   )
+ }
+ 
+-function mount() {
++function mount(child = <ExpiringScreen />, { seeded = true } = {}) {
+   return renderWithProviders(
+     <Routes>
+       <Route path="/app" element={<RequireAuth />}>
+-        <Route index element={<ExpiringScreen />} />
++        <Route index element={child} />
+       </Route>
+       <Route path="/login" element={<div>Login Screen</div>} />
+     </Routes>,
+-    { route: '/app', session: sessionFixture({ role: 'agent' }) },
++    // Unseeded means /api/auth/me is genuinely in flight on the first render — the cold start.
++    { route: '/app', session: seeded ? sessionFixture({ role: 'agent' }) : undefined },
+   )
+ }
+ 
+ describe('RequireAuth — mid-session expiry', () => {
+   afterEach(() => {
+     vi.unstubAllGlobals()
++    localStorage.clear()
+   })
+ 
+   // Task 12 fixed an unbounded loop here: a 401 fired refetch(), which itself 401s (the
+   // session really is dead), which would re-invoke the same handler and refetch forever.
+   // This pins both halves of that fix: the redirect still fires (not over-corrected to
+   // never redirect) and it fires from a single coalesced refetch, not once per 401 (not
+   // still looping).
+   it('redirects to /login exactly once when the session dies mid-request, coalescing concurrent 401s', async () => {
+     let meCalls = 0
+     vi.stubGlobal(
+@@ -59,11 +62,38 @@ describe('RequireAuth — mid-session expiry', () => {
+ 
+     mount()
+ 
+     // Bounded on purpose: if the redirect never happens this must fail legibly rather than
+     // hang the run out to the suite-level timeout.
+     expect(await screen.findByText('Login Screen', undefined, { timeout: 2000 })).toBeInTheDocument()
+     // Two 401s fired close together must coalesce into a single refetch of /api/auth/me,
+     // not one per 401 — that's the loop the useRef guard in RequireAuth prevents.
+     expect(meCalls).toBe(1)
+   })
++  // Ruling D56. The explicit sign-out path clears this key in useLogout's onSettled, but a
++  // session that dies on its own never runs that mutation — RequireAuth just redirects. On a
++  // shared front-desk terminal the stored property then outlives its owner's session.
++  it('clears the stored active property when the session dies without a sign-out', async () => {
++    localStorage.setItem(ACTIVE_PROPERTY_KEY, 'prop-a')
++    vi.stubGlobal('fetch', vi.fn(async () => unauthorizedResponse()))
++
++    mount()
++
++    expect(await screen.findByText('Login Screen', undefined, { timeout: 2000 })).toBeInTheDocument()
++    expect(localStorage.getItem(ACTIVE_PROPERTY_KEY)).toBeNull()
++  })
++
++  // The condition is `!isPending && ...`, and `isPending` is doing real work: on a cold start
++  // `data` is undefined until /api/auth/me answers, so without it every page load would clear
++  // the preference SessionProvider is about to read one render later.
++  it('leaves the stored property alone through a cold start that succeeds', async () => {
++    localStorage.setItem(ACTIVE_PROPERTY_KEY, 'prop-a')
++    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(sessionFixture()), {
++      status: 200, headers: { 'Content-Type': 'application/json' },
++    })))
++
++    mount(<div>Protected</div>, { seeded: false })
++
++    expect(await screen.findByText('Protected')).toBeInTheDocument()
++    expect(localStorage.getItem(ACTIVE_PROPERTY_KEY)).toBe('prop-a')
++  })
+ })
+diff --git a/web/src/auth/RequireAuth.tsx b/web/src/auth/RequireAuth.tsx
+index 774418e..b799fd8 100644
+--- a/web/src/auth/RequireAuth.tsx
++++ b/web/src/auth/RequireAuth.tsx
+@@ -1,16 +1,17 @@
+ import { useEffect, useRef } from 'react'
+ import { Navigate, Outlet, useLocation } from 'react-router-dom'
+ import { useSessionQuery } from '../api/hooks/auth'
+ import { onUnauthorized } from '../api/client'
+ import { Spinner } from '../components/ui'
+ import { SessionProvider } from './SessionContext'
++import { clearActivePropertyId } from './storage'
+ 
+ export function RequireAuth() {
+   const { data, isPending, error, refetch } = useSessionQuery()
+   const location = useLocation()
+   // A truly-dead session makes refetch()'s own /api/auth/me call 401 too, which would
+   // re-invoke this same handler and refetch again forever. Guard against that: ignore an
+   // unauthorized signal that arrives while a refetch it triggered is still in flight.
+   const refetching = useRef(false)
+ 
+   // Any 401 from any request means the cookie died mid-session; refetching /api/auth/me
+@@ -19,20 +20,33 @@ export function RequireAuth() {
+     onUnauthorized(() => {
+       if (refetching.current) return
+       refetching.current = true
+       void refetch().finally(() => {
+         refetching.current = false
+       })
+     })
+     return () => onUnauthorized(null)
+   }, [refetch])
+ 
++  // A session can end without anyone signing out — cookie expiry, a server restart, a TTL — and
++  // that path never invokes `useLogout`, so its localStorage cleanup never runs. Left alone, the
++  // stored active property outlives the session on a shared front-desk machine: the original
++  // cross-user bleed by a different door (ruling D56).
++  //
++  // `isPending` is part of the condition, not decoration: on a cold start `data` is undefined
++  // while the first /api/auth/me is in flight, so without it every normal load would clear the
++  // very preference it is about to use.
++  const sessionLost = !isPending && (Boolean(error) || !data)
++  useEffect(() => {
++    if (sessionLost) clearActivePropertyId()
++  }, [sessionLost])
++
+   if (isPending) {
+     return (
+       <div className="grid h-full place-items-center bg-bg">
+         <Spinner />
+       </div>
+     )
+   }
+ 
+   if (error || !data) {
+     const from = `${location.pathname}${location.search}`
+diff --git a/web/src/auth/SessionContext.tsx b/web/src/auth/SessionContext.tsx
+index 76776b4..e83d5ac 100644
+--- a/web/src/auth/SessionContext.tsx
++++ b/web/src/auth/SessionContext.tsx
+@@ -1,16 +1,15 @@
+ import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+ import { useLogout, useSessionQuery } from '../api/hooks/auth'
+ import type { MembershipOut, Role, UserOut } from '../api/types'
+ import { hasCapability, type Capability } from './capabilities'
+-
+-const STORAGE_KEY = 'activePropertyId'
++import { ACTIVE_PROPERTY_KEY } from './storage'
+ 
+ export type Session = {
+   user: UserOut
+   memberships: MembershipOut[]
+   membership: MembershipOut
+   propertyId: string
+   role: Role
+   can: (capability: Capability) => boolean
+   setPropertyId: (id: string) => void
+   logout: () => void
+@@ -24,30 +23,30 @@ export function useSession(): Session {
+   return value
+ }
+ 
+ export function SessionProvider({ children }: { children: ReactNode }) {
+   const { data } = useSessionQuery()
+   // `mutate` is a stable reference in TanStack Query v5; the mutation object itself is not,
+   // so depending on that would defeat the memo below and re-render every consumer constantly.
+   const { mutate: logout } = useLogout()
+   const [stored, setStored] = useState<string | null>(() => {
+     try {
+-      return localStorage.getItem(STORAGE_KEY)
++      return localStorage.getItem(ACTIVE_PROPERTY_KEY)
+     } catch {
+       return null // private mode / blocked storage: fall back to the first membership
+     }
+   })
+ 
+   const setPropertyId = useCallback((id: string) => {
+     setStored(id)
+     try {
+-      localStorage.setItem(STORAGE_KEY, id)
++      localStorage.setItem(ACTIVE_PROPERTY_KEY, id)
+     } catch {
+       /* not fatal — the choice just will not survive a reload */
+     }
+   }, [])
+ 
+   const value = useMemo<Session | null>(() => {
+     if (!data || data.memberships.length === 0) return null
+     const membership =
+       data.memberships.find((m) => m.propertyId === stored) ?? data.memberships[0]!
+     return {
+diff --git a/web/src/auth/storage.ts b/web/src/auth/storage.ts
+new file mode 100644
+index 0000000..86a7422
+--- /dev/null
++++ b/web/src/auth/storage.ts
+@@ -0,0 +1,26 @@
++/**
++ * The one name under which the active property is stored, plus the one way to clear it.
++ *
++ * It lives in its own module because the three places that need it cannot otherwise share it:
++ * `SessionContext` reads and writes it, `useLogout` clears it on an explicit sign-out, and
++ * `RequireAuth` clears it on a silent session loss — and `SessionContext` already imports
++ * `hooks/auth`, so holding the constant in `SessionContext` and importing it back would be a
++ * cycle. A duplicated string literal in three files is the alternative, and it was already
++ * duplicated in two.
++ *
++ * Every access is wrapped: private browsing and blocked site data both throw on `localStorage`.
++ */
++export const ACTIVE_PROPERTY_KEY = 'activePropertyId'
++
++/**
++ * The stored property is this user's choice, not the machine's. On a shared front-desk terminal
++ * the next person to sign in would otherwise land on it, if they happen to hold a membership
++ * there too.
++ */
++export function clearActivePropertyId(): void {
++  try {
++    localStorage.removeItem(ACTIVE_PROPERTY_KEY)
++  } catch {
++    /* private mode / blocked storage: there was nothing stored to clear */
++  }
++}
+diff --git a/web/src/features/admin/AdminPage.test.tsx b/web/src/features/admin/AdminPage.test.tsx
+index dc033f8..ff2d8b1 100644
+--- a/web/src/features/admin/AdminPage.test.tsx
++++ b/web/src/features/admin/AdminPage.test.tsx
+@@ -19,77 +19,86 @@ function mount(route = '/app/admin/quick-replies') {
+ describe('AdminPage', () => {
+   beforeEach(() => {
+     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+       new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+     ))
+   })
+   afterEach(() => {
+     vi.unstubAllGlobals()
+   })
+ 
+-  it('lists the five live sections as links, in the order the mockup uses', async () => {
++  it('lists the six live sections as links, in the order the mockup uses', async () => {
+     mount()
+     const labels = [
+       'Users & roles',
+       'Departments',
+       'Quick replies',
+       'Digital assets',
+       'Resolution categories',
++      // Sixth and last of the live group, directly above the divider — where Admin.dc.html
++      // draws it, and it draws it ungreyed, so this is the client catching up to the mockup.
++      'Property settings',
+     ]
+     for (const name of labels) {
+       expect(await screen.findByRole('link', { name })).toBeInTheDocument()
+     }
+     // Admin.dc.html puts Departments second, directly under Users & roles.
+     const rendered = screen.getAllByRole('link').map((link) => link.textContent)
+     expect(rendered.slice(0, labels.length)).toEqual(labels)
+   })
+ 
+   it('lists the Phase 2 sections as disabled, not as links', async () => {
+     mount()
+     await screen.findByRole('link', { name: 'Quick replies' })
+-    for (const name of ['Property settings', 'Automations', 'Blocked numbers', 'Integrations']) {
++    for (const name of ['Automations', 'Blocked numbers', 'Integrations']) {
+       expect(screen.getByText(name)).toBeInTheDocument()
+       expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
+     }
++    // The three that stay greyed have no models, no endpoints and no spec behind them; the
++    // caption above them is unchanged.
+     expect(screen.getByText(/arrive in Phase 2/i)).toBeInTheDocument()
++    expect(screen.getByRole('link', { name: 'Property settings' })).toBeInTheDocument()
+   })
+ 
+   it('marks the current section', async () => {
+     mount('/app/admin/users')
+     expect(await screen.findByRole('link', { name: 'Users & roles' })).toHaveAttribute(
+       'aria-current',
+       'page',
+     )
+   })
+ 
+   it('redirects a bare /app/admin to users', async () => {
+     mount('/app/admin')
+     expect(await screen.findByRole('link', { name: 'Users & roles' })).toHaveAttribute(
+       'aria-current',
+       'page',
+     )
+   })
+ 
+-  it('shows departments read-only: the rows are there and there is no create button', async () => {
++  it('routes to the departments screen, which is now editable', async () => {
+     vi.mocked(fetch).mockResolvedValue(
+       new Response(
+         JSON.stringify([
+           {
+             id: 'd-1',
+-            name: 'Housekeeping',
++            // Not "Housekeeping": the Type column now renders a human label, so a name equal to
++            // its own type label would match twice and prove nothing about either.
++            name: 'Rooms',
+             type: 'housekeeping',
+             escalationMinutes: 20,
+             active: true,
+           },
+         ]),
+         { status: 200, headers: { 'Content-Type': 'application/json' } },
+       ),
+     )
+     mount('/app/admin/departments')
+ 
+-    expect(await screen.findByText('Housekeeping')).toBeInTheDocument()
++    expect(await screen.findByText('Rooms')).toBeInTheDocument()
++    expect(screen.getByText('Housekeeping')).toBeInTheDocument()
+     expect(screen.getByText('20 min')).toBeInTheDocument()
+-    // Phase 1 exposes only the GET, so the screen must offer no way to write.
+-    expect(screen.queryByRole('button', { name: /new department/i })).not.toBeInTheDocument()
+-    expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument()
++    // A1 added POST/PATCH/DELETE, so the screen that used to be read-only "by design" now
++    // offers a way in. What it does with it is DepartmentsAdmin.test.tsx's subject.
++    expect(screen.getByRole('button', { name: /new department/i })).toBeInTheDocument()
+   })
+ })
+diff --git a/web/src/features/admin/AdminPage.tsx b/web/src/features/admin/AdminPage.tsx
+index a5f88a1..2e35241 100644
+--- a/web/src/features/admin/AdminPage.tsx
++++ b/web/src/features/admin/AdminPage.tsx
+@@ -1,32 +1,34 @@
+ import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+ import { cn } from '../../lib/cn'
+ import { AssetsAdmin } from './AssetsAdmin'
+ import { CategoriesAdmin } from './CategoriesAdmin'
+ import { DepartmentsAdmin } from './DepartmentsAdmin'
++import { PropertySettingsAdmin } from './PropertySettingsAdmin'
+ import { QuickRepliesAdmin } from './QuickRepliesAdmin'
+ import { UsersAdmin } from './UsersAdmin'
+ 
+ // Absolute targets: AdminPage is mounted at the "admin/*" splat, and this project's router
+ // future flags (v7_relativeSplatPath) resolve a plain relative `to` against the full current
+ // splat path rather than the section's own directory, so a relative "users" link from
+ // "/app/admin/quick-replies" resolves to ".../quick-replies/users" instead of ".../users".
+ const LIVE = [
+   { to: '/app/admin/users', label: 'Users & roles' },
+   { to: '/app/admin/departments', label: 'Departments' },
+   { to: '/app/admin/quick-replies', label: 'Quick replies' },
+   { to: '/app/admin/assets', label: 'Digital assets' },
+   { to: '/app/admin/categories', label: 'Resolution categories' },
++  { to: '/app/admin/property', label: 'Property settings' },
+ ]
+ 
+ // Shown deliberately (mockup Admin.dc.html): an admin should see the product's shape.
+-const PHASE_2 = ['Property settings', 'Automations', 'Blocked numbers', 'Integrations']
++const PHASE_2 = ['Automations', 'Blocked numbers', 'Integrations']
+ 
+ export function AdminPage() {
+   return (
+     <div className="flex h-full">
+       <nav className="w-[220px] flex-none border-r border-border p-3">
+         <h1 className="mb-3 px-2 text-base font-bold">Admin</h1>
+         <ul className="flex flex-col gap-0.5">
+           {LIVE.map((item) => (
+             <li key={item.to}>
+               <NavLink
+@@ -57,14 +59,15 @@ export function AdminPage() {
+         <p className="mt-3 px-3 text-xs text-text4">Greyed items arrive in Phase 2</p>
+       </nav>
+ 
+       <Routes>
+         <Route index element={<Navigate to="users" replace />} />
+         <Route path="users" element={<UsersAdmin />} />
+         <Route path="departments" element={<DepartmentsAdmin />} />
+         <Route path="quick-replies" element={<QuickRepliesAdmin />} />
+         <Route path="assets" element={<AssetsAdmin />} />
+         <Route path="categories" element={<CategoriesAdmin />} />
++        <Route path="property" element={<PropertySettingsAdmin />} />
+       </Routes>
+     </div>
+   )
+ }
+diff --git a/web/src/features/admin/DepartmentsAdmin.test.tsx b/web/src/features/admin/DepartmentsAdmin.test.tsx
+new file mode 100644
+index 0000000..d83f66a
+--- /dev/null
++++ b/web/src/features/admin/DepartmentsAdmin.test.tsx
+@@ -0,0 +1,213 @@
++import { screen, waitFor } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { SessionProvider } from '../../auth/SessionContext'
++import { aDepartment } from '../../test/factories'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { DepartmentsAdmin } from './DepartmentsAdmin'
++
++// Names deliberately unlike their own type labels, so a query for a label cannot accidentally
++// match a name and pass for the wrong reason.
++const DEPARTMENTS = [
++  aDepartment({ id: 'dept-eng', name: 'Maintenance', type: 'engineering', escalationMinutes: 20 }),
++  aDepartment({ id: 'dept-fd', name: 'Reception', type: 'front_desk', escalationMinutes: 10 }),
++]
++
++function json(body: unknown, status = 200): Response {
++  return new Response(status === 204 ? null : JSON.stringify(body), {
++    status,
++    headers: { 'Content-Type': 'application/json' },
++  })
++}
++
++/** `override` claims a specific request; anything it declines falls through to the happy path. */
++function serve(override?: (url: string, init?: RequestInit) => Response | null) {
++  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
++    const url = String(input)
++    const claimed = override?.(url, init)
++    if (claimed) return Promise.resolve(claimed)
++    if (init?.method === 'DELETE') return Promise.resolve(json(null, 204))
++    if (init?.method && init.method !== 'GET') return Promise.resolve(json(aDepartment()))
++    return Promise.resolve(json(DEPARTMENTS))
++  })
++}
++
++function mount() {
++  return renderWithProviders(
++    <SessionProvider>
++      <DepartmentsAdmin />
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'admin' }), route: '/app/admin/departments' },
++  )
++}
++
++const writes = (method: string) =>
++  vi.mocked(fetch).mock.calls.filter(([, i]) => i?.method === method)
++
++describe('DepartmentsAdmin', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++    serve()
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('lists departments with a human type label, not the raw enum value', async () => {
++    mount()
++    expect(await screen.findByText('Maintenance')).toBeInTheDocument()
++    expect(screen.getByText('Maintenance')).toBeInTheDocument() // the type of the row above
++    expect(screen.getByText('Front desk')).toBeInTheDocument()
++    expect(screen.queryByText('front_desk')).not.toBeInTheDocument()
++  })
++
++  it('creates a department, defaulting the type to other rather than to a routing role', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByRole('button', { name: /new department/i }))
++    await user.type(screen.getByLabelText('Name'), 'Spa')
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++
++    const [url, init] = writes('POST')[0]!
++    expect(String(url)).toMatch(/\/departments$/)
++    // `other` because Department.type is load-bearing: notifications.py routes to the `front_desk`
++    // department, so defaulting there would silently make every new department a notification
++    // target. escalationMinutes is absent — DepartmentIn defaults it, and D81 keeps it off the form.
++    expect(JSON.parse(String(init!.body))).toEqual({ name: 'Spa', type: 'other', active: true })
++  })
++
++  it('offers every department type the server accepts', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByRole('button', { name: /new department/i }))
++    for (const label of ['Front desk', 'Housekeeping', 'Engineering', 'Food & beverage',
++                         'Spa', 'Security', 'Valet', 'Other']) {
++      expect(screen.getByRole('option', { name: label })).toBeInTheDocument()
++    }
++  })
++
++  it('will not POST a department with no name', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByRole('button', { name: /new department/i }))
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++    expect(writes('POST')).toHaveLength(0)
++  })
++
++  it('patches name, type and active on an existing row', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('Maintenance'))
++    await user.selectOptions(await screen.findByLabelText('Type'), 'spa')
++    await user.click(screen.getByLabelText('Active'))
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++
++    const [url, init] = writes('PATCH')[0]!
++    expect(String(url)).toContain('/departments/dept-eng')
++    expect(JSON.parse(String(init!.body))).toEqual({
++      name: 'Maintenance', type: 'spa', active: false,
++    })
++  })
++
++  it('deletes a department, then refetches the list every picker in the product reads', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('Maintenance'))
++    await user.click(screen.getByRole('button', { name: 'Delete' }))
++    const reads = () =>
++      vi.mocked(fetch).mock.calls.filter(([, i]) => !i?.method || i.method === 'GET').length
++    const before = reads()
++    await user.click(screen.getByRole('button', { name: 'Confirm' }))
++
++    expect(String(writes('DELETE')[0]![0])).toContain('/departments/dept-eng')
++    // Department pickers on five other screens read qk.departments; a mutation that skipped the
++    // invalidation shows up as a wrong dropdown elsewhere, not as a broken screen here.
++    await waitFor(() => expect(reads()).toBeGreaterThan(before))
++  })
++
++  it('shows the delete guard’s own message, which names what to fix and the escape hatch', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('Maintenance'))
++    const conflict =
++      'Move the staff members in this department to another one first, or deactivate the ' +
++      'department instead'
++    serve((_url, init) =>
++      init?.method === 'DELETE'
++        ? json({ error: { code: 'CONFLICT', message: conflict } }, 409)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Delete' }))
++    await user.click(screen.getByRole('button', { name: 'Confirm' }))
++
++    // Verbatim: the server wrote it for an admin to read, and it is the only thing on screen
++    // that says which of the five referencing tables is holding the department.
++    expect(await screen.findByRole('alert')).toHaveTextContent(conflict)
++    // The panel must stay open — the escape hatch it points at is the Active box inside it.
++    expect(screen.getByLabelText('Active')).toBeInTheDocument()
++  })
++
++  it('pins a field-level 400 to the input that caused it', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('Maintenance'))
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Invalid request body',
++                          details: [{ loc: ['name'], msg: 'String should have at most 100 characters',
++                                      type: 'string_too_long' }] } }, 400)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++
++    const message = await screen.findByText('String should have at most 100 characters')
++    expect(message.parentElement).toContainElement(screen.getByLabelText('Name'))
++  })
++
++  it('drops a failed save when another row is opened', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('Maintenance'))
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Invalid request body' } }, 400)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++    await screen.findByRole('alert')
++
++    serve()
++    await user.click(screen.getByText('Reception'))
++    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Reception'))
++    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
++  })
++
++  it('does not carry an armed delete confirmation over to the next row', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('Maintenance'))
++    await user.click(screen.getByRole('button', { name: 'Delete' }))
++    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
++
++    await user.click(screen.getByText('Reception'))
++    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Reception'))
++    // Reception's panel must not open one click away from deleting Reception. This is the reason
++    // the panel is keyed on the record: its confirmation lives in EditPanel's own state and the
++    // panel is never unmounted between rows.
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
++  })
++
++  it('shows escalation as a column but offers no control for it (D81)', async () => {
++    const user = userEvent.setup()
++    mount()
++    // Displayed, because removing it would regress what already shipped...
++    expect(await screen.findByText('20 min')).toBeInTheDocument()
++    await user.click(screen.getByText('Maintenance'))
++    await screen.findByLabelText('Name')
++    // ...and not editable, because nothing in the codebase computes with it: the SLA that is
++    // enforced is the property-level slaMinutes. A control that changed nothing would be worse.
++    expect(screen.queryByLabelText(/escalation/i)).not.toBeInTheDocument()
++    expect(JSON.stringify(writes('PATCH'))).not.toContain('escalationMinutes')
++  })
++})
+diff --git a/web/src/features/admin/DepartmentsAdmin.tsx b/web/src/features/admin/DepartmentsAdmin.tsx
+index b25a1e4..75984b1 100644
+--- a/web/src/features/admin/DepartmentsAdmin.tsx
++++ b/web/src/features/admin/DepartmentsAdmin.tsx
+@@ -1,60 +1,205 @@
+ import { useState } from 'react'
+-import { useDepartments } from '../../api/hooks/users'
+-import type { DepartmentOut } from '../../api/types'
+-import { Badge, EmptyState, Spinner } from '../../components/ui'
++import { fieldErrors } from '../../api/fieldErrors'
++import {
++  useCreateDepartment, useDeleteDepartment, useDepartments, usePatchDepartment,
++} from '../../api/hooks/users'
++import type { DepartmentOut, DepartmentType } from '../../api/types'
++import { Badge, Button, EmptyState, Input, Spinner } from '../../components/ui'
+ import { AdminTable, type Column } from './AdminTable'
++import { EditPanel } from './EditPanel'
++
++// Full CRUD since wave A1 added POST / PATCH / DELETE /api/p/<id>/departments. The header that
++// used to stand here said the screen was read-only "by design"; that constraint is gone.
++//
++// Disclosed divergence: Admin.dc.html draws no create affordance for Departments, so the New
++// button and the edit panel are not in the mockup. They are here on the user's decision to make
++// this screen editable, which is the same authority the mockup itself carries.
++//
++// `escalationMinutes` is a column here and deliberately NOT a field in the panel (ruling D81):
++// nothing in the codebase computes with it — the SLA that is actually enforced is the
++// property-level `slaMinutes` on Property settings — so an editable control would change a number
++// no reader reads. Showing the stored value plainly is the honest half of that.
++
++type Draft = { id?: string; name: string; type: DepartmentType; active: boolean }
++
++// Keyed by the union rather than listed as an array so TypeScript refuses to compile when the
++// server grows a ninth DepartmentType: an array typed `DepartmentType[]` catches a wrong value
++// but never a missing one, and a missing one here is a type the admin simply cannot pick.
++const TYPE_LABELS: Record<DepartmentType, string> = {
++  front_desk: 'Front desk',
++  housekeeping: 'Housekeeping',
++  engineering: 'Engineering',
++  food_beverage: 'Food & beverage',
++  spa: 'Spa',
++  security: 'Security',
++  valet: 'Valet',
++  other: 'Other',
++}
++
++// `other`, not `front_desk`: the type is load-bearing, not decorative. notifications.py routes
++// unassigned-conversation alerts to the department whose type is `front_desk`, and
++// work_orders.py filters by type too, so a default that silently claimed one of those roles
++// would be worse than one that claims none.
++const EMPTY: Draft = { name: '', type: 'other', active: true }
++
++const LABEL = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
++const SELECT = 'h-11 w-full rounded border border-border3 bg-surface2 px-3 text-sm text-text focus:border-accent focus:outline-none'
+ 
+-// Read-only by design: Phase 1 exposes only GET /api/p/<id>/departments (spec §385), so there
+-// is no create/edit affordance here and no EditPanel — which is also how Admin.dc.html draws it.
+ export function DepartmentsAdmin() {
+   const { data, isPending, error } = useDepartments()
+-  const [selected, setSelected] = useState<string | null>(null)
++  const create = useCreateDepartment()
++  const patch = usePatchDepartment()
++  const remove = useDeleteDepartment()
++  const [draft, setDraft] = useState<Draft | null>(null)
++  const [selected, setSelected] = useState<DepartmentOut | null>(null)
+ 
+   const rows = data ?? []
++  const pending = create.isPending || patch.isPending || remove.isPending
++  const failed = create.error ?? patch.error ?? remove.error
++  // The delete guard's 409 message is written to be read by an admin — it names what still
++  // references the department and points at deactivating instead — so it is surfaced verbatim
++  // rather than replaced with a generic failure.
++  const failure = failed?.message ?? null
++  const fields = fieldErrors(failed)
++  const draftId = draft?.id
+ 
+   const columns: Column<DepartmentOut>[] = [
+     { key: 'name', head: 'Name', render: (r) => r.name },
+-    { key: 'type', head: 'Type', render: (r) => r.type.replace(/_/g, ' ') },
++    { key: 'type', head: 'Type', render: (r) => TYPE_LABELS[r.type] },
+     {
+       key: 'escalation',
+       head: 'Escalation',
+       mono: true,
+       render: (r) => `${r.escalationMinutes} min`,
+     },
+     {
+       key: 'active',
+       head: 'Active',
+       render: (r) => (r.active ? <Badge tone="ok">on</Badge> : <Badge>off</Badge>),
+     },
+   ]
+ 
++  /** A mutation error outlives its panel; without this, opening another row shows its banner. */
++  function clearFailures() {
++    create.reset()
++    patch.reset()
++    remove.reset()
++  }
++
++  function close() {
++    clearFailures()
++    setDraft(null)
++    setSelected(null)
++  }
++
++  function open(department: DepartmentOut) {
++    clearFailures()
++    setSelected(department)
++    setDraft({
++      id: department.id,
++      name: department.name,
++      type: department.type,
++      active: department.active,
++    })
++  }
++
++  function save() {
++    if (!draft || !draft.name.trim()) return
++    const body = { name: draft.name, type: draft.type, active: draft.active }
++    if (draft.id) patch.mutate({ ...body, id: draft.id }, { onSuccess: close })
++    // escalationMinutes is omitted on create: DepartmentIn defaults it to 15, and the panel has
++    // no control for it (D81), so sending a value the form never collected would be invention.
++    else create.mutate(body, { onSuccess: close })
++  }
++
+   return (
+     <div className="flex min-h-0 flex-1">
+       <div className="flex min-w-0 flex-1 flex-col">
+         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+           <h1 className="text-base font-bold">Departments</h1>
+-          <p className="text-xs text-text3">Read-only in Phase 1</p>
++          <Button
++            variant="primary"
++            className="ml-auto"
++            onClick={() => {
++              clearFailures()
++              setSelected(null)
++              setDraft({ ...EMPTY })
++            }}
++          >
++            New department
++          </Button>
+         </header>
+ 
+         <div className="min-h-0 flex-1 overflow-y-auto p-4">
+           {isPending ? (
+             <Spinner />
+           ) : error ? (
+             <EmptyState title="Could not load departments" hint={error.message} />
+           ) : rows.length === 0 ? (
+-            <EmptyState title="No departments" hint="This property has none configured." />
++            <EmptyState title="No departments" hint="Create one to get started." />
+           ) : (
+             <div className="rounded-card border border-border2 bg-surface">
+               <AdminTable
+                 columns={columns}
+                 rows={rows}
+-                selectedId={selected}
+-                onSelect={(row) => setSelected(row.id)}
++                selectedId={selected?.id ?? null}
++                onSelect={open}
+               />
+             </div>
+           )}
+         </div>
+       </div>
++
++      {draft ? (
++        <EditPanel
++          // Remount per subject. EditPanel holds its delete confirmation in local state, and the
++          // panel does not unmount when the admin clicks from one row to the next — so a Delete
++          // pressed on a department the guard then refuses leaves "Confirm" armed over the NEXT
++          // row the admin opens, one click from deleting something they never asked about. The
++          // key is scoped to this screen; the same carry-over exists on the other four panels and
++          // is recorded rather than fixed here.
++          key={draftId ?? 'new'}
++          title={draft.id ? 'Edit department' : 'New department'}
++          saving={pending}
++          error={failure}
++          onSave={save}
++          onCancel={close}
++          onDelete={draftId ? () => remove.mutate({ id: draftId }, { onSuccess: close }) : undefined}
++        >
++          <div>
++            <label className={LABEL} htmlFor="dept-name">Name</label>
++            <Input id="dept-name" value={draft.name} maxLength={100}
++                   onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
++            <FieldError message={fields.name} />
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="dept-type">Type</label>
++            <select id="dept-type" className={SELECT} value={draft.type}
++                    onChange={(e) => setDraft({ ...draft, type: e.target.value as DepartmentType })}>
++              {(Object.keys(TYPE_LABELS) as DepartmentType[]).map((type) => (
++                <option key={type} value={type}>{TYPE_LABELS[type]}</option>
++              ))}
++            </select>
++            <FieldError message={fields.type} />
++          </div>
++          <label className="flex items-center gap-2 text-sm">
++            <input type="checkbox" checked={draft.active}
++                   onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />
++            Active
++          </label>
++          {/* The escape hatch the delete guard's message points at: a department that is still
++              referenced cannot be deleted, but it can be switched off so nothing picks it. */}
++          <p className="text-xs text-text3">
++            A department that is still in use cannot be deleted. Clear Active instead — it then
++            stops appearing in the pickers without disturbing what already references it.
++          </p>
++        </EditPanel>
++      ) : null}
+     </div>
+   )
+ }
++
++function FieldError({ message }: { message?: string }) {
++  if (!message) return null
++  return <p className="mt-1 text-xs text-dangerText">{message}</p>
++}
+diff --git a/web/src/features/admin/PropertySettingsAdmin.test.tsx b/web/src/features/admin/PropertySettingsAdmin.test.tsx
+new file mode 100644
+index 0000000..3222e65
+--- /dev/null
++++ b/web/src/features/admin/PropertySettingsAdmin.test.tsx
+@@ -0,0 +1,230 @@
++import { screen, waitFor } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { SessionProvider } from '../../auth/SessionContext'
++import type { PropertySettingsOut } from '../../api/types'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { PropertySettingsAdmin } from './PropertySettingsAdmin'
++
++const SETTINGS: PropertySettingsOut = {
++  id: 'prop-a',
++  name: 'Harbourview Hotel',
++  code: 'HVH',
++  timezone: 'America/New_York',
++  address: '1 Harbour Way',
++  phone: '+15550100',
++  smsNumber: '+15550111',
++  brand: 'Harbourview Collection',
++  currency: 'USD',
++  logoUrl: 'https://example.test/logo.png',
++  primaryColor: '#0F62FE',
++  slaMinutes: 15,
++  autoResolveHours: 4,
++  helpText: 'Reply STOP to opt out. Call the front desk on 555 0100.',
++}
++
++function json(body: unknown, status = 200): Response {
++  return new Response(JSON.stringify(body), {
++    status,
++    headers: { 'Content-Type': 'application/json' },
++  })
++}
++
++function serve(override?: (url: string, init?: RequestInit) => Response | null) {
++  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
++    const claimed = override?.(String(input), init)
++    if (claimed) return Promise.resolve(claimed)
++    if (init?.method === 'PATCH') {
++      // The server answers with the full normalised record, not an echo of the patch.
++      const sent = JSON.parse(String(init.body)) as Record<string, unknown>
++      return Promise.resolve(json({ ...SETTINGS, ...sent }))
++    }
++    return Promise.resolve(json(SETTINGS))
++  })
++}
++
++function mount() {
++  return renderWithProviders(
++    <SessionProvider>
++      <PropertySettingsAdmin />
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'admin' }), route: '/app/admin/property' },
++  )
++}
++
++const patched = () => vi.mocked(fetch).mock.calls.filter(([, i]) => i?.method === 'PATCH')
++
++describe('PropertySettingsAdmin', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++    serve()
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('loads every editable field', async () => {
++    mount()
++    expect(await screen.findByLabelText('Property name')).toHaveValue('Harbourview Hotel')
++    expect(screen.getByLabelText('Time zone')).toHaveValue('America/New_York')
++    expect(screen.getByLabelText('Address')).toHaveValue('1 Harbour Way')
++    expect(screen.getByLabelText('Phone')).toHaveValue('+15550100')
++    expect(screen.getByLabelText('SMS number')).toHaveValue('+15550111')
++    expect(screen.getByLabelText('Brand')).toHaveValue('Harbourview Collection')
++    expect(screen.getByLabelText('Currency')).toHaveValue('USD')
++    expect(screen.getByLabelText('Logo URL')).toHaveValue('https://example.test/logo.png')
++    expect(screen.getByLabelText('Brand colour')).toHaveValue('#0F62FE')
++    expect(screen.getByLabelText('Overdue after (minutes)')).toHaveValue(15)
++    expect(screen.getByLabelText('Auto-resolve after (hours)')).toHaveValue(4)
++    expect(screen.getByLabelText(/HELP reply/)).toHaveValue(SETTINGS.helpText!)
++  })
++
++  it('shows `code` as read-only context, with no input to send it back', async () => {
++    mount()
++    // PropertySettingsPatch has no `code` and CamelModel forbids extras, so an input for it would
++    // turn every save into a 400.
++    expect(await screen.findByText('HVH')).toBeInTheDocument()
++    expect(screen.queryByLabelText(/property code/i)).not.toBeInTheDocument()
++  })
++
++  it('saves the form and re-reads the server’s normalised answer, not what was typed', async () => {
++    const user = userEvent.setup()
++    mount()
++    const phone = await screen.findByLabelText('Phone')
++    await user.clear(phone)
++    await user.type(phone, '(555) 012-3456')
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ ...SETTINGS, phone: '+15550123456', currency: 'USD' })
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++
++    expect(JSON.parse(String(patched()[0]![1]!.body))).toMatchObject({ phone: '(555) 012-3456' })
++    // normalize_phone stores E.164; showing the typed string back would misreport what is saved,
++    // and inbound SMS routing matches on the stored form.
++    await waitFor(() => expect(screen.getByLabelText('Phone')).toHaveValue('+15550123456'))
++    expect(await screen.findByRole('status')).toHaveTextContent('Saved.')
++  })
++
++  it('clears a nullable field to null rather than to an empty string', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.clear(await screen.findByLabelText('Address'))
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++    expect(JSON.parse(String(patched()[0]![1]!.body)).address).toBeNull()
++  })
++
++  it('offers the stored zone as a real option even when the browser list omits it', async () => {
++    const original = Intl.supportedValuesOf
++    // A browser with no supportedValuesOf falls back to a short list, and this zone is
++    // deliberately not on it. Without the stored value being forced in, the select would render
++    // showing its first option while the server still held Antarctica/Troll — and the next save
++    // would quietly move the property to a different time zone nobody asked for.
++    Object.defineProperty(Intl, 'supportedValuesOf', { value: undefined, configurable: true })
++    serve((_url, init) =>
++      init?.method ? null : json({ ...SETTINGS, timezone: 'Antarctica/Troll' }),
++    )
++    try {
++      mount()
++      const select = await screen.findByLabelText('Time zone')
++      expect(select).toHaveValue('Antarctica/Troll')
++      expect(screen.getByRole('option', { name: 'Antarctica/Troll' })).toBeInTheDocument()
++    } finally {
++      Object.defineProperty(Intl, 'supportedValuesOf', { value: original, configurable: true })
++    }
++  })
++
++  it('pins a bad time zone to the Time zone field, not to a bare banner', async () => {
++    const user = userEvent.setup()
++    mount()
++    await screen.findByLabelText('Time zone')
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Invalid time zone',
++                          details: { timezone: 'invalid_timezone' } } }, 400)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++
++    // The domain validator raises a reason code; the shared normaliser words it (D93).
++    const message = await screen.findByText('Not a recognised IANA time zone.')
++    expect(message.parentElement).toContainElement(screen.getByLabelText('Time zone'))
++    expect(screen.queryByText('invalid_timezone')).not.toBeInTheDocument()
++  })
++
++  it('pins a junk SMS number to its own box, in words', async () => {
++    const user = userEvent.setup()
++    mount()
++    await screen.findByLabelText('SMS number')
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Invalid phone number',
++                          details: { smsNumber: 'invalid_phone_number' } } }, 400)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++
++    const message = await screen.findByText(/Enter a valid phone number/)
++    expect(message.parentElement).toContainElement(screen.getByLabelText('SMS number'))
++  })
++
++  it('pins a slaMinutes of 0 to its own field, from the array shape of `details`', async () => {
++    const user = userEvent.setup()
++    mount()
++    const sla = await screen.findByLabelText('Overdue after (minutes)')
++    await user.clear(sla)
++    await user.type(sla, '0')
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Invalid request body',
++                          details: [{ loc: ['slaMinutes'], msg: 'Input should be greater than 0',
++                                      type: 'greater_than' }] } }, 400)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++
++    // Pydantic's array shape, not the object shape — a form written against only the object
++    // shape would highlight nothing here, and 0 makes every conversation instantly overdue.
++    const message = await screen.findByText('Input should be greater than 0')
++    expect(message.parentElement).toContainElement(sla)
++  })
++
++  it('says the SLA change does not reach conversations that are already waiting', async () => {
++    mount()
++    await screen.findByLabelText('Overdue after (minutes)')
++    // conv.sla_due_at is written once, when an inbound message arrives, and never recomputed.
++    expect(screen.getByText(/Applies from the next inbound message/)).toBeInTheDocument()
++  })
++
++  it('says the HELP reply is read by guests', async () => {
++    mount()
++    expect(await screen.findByLabelText(/HELP reply/)).toBeInTheDocument()
++    // The label alone could read as an internal note; the hint says who receives it.
++    expect(screen.getByText(/Sent automatically, as an SMS, to any guest who texts HELP/))
++      .toBeInTheDocument()
++    expect(screen.getByText(/not an internal note/)).toBeInTheDocument()
++  })
++
++  it('renders primaryColor as a swatch of the stored value and nothing else', async () => {
++    mount()
++    await screen.findByLabelText('Brand colour')
++    const swatch = screen.getByTestId('primary-color-swatch')
++    expect(swatch).toHaveStyle({ background: '#0F62FE' })
++    // It is a per-property brand colour, not part of this client's palette: it must not reach a
++    // CSS custom property or the document theme.
++    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('')
++    expect(document.documentElement.getAttribute('style') ?? '').not.toContain('#0F62FE')
++  })
++
++  it('reverts the form to the stored record', async () => {
++    const user = userEvent.setup()
++    mount()
++    const name = await screen.findByLabelText('Property name')
++    await user.clear(name)
++    await user.type(name, 'Something else')
++    await user.click(screen.getByRole('button', { name: 'Revert' }))
++    expect(screen.getByLabelText('Property name')).toHaveValue('Harbourview Hotel')
++    expect(patched()).toHaveLength(0)
++  })
++})
+diff --git a/web/src/features/admin/PropertySettingsAdmin.tsx b/web/src/features/admin/PropertySettingsAdmin.tsx
+new file mode 100644
+index 0000000..717af7a
+--- /dev/null
++++ b/web/src/features/admin/PropertySettingsAdmin.tsx
+@@ -0,0 +1,316 @@
++import { useEffect, useState, type ReactNode } from 'react'
++import { fieldErrors } from '../../api/fieldErrors'
++import { usePatchPropertySettings, usePropertySettings } from '../../api/hooks/properties'
++import type { PropertySettingsOut, PropertySettingsPatch } from '../../api/types'
++import { Button, EmptyState, Input, Spinner, Textarea } from '../../components/ui'
++
++// A form, not a table. Spec line 417 asks the non-quick-reply admin screens to "reuse the table +
++// edit-panel pattern", but this endpoint edits a single record: there is no list to select from,
++// so AdminTable has nothing to draw and EditPanel's 340px aside would be a side panel with no
++// main content beside it. What is reused is the part that carries the pattern's look — EditPanel's
++// LABEL/SELECT field styling, its banner, and the Input / Textarea / Button primitives — laid out
++// as one settings form in the main column instead.
++
++// Same strings EditPanel's fields use; kept in step by eye, as the other four screens already do.
++const LABEL = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
++const SELECT = 'h-11 w-full rounded border border-border3 bg-surface2 px-3 text-sm text-text focus:border-accent focus:outline-none'
++const HINT = 'mt-1 text-xs text-text3'
++
++/**
++ * Enough zones to keep the control usable where `Intl.supportedValuesOf` is missing, without
++ * pretending to be the IANA database. The server validates against real `zoneinfo`, so a zone
++ * absent from this list is still storable — it just cannot be picked from a browser this old.
++ */
++const FALLBACK_ZONES = [
++  'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
++  'America/Toronto', 'Europe/London', 'Europe/Dublin', 'Europe/Lisbon', 'Europe/Paris',
++  'Europe/Berlin', 'Europe/Madrid', 'Europe/Rome', 'Asia/Dubai', 'Asia/Singapore',
++  'Asia/Tokyo', 'Australia/Sydney',
++]
++
++/**
++ * `timezone` is validated server-side against IANA zones and a typo is a 422 the admin cannot act
++ * on, so it is a picker rather than a text box.
++ *
++ * The stored value is always included even when the list does not carry it. Without that, a zone
++ * this browser has never heard of would leave the select showing its *first* option while the
++ * server still held the real one — and the next save would silently move the property to a
++ * different time zone nobody asked for.
++ */
++function timezoneOptions(current: string): string[] {
++  let zones: string[] = []
++  try {
++    zones = Intl.supportedValuesOf?.('timeZone') ?? []
++  } catch {
++    zones = []
++  }
++  if (zones.length === 0) zones = FALLBACK_ZONES
++  return zones.includes(current) ? zones : [current, ...zones]
++}
++
++type Draft = {
++  name: string
++  timezone: string
++  address: string
++  phone: string
++  smsNumber: string
++  brand: string
++  currency: string
++  logoUrl: string
++  primaryColor: string
++  // Held as strings so the boxes stay controlled while they are empty; converted on save.
++  slaMinutes: string
++  autoResolveHours: string
++  helpText: string
++}
++
++function draftFrom(s: PropertySettingsOut): Draft {
++  return {
++    name: s.name,
++    timezone: s.timezone,
++    address: s.address ?? '',
++    phone: s.phone ?? '',
++    smsNumber: s.smsNumber ?? '',
++    brand: s.brand ?? '',
++    currency: s.currency,
++    logoUrl: s.logoUrl ?? '',
++    primaryColor: s.primaryColor ?? '',
++    slaMinutes: String(s.slaMinutes),
++    autoResolveHours: String(s.autoResolveHours),
++    helpText: s.helpText ?? '',
++  }
++}
++
++/** An emptied nullable box clears the column; `""` would store an empty string instead of null. */
++const orNull = (value: string) => (value.trim() === '' ? null : value)
++/** An emptied required number sends null, which the server answers with "required" per field. */
++const orNullNumber = (value: string) => (value.trim() === '' ? null : Number(value))
++
++function patchFrom(draft: Draft): PropertySettingsPatch {
++  return {
++    name: draft.name,
++    timezone: draft.timezone,
++    currency: draft.currency,
++    address: orNull(draft.address),
++    phone: orNull(draft.phone),
++    smsNumber: orNull(draft.smsNumber),
++    brand: orNull(draft.brand),
++    logoUrl: orNull(draft.logoUrl),
++    primaryColor: orNull(draft.primaryColor),
++    slaMinutes: orNullNumber(draft.slaMinutes),
++    autoResolveHours: orNullNumber(draft.autoResolveHours),
++    helpText: orNull(draft.helpText),
++  }
++}
++
++export function PropertySettingsAdmin() {
++  const { data, isPending, error } = usePropertySettings()
++  const patch = usePatchPropertySettings()
++  const [draft, setDraft] = useState<Draft | null>(null)
++  const [saved, setSaved] = useState(false)
++
++  // The PATCH response is the normalised record, so this also re-seeds the form after a save with
++  // what was actually stored rather than with what was typed.
++  useEffect(() => {
++    if (data) setDraft(draftFrom(data))
++  }, [data])
++
++  const fields = fieldErrors(patch.error)
++  const failure = patch.error?.message ?? null
++
++  if (isPending) return <Shell><Spinner /></Shell>
++  if (error) return <Shell><EmptyState title="Could not load settings" hint={error.message} /></Shell>
++  if (!data || !draft) return <Shell><Spinner /></Shell>
++
++  const set = (change: Partial<Draft>) => {
++    setSaved(false)
++    setDraft({ ...draft, ...change })
++  }
++
++  function save() {
++    if (!draft) return
++    patch.mutate(patchFrom(draft), { onSuccess: () => setSaved(true) })
++  }
++
++  return (
++    <Shell>
++      <form
++        className="flex max-w-2xl flex-col gap-4"
++        onSubmit={(event) => {
++          event.preventDefault()
++          save()
++        }}
++      >
++        {failure ? (
++          <p role="alert" className="rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
++            {failure}
++          </p>
++        ) : null}
++        {saved && !failure ? (
++          <p role="status" className="rounded border border-okBorder bg-okBg px-3 py-2 text-xs text-okText">
++            Saved.
++          </p>
++        ) : null}
++
++        <div>
++          <label className={LABEL} htmlFor="prop-name">Property name</label>
++          <Input id="prop-name" value={draft.name} maxLength={200}
++                 onChange={(e) => set({ name: e.target.value })} />
++          <FieldError message={fields.name} />
++        </div>
++
++        <div>
++          <span className={LABEL}>Property code</span>
++          {/* Returned by GET but absent from the Patch model: the code is unique across the whole
++              install and identifies the property, so renaming it is not a settings edit. Sending
++              it at all is a 400 (extra="forbid"), which is why it is not an input. */}
++          <p className="font-mono text-sm text-text2">{data.code}</p>
++          <p className={HINT}>Identifies this property across the install. Not editable here.</p>
++        </div>
++
++        <div>
++          <label className={LABEL} htmlFor="prop-timezone">Time zone</label>
++          <select id="prop-timezone" className={SELECT} value={draft.timezone}
++                  onChange={(e) => set({ timezone: e.target.value })}>
++            {timezoneOptions(data.timezone).map((zone) => (
++              <option key={zone} value={zone}>{zone}</option>
++            ))}
++          </select>
++          <FieldError message={fields.timezone} />
++        </div>
++
++        <div>
++          <label className={LABEL} htmlFor="prop-address">Address</label>
++          <Input id="prop-address" value={draft.address} maxLength={400}
++                 onChange={(e) => set({ address: e.target.value })} />
++          <FieldError message={fields.address} />
++        </div>
++
++        <div className="grid grid-cols-2 gap-3">
++          <div>
++            <label className={LABEL} htmlFor="prop-phone">Phone</label>
++            <Input id="prop-phone" value={draft.phone} maxLength={32}
++                   onChange={(e) => set({ phone: e.target.value })} />
++            <FieldError message={fields.phone} />
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="prop-sms">SMS number</label>
++            <Input id="prop-sms" value={draft.smsNumber} maxLength={32}
++                   onChange={(e) => set({ smsNumber: e.target.value })} />
++            <FieldError message={fields.smsNumber} />
++            {/* Inbound routing matches Property.sms_number against the normalised To number, so
++                this is the line guests text, not a display number. */}
++            <p className={HINT}>
++              Guests text this number. Saved in E.164 form, so it may come back reformatted.
++            </p>
++          </div>
++        </div>
++
++        <div className="grid grid-cols-2 gap-3">
++          <div>
++            <label className={LABEL} htmlFor="prop-brand">Brand</label>
++            <Input id="prop-brand" value={draft.brand} maxLength={100}
++                   onChange={(e) => set({ brand: e.target.value })} />
++            <FieldError message={fields.brand} />
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="prop-currency">Currency</label>
++            <Input id="prop-currency" value={draft.currency} maxLength={3}
++                   onChange={(e) => set({ currency: e.target.value })} />
++            <FieldError message={fields.currency} />
++            <p className={HINT}>Three letters, e.g. USD. Stored upper-cased.</p>
++          </div>
++        </div>
++
++        <div>
++          <label className={LABEL} htmlFor="prop-logo">Logo URL</label>
++          <Input id="prop-logo" value={draft.logoUrl} maxLength={500}
++                 onChange={(e) => set({ logoUrl: e.target.value })} />
++          <FieldError message={fields.logoUrl} />
++        </div>
++
++        <div>
++          <label className={LABEL} htmlFor="prop-color">Brand colour</label>
++          <div className="flex items-center gap-2">
++            <Input id="prop-color" className="font-mono" value={draft.primaryColor} maxLength={16}
++                   onChange={(e) => set({ primaryColor: e.target.value })} />
++            {/* The one inline colour in this wave, and it is not a palette colour: the value is
++                supplied by the server and rendered as data so the admin can see what they stored.
++                It is deliberately NOT wired into a CSS custom property — this property's brand
++                colour has nothing to do with the client's own theme. */}
++            <span
++              aria-hidden="true"
++              data-testid="primary-color-swatch"
++              className="h-11 w-11 flex-none rounded border border-border3"
++              style={{ background: draft.primaryColor || 'transparent' }}
++            />
++          </div>
++          <FieldError message={fields.primaryColor} />
++          <p className={HINT}>This property&rsquo;s own brand colour. It does not change this app&rsquo;s appearance.</p>
++        </div>
++
++        <div className="grid grid-cols-2 gap-3">
++          <div>
++            <label className={LABEL} htmlFor="prop-sla">Overdue after (minutes)</label>
++            {/* No `min`: a native `min` makes the browser refuse the submit and answer with its
++                own tooltip, so the server's `gt=0` message — the one that explains that 0 would
++                make every conversation instantly overdue — could never reach the field. The
++                server is the single authority on validity here, as it is on every other box. */}
++            <Input id="prop-sla" type="number" value={draft.slaMinutes}
++                   onChange={(e) => set({ slaMinutes: e.target.value })} />
++            <FieldError message={fields.slaMinutes} />
++            {/* conv.sla_due_at is written when an inbound message arrives (domain/messages.py),
++                never recomputed, so a change here cannot reach conversations that already have
++                one. Saying so here is cheaper than the bug report. */}
++            <p className={HINT}>
++              Applies from the next inbound message. Conversations already waiting keep the
++              deadline they were given.
++            </p>
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="prop-autoresolve">Auto-resolve after (hours)</label>
++            <Input id="prop-autoresolve" type="number" value={draft.autoResolveHours}
++                   onChange={(e) => set({ autoResolveHours: e.target.value })} />
++            <FieldError message={fields.autoResolveHours} />
++          </div>
++        </div>
++
++        <div>
++          <label className={LABEL} htmlFor="prop-help">HELP reply &mdash; guests read this</label>
++          <Textarea id="prop-help" rows={3} value={draft.helpText} maxLength={1600}
++                    onChange={(e) => set({ helpText: e.target.value })} />
++          <FieldError message={fields.helpText} />
++          <p className={HINT}>
++            Sent automatically, as an SMS, to any guest who texts HELP. This is outbound guest copy,
++            not an internal note.
++          </p>
++        </div>
++
++        <div className="flex items-center gap-2">
++          <Button type="submit" variant="primary" loading={patch.isPending}>Save</Button>
++          <Button type="button" onClick={() => { patch.reset(); setSaved(false); setDraft(draftFrom(data)) }}>
++            Revert
++          </Button>
++        </div>
++      </form>
++    </Shell>
++  )
++}
++
++function Shell({ children }: { children: ReactNode }) {
++  return (
++    <div className="flex min-h-0 flex-1">
++      <div className="flex min-w-0 flex-1 flex-col">
++        <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
++          <h1 className="text-base font-bold">Property settings</h1>
++        </header>
++        <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
++      </div>
++    </div>
++  )
++}
++
++function FieldError({ message }: { message?: string }) {
++  if (!message) return null
++  return <p className="mt-1 text-xs text-dangerText">{message}</p>
++}
+diff --git a/web/src/features/admin/QuickRepliesAdmin.test.tsx b/web/src/features/admin/QuickRepliesAdmin.test.tsx
+index 2b510cc..1e287a5 100644
+--- a/web/src/features/admin/QuickRepliesAdmin.test.tsx
++++ b/web/src/features/admin/QuickRepliesAdmin.test.tsx
+@@ -392,21 +392,21 @@ describe('QuickRepliesAdmin', () => {
+     await user.click(await screen.findByText('WiFi details'))
+     await screen.findByLabelText('Locale')
+     serve((_url, init) =>
+       init?.method === 'PATCH'
+         ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: locale',
+                           details: { locale: 'required' } } }, 400)
+         : null,
+     )
+     await user.click(screen.getByRole('button', { name: 'Save' }))
+ 
+-    const message = await screen.findByText('required')
++    const message = await screen.findByText('This field is required.')
+     // It must sit with the Locale input, not float somewhere in the panel.
+     expect(message.parentElement).toContainElement(screen.getByLabelText('Locale'))
+   })
+ 
+   it('surfaces a Pydantic field rejection against its input too', async () => {
+     const user = userEvent.setup()
+     mount()
+     await user.click(await screen.findByText('WiFi details'))
+     await screen.findByLabelText('Shortcut')
+     serve((_url, init) =>
+@@ -443,50 +443,50 @@ describe('QuickRepliesAdmin', () => {
+     mount()
+     await user.click(await screen.findByText('WiFi details'))
+     await screen.findByLabelText('Locale')
+     serve((_url, init) =>
+       init?.method === 'PATCH'
+         ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: locale',
+                           details: { locale: 'required' } } }, 400)
+         : null,
+     )
+     await user.click(screen.getByRole('button', { name: 'Save' }))
+-    await screen.findByText('required')
++    await screen.findByText('This field is required.')
+ 
+     serve() // the next record is fine; the previous record's complaint is not about it
+     await user.click(screen.getByText('Airport shuttle'))
+     await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('Airport shuttle'))
+-    // A red "required" pinned under a Locale holding a valid "en" is worse than the stale banner:
+-    // it accuses a specific, correct input belonging to a different row.
+-    expect(screen.queryByText('required')).not.toBeInTheDocument()
++    // A red "This field is required." pinned under a Locale holding a valid "en" is worse than
++    // the stale banner: it accuses a specific, correct input belonging to a different row.
++    expect(screen.queryByText('This field is required.')).not.toBeInTheDocument()
+     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+   })
+ 
+   it('drops a failed save on Cancel, so the next panel opens clean (F1)', async () => {
+     const user = userEvent.setup()
+     mount()
+     await user.click(await screen.findByText('WiFi details'))
+     await screen.findByLabelText('Locale')
+     serve((_url, init) =>
+       init?.method === 'PATCH'
+         ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: locale',
+                           details: { locale: 'required' } } }, 400)
+         : null,
+     )
+     await user.click(screen.getByRole('button', { name: 'Save' }))
+-    await screen.findByText('required')
++    await screen.findByText('This field is required.')
+ 
+     serve()
+     await user.click(screen.getByRole('button', { name: 'Cancel' }))
+     await user.click(screen.getByRole('button', { name: /new quick reply/i }))
+     await screen.findByLabelText('Locale')
+-    expect(screen.queryByText('required')).not.toBeInTheDocument()
++    expect(screen.queryByText('This field is required.')).not.toBeInTheDocument()
+     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+   })
+ 
+   it('never shows the previous record’s render while the next one is debouncing (F2)', async () => {
+     mount()
+     await userEvent.click(await screen.findByText('WiFi details'))
+     // The WiFi body interpolates, so its render is textually distinct from the raw body.
+     const wifiRender = await screen.findByText('Hi there — the network is Harbourview-Guest, no password needed.')
+     expect(wifiRender).toBeInTheDocument()
+ 
+diff --git a/web/vitest.setup.ts b/web/vitest.setup.ts
+index a9d0dd3..39a43b8 100644
+--- a/web/vitest.setup.ts
++++ b/web/vitest.setup.ts
+@@ -1 +1,18 @@
+ import '@testing-library/jest-dom/vitest'
++import { afterEach, vi } from 'vitest'
++
++/**
++ * Fake timers must not outlive the test that installed them (ruling D92).
++ *
++ * A test that times out *inside* a `try` never reaches its own `finally`, so a `vi.useFakeTimers()`
++ * it installed leaks into every later test in the same file. Those victims then hang on a clock
++ * nobody advances and report only "Test timed out", which names neither the cause nor the culprit
++ * — one bad test cost this project 13 such failures. Restoring here bounds the damage to the test
++ * that actually hung.
++ *
++ * `useRealTimers()` on a run that never faked them is a no-op, so this is free for the other 45
++ * files.
++ */
++afterEach(() => {
++  vi.useRealTimers()
++})

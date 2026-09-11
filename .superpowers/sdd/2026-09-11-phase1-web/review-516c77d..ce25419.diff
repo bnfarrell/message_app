@@ -1,0 +1,353 @@
+# Review package: 516c77d..ce25419
+
+## Commits
+ce25419 fix(web): compute snooze target at click time, reset work-order draft on cancel
+
+## Files changed
+ .../features/inbox/ConversationActions.test.tsx    | 49 ++++++++++++++++++++--
+ web/src/features/inbox/ConversationActions.tsx     | 37 +++++++++-------
+ .../features/inbox/CreateWorkOrderModal.test.tsx   | 30 +++++++++++++
+ web/src/features/inbox/CreateWorkOrderModal.tsx    | 14 +++++--
+ 4 files changed, 108 insertions(+), 22 deletions(-)
+
+## Diff
+diff --git a/web/src/features/inbox/ConversationActions.test.tsx b/web/src/features/inbox/ConversationActions.test.tsx
+index e9ac891..535870f 100644
+--- a/web/src/features/inbox/ConversationActions.test.tsx
++++ b/web/src/features/inbox/ConversationActions.test.tsx
+@@ -1,11 +1,11 @@
+-import { screen, waitFor } from '@testing-library/react'
++import { fireEvent, screen, waitFor } from '@testing-library/react'
+ import userEvent from '@testing-library/user-event'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import type { Role } from '../../api/types'
+ import { SessionProvider } from '../../auth/SessionContext'
+ import { ToastProvider } from '../../components/ui'
+ import { aConversationDetail, aDepartment, aStaffUser } from '../../test/factories'
+ import { renderWithProviders, sessionFixture } from '../../test/harness'
+ import { ConversationActions } from './ConversationActions'
+ 
+ function serve() {
+@@ -40,20 +40,29 @@ function mount(role: Role = 'agent') {
+         <ConversationActions conversation={aConversationDetail()} />
+       </ToastProvider>
+     </SessionProvider>,
+     { session: sessionFixture({ role }), route: '/app/inbox/c-1' },
+   )
+ }
+ 
+ describe('ConversationActions', () => {
+   beforeEach(() => {
+     vi.stubGlobal('fetch', vi.fn())
++    // shouldAdvanceTime: true keeps findByRole/waitFor's own internal polling (and
++    // userEvent's internal event-delay handling) working off real elapsed time — turning
++    // it off hangs every async query in this file, since nothing else would ever tick the
++    // clock forward. That auto-advance is exactly what made an EXACT `.getTime()` assertion
++    // flaky against `new Date()` read inside a render-prop (real drift accrues across the
++    // whole interaction). The fix isn't disabling auto-advance everywhere; it's routing the
++    // two timing-sensitive tests below through synchronous `fireEvent.click` (no internal
++    // await, so no timer-driven drift can accrue between `vi.setSystemTime` and the instant
++    // the click handler actually runs) while everything else keeps using real `userEvent`.
+     vi.useFakeTimers({ shouldAdvanceTime: true })
+     vi.setSystemTime(new Date('2026-09-10T19:00:00Z'))
+     serve()
+   })
+   afterEach(() => {
+     vi.useRealTimers()
+     vi.unstubAllGlobals()
+   })
+ 
+   it('offers Assign, Snooze, Archive and Create work order to an agent', async () => {
+@@ -66,21 +75,23 @@ describe('ConversationActions', () => {
+ 
+   it('hides Archive from dept_staff, who lack the capability', async () => {
+     mount('dept_staff')
+     expect(await screen.findByRole('button', { name: /assign/i })).toBeInTheDocument()
+     expect(screen.queryByRole('button', { name: /archive/i })).not.toBeInTheDocument()
+   })
+ 
+   it('hides every write action from corporate', async () => {
+     mount('corporate')
+     await waitFor(() => expect(screen.queryByRole('button', { name: /assign/i })).not.toBeInTheDocument())
++    expect(screen.queryByRole('button', { name: /snooze/i })).not.toBeInTheDocument()
+     expect(screen.queryByRole('button', { name: /work order/i })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: /archive/i })).not.toBeInTheDocument()
+   })
+ 
+   it('assigns to a person', async () => {
+     mount('agent')
+     await userEvent.click(await screen.findByRole('button', { name: /assign/i }))
+     await userEvent.click(screen.getByRole('menuitem', { name: /Marcus Reyes/ }))
+     const patch = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'PATCH')
+     expect(JSON.parse(String(patch![1]!.body))).toEqual({ assignedUserId: 'u-marcus' })
+   })
+ 
+@@ -93,21 +104,53 @@ describe('ConversationActions', () => {
+   })
+ 
+   it('unassigns with the explicit clear flag', async () => {
+     mount('agent')
+     await userEvent.click(await screen.findByRole('button', { name: /assign/i }))
+     await userEvent.click(screen.getByRole('menuitem', { name: /unassign/i }))
+     const patch = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'PATCH')
+     expect(JSON.parse(String(patch![1]!.body))).toEqual({ clearAssignment: true })
+   })
+ 
++  // These two use fireEvent, not userEvent: fireEvent.click is fully synchronous (no
++  // internal await, no simulated pointer/keyboard delay), so nothing can advance the fake
++  // clock between `vi.setSystemTime` and the instant the click handler reads `Date.now()`.
++  // That is what makes the exact `.getTime()` assertions below reliable rather than
++  // approximate — see the beforeEach comment for why the file otherwise keeps real
++  // userEvent (and shouldAdvanceTime: true) for every other test.
++
+   it('snoozes an hour out', async () => {
+     mount('agent')
+-    await userEvent.click(await screen.findByRole('button', { name: /snooze/i }))
+-    await userEvent.click(screen.getByRole('menuitem', { name: /1 hour/i }))
++    fireEvent.click(screen.getByRole('button', { name: /snooze/i }))
++    fireEvent.click(screen.getByRole('menuitem', { name: /1 hour/i }))
++    // The click computes and hands off `snoozedUntil` synchronously; this only waits for
++    // the mutation's own fetch call to actually land (React Query defers that by a
++    // microtask), not for anything that could change what instant was computed.
++    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([, i]) => i?.method === 'PATCH')).toBe(true))
+     const patch = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'PATCH')
+     const body = JSON.parse(String(patch![1]!.body)) as { snoozedUntil: string }
+     expect(new Date(body.snoozedUntil).getTime()).toBe(
+       new Date('2026-09-10T20:00:00Z').getTime(),
+     )
+   })
++
++  // Regression for a bug introduced by an earlier fix: the preset must be computed from
++  // the moment of the click, not from whenever the conversation view happened to mount.
++  // An agent can sit on a conversation for a while before deciding to snooze it — if "1
++  // hour" were still measured from mount time, that snooze could already be in the past
++  // by the time they click it, and the conversation would pop straight back out of snooze.
++  it('computes the snooze target from the click, not from when the view mounted', async () => {
++    mount('agent')
++    fireEvent.click(screen.getByRole('button', { name: /snooze/i }))
++    // The agent works the conversation for two and a half hours before snoozing it.
++    vi.setSystemTime(new Date('2026-09-10T21:30:00Z'))
++    fireEvent.click(screen.getByRole('menuitem', { name: /1 hour/i }))
++    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([, i]) => i?.method === 'PATCH')).toBe(true))
++    const patch = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'PATCH')
++    const body = JSON.parse(String(patch![1]!.body)) as { snoozedUntil: string }
++    // 1 hour from the click (21:30), not 1 hour from mount (19:00 -> 20:00, which would
++    // already be in the past relative to the click).
++    expect(new Date(body.snoozedUntil).getTime()).toBe(
++      new Date('2026-09-10T22:30:00Z').getTime(),
++    )
++  })
+ })
+diff --git a/web/src/features/inbox/ConversationActions.tsx b/web/src/features/inbox/ConversationActions.tsx
+index 94332a2..cc5b769 100644
+--- a/web/src/features/inbox/ConversationActions.tsx
++++ b/web/src/features/inbox/ConversationActions.tsx
+@@ -1,43 +1,50 @@
+ import { useState } from 'react'
+ import { usePatchConversation } from '../../api/hooks/conversations'
+ import { useDepartments, useStaff } from '../../api/hooks/users'
+ import type { ConversationDetail } from '../../api/types'
+ import { useSession } from '../../auth/SessionContext'
+ import { Button, Dropdown } from '../../components/ui'
+ import { ArchiveDialog } from './ArchiveDialog'
+ import { CreateWorkOrderModal } from './CreateWorkOrderModal'
+ 
+-function snoozePresets(now: Date): { label: string; at: Date }[] {
+-  const hour = (n: number) => new Date(now.getTime() + n * 3600_000)
+-  const tomorrow9 = new Date(now)
+-  tomorrow9.setDate(tomorrow9.getDate() + 1)
+-  tomorrow9.setHours(9, 0, 0, 0)
+-  return [
+-    { label: '1 hour', at: hour(1) },
+-    { label: '4 hours', at: hour(4) },
+-    { label: 'Tomorrow 9 am', at: tomorrow9 },
+-  ]
++type SnoozePreset = { label: string; hours: number } | { label: string; tomorrow9am: true }
++
++const SNOOZE_PRESETS: SnoozePreset[] = [
++  { label: '1 hour', hours: 1 },
++  { label: '4 hours', hours: 4 },
++  { label: 'Tomorrow 9 am', tomorrow9am: true },
++]
++
++// Computed fresh at the moment of the click — a preset must mean "N hours from now",
++// not "N hours from whenever this conversation happened to be opened". An agent can sit
++// on a conversation for a shift; a snoozedUntil computed from mount time could already be
++// in the past by the time they click, snapping the conversation straight back out of snooze.
++function snoozeTarget(preset: SnoozePreset): Date {
++  if ('tomorrow9am' in preset) {
++    const at = new Date()
++    at.setDate(at.getDate() + 1)
++    at.setHours(9, 0, 0, 0)
++    return at
++  }
++  return new Date(Date.now() + preset.hours * 3600_000)
+ }
+ 
+ const ITEM = 'flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface2'
+ 
+ export function ConversationActions({ conversation }: { conversation: ConversationDetail }) {
+   const { can } = useSession()
+   const patch = usePatchConversation(conversation.id)
+   const { data: staff } = useStaff()
+   const { data: departments } = useDepartments()
+   const [archiveOpen, setArchiveOpen] = useState(false)
+   const [woOpen, setWoOpen] = useState(false)
+-  // Captured once, not recomputed on every Dropdown re-render, so "1 hour" means an hour
+-  // from when this view opened, not from whenever the menu happens to redraw.
+-  const [now] = useState(() => new Date())
+ 
+   return (
+     <div className="flex items-center gap-2">
+       {can('assign') ? (
+         <Dropdown label="Assign" align="right">
+           {(close) => (
+             <>
+               {(staff ?? []).map((person) => (
+                 <button
+                   key={person.id}
+@@ -79,28 +86,28 @@ export function ConversationActions({ conversation }: { conversation: Conversati
+               </button>
+             </>
+           )}
+         </Dropdown>
+       ) : null}
+ 
+       {can('assign') ? (
+         <Dropdown label="Snooze" align="right">
+           {(close) => (
+             <>
+-              {snoozePresets(now).map((preset) => (
++              {SNOOZE_PRESETS.map((preset) => (
+                 <button
+                   key={preset.label}
+                   role="menuitem"
+                   className={ITEM}
+                   onClick={() => {
+                     close()
+-                    patch.mutate({ snoozedUntil: preset.at.toISOString() })
++                    patch.mutate({ snoozedUntil: snoozeTarget(preset).toISOString() })
+                   }}
+                 >
+                   {preset.label}
+                 </button>
+               ))}
+             </>
+           )}
+         </Dropdown>
+       ) : null}
+ 
+diff --git a/web/src/features/inbox/CreateWorkOrderModal.test.tsx b/web/src/features/inbox/CreateWorkOrderModal.test.tsx
+index 39bc516..b365914 100644
+--- a/web/src/features/inbox/CreateWorkOrderModal.test.tsx
++++ b/web/src/features/inbox/CreateWorkOrderModal.test.tsx
+@@ -1,12 +1,13 @@
+ import { screen, waitFor } from '@testing-library/react'
+ import userEvent from '@testing-library/user-event'
++import { useState } from 'react'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import { SessionProvider } from '../../auth/SessionContext'
+ import { ToastProvider } from '../../components/ui'
+ import { aDepartment, aStaffUser, aWorkOrder } from '../../test/factories'
+ import { renderWithProviders, sessionFixture } from '../../test/harness'
+ import { CreateWorkOrderModal } from './CreateWorkOrderModal'
+ 
+ const PREFILL = {
+   title: 'AC not cooling',
+   description: "Guest reports the AC in 412 isn't working at all and the room is warm.",
+@@ -121,11 +122,40 @@ describe('CreateWorkOrderModal', () => {
+     vi.mocked(fetch).mockResolvedValueOnce(
+       new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: 'Not allowed' } }), {
+         status: 403,
+         headers: { 'Content-Type': 'application/json' },
+       }),
+     )
+     await userEvent.click(screen.getByRole('button', { name: /create/i }))
+     expect(await screen.findByRole('alert')).toHaveTextContent('Not allowed')
+     expect(onClose).not.toHaveBeenCalled()
+   })
++
++  it('resets the edited draft on Cancel, so a reopen re-seeds from a fresh prefill', async () => {
++    // The real ConversationActions keeps this modal mounted permanently and only toggles
++    // `open`, so a wrapper that does the same is the only way to exercise a genuine reopen.
++    function Wrapper() {
++      const [open, setOpen] = useState(true)
++      return (
++        <>
++          <button onClick={() => setOpen(true)}>Reopen</button>
++          <CreateWorkOrderModal conversationId="c-1" open={open} onClose={() => setOpen(false)} />
++        </>
++      )
++    }
++    renderWithProviders(
++      <SessionProvider>
++        <ToastProvider>
++          <Wrapper />
++        </ToastProvider>
++      </SessionProvider>,
++      { session: sessionFixture({ role: 'agent' }) },
++    )
++    const title = await screen.findByLabelText('Title')
++    await waitFor(() => expect(title).toHaveValue('AC not cooling'))
++    await userEvent.clear(title)
++    await userEvent.type(title, 'Something the agent typed and abandoned')
++    await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
++    await userEvent.click(screen.getByRole('button', { name: /reopen/i }))
++    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('AC not cooling'))
++  })
+ })
+diff --git a/web/src/features/inbox/CreateWorkOrderModal.tsx b/web/src/features/inbox/CreateWorkOrderModal.tsx
+index 326ab87..09c813a 100644
+--- a/web/src/features/inbox/CreateWorkOrderModal.tsx
++++ b/web/src/features/inbox/CreateWorkOrderModal.tsx
+@@ -43,40 +43,46 @@ export function CreateWorkOrderModal({
+         sourceConversationId: prefill.data.sourceConversationId,
+         sourceMessageId: prefill.data.sourceMessageId,
+       })
+     }
+   }, [prefill.data, form])
+ 
+   function set<K extends keyof CreateWorkOrder>(key: K, value: CreateWorkOrder[K]) {
+     setForm((current) => (current ? { ...current, [key]: value } : current))
+   }
+ 
++  // Any non-success dismissal (Cancel, Escape, backdrop) drops the edited draft so a
++  // reopen re-seeds from a fresh prefill rather than showing a stale session's edits.
++  function handleClose() {
++    setForm(null)
++    onClose()
++  }
++
+   function submit() {
+     if (!form || !form.title.trim()) return
+     create.mutate(form, {
+       onSuccess: (created) => {
+         toast(`Work order #${created.id} created`)
+-        setForm(null)
+-        onClose()
++        handleClose()
+       },
+     })
+   }
+ 
+   return (
+     <Dialog
+       open={open}
+-      onClose={onClose}
++      onClose={handleClose}
+       title="Create work order"
+       wide
+       footer={
+         <>
+-          <Button onClick={onClose}>Cancel</Button>
++          <Button onClick={handleClose}>Cancel</Button>
+           <Button variant="primary" loading={create.isPending} onClick={submit}>
+             Create
+           </Button>
+         </>
+       }
+     >
+       {!form ? (
+         <div className="grid place-items-center py-8">
+           <Spinner />
+         </div>

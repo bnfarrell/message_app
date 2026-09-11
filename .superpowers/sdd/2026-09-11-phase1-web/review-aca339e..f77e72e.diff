@@ -1,0 +1,1696 @@
+# Review package: aca339e..f77e72e
+
+## Commits
+f77e72e feat(web): admin CRUD for users, quick replies, assets and categories
+
+## Files changed
+ web/src/api/hooks/content.ts                      |  50 +++++-
+ web/src/api/hooks/users.ts                        |  32 +++-
+ web/src/api/queryKeys.ts                          |   4 +
+ web/src/features/admin/AdminPage.test.tsx         |  61 +++++++
+ web/src/features/admin/AdminPage.tsx              |  67 +++++++
+ web/src/features/admin/AdminTable.tsx             |  62 +++++++
+ web/src/features/admin/AssetsAdmin.tsx            | 197 ++++++++++++++++++++
+ web/src/features/admin/CategoriesAdmin.tsx        | 144 +++++++++++++++
+ web/src/features/admin/EditPanel.tsx              |  65 +++++++
+ web/src/features/admin/QuickRepliesAdmin.test.tsx | 184 +++++++++++++++++++
+ web/src/features/admin/QuickRepliesAdmin.tsx      | 199 +++++++++++++++++++++
+ web/src/features/admin/UsersAdmin.test.tsx        | 111 ++++++++++++
+ web/src/features/admin/UsersAdmin.tsx             | 207 ++++++++++++++++++++++
+ web/src/features/login/LoginPage.tsx              |   9 +-
+ web/src/routes.test.tsx                           |  10 +-
+ web/src/routes.tsx                                |  10 +-
+ 16 files changed, 1398 insertions(+), 14 deletions(-)
+
+## Diff
+diff --git a/web/src/api/hooks/content.ts b/web/src/api/hooks/content.ts
+index 0f126fa..159e19d 100644
+--- a/web/src/api/hooks/content.ts
++++ b/web/src/api/hooks/content.ts
+@@ -1,15 +1,18 @@
+-import { useMutation, useQuery } from '@tanstack/react-query'
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+ import { useSession } from '../../auth/SessionContext'
+ import { ApiError, api, propertyPath } from '../client'
+ import { qk } from '../queryKeys'
+-import type { AssetOut, CategoryOut, QuickReplyOut, RenderedQuickReply } from '../types'
++import type {
++  AssetIn, AssetOut, AssetPatch, CategoryIn, CategoryOut, CategoryPatch,
++  QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderedQuickReply,
++} from '../types'
+ 
+ export function useQuickReplies(q?: string) {
+   const { propertyId } = useSession()
+   return useQuery<QuickReplyOut[], ApiError>({
+     queryKey: qk.quickReplies(propertyId, q),
+     queryFn: () =>
+       api<QuickReplyOut[]>(
+         propertyPath(propertyId, `quick-replies${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+       ),
+     staleTime: 60_000,
+@@ -37,10 +40,53 @@ export function useAssets() {
+ }
+ 
+ export function useCategories() {
+   const { propertyId } = useSession()
+   return useQuery<CategoryOut[], ApiError>({
+     queryKey: qk.categories(propertyId),
+     queryFn: () => api<CategoryOut[]>(propertyPath(propertyId, 'resolution-categories')),
+     staleTime: 5 * 60_000,
+   })
+ }
++
++// Create/patch share a body shape per resource; delete only ever needs the id. Invalidating the
++// `*All` prefix (not the exact list key, which for quick replies varies by search term) is what
++// makes a write show up in every active view of that resource, filtered or not.
++function useWrite<TBody, TResult>(
++  path: string,
++  method: 'POST' | 'PATCH' | 'DELETE',
++  invalidate: (propertyId: string) => readonly unknown[],
++) {
++  const { propertyId } = useSession()
++  const client = useQueryClient()
++  return useMutation<TResult, ApiError, TBody & { id?: string }>({
++    mutationFn: (body) => {
++      const { id, ...rest } = body as { id?: string }
++      const url = propertyPath(propertyId, id ? `${path}/${id}` : path)
++      return api<TResult>(url, { method, json: method === 'DELETE' ? undefined : rest })
++    },
++    onSuccess: () => {
++      void client.invalidateQueries({ queryKey: invalidate(propertyId) })
++    },
++  })
++}
++
++export const useCreateQuickReply = () =>
++  useWrite<QuickReplyIn, QuickReplyOut>('quick-replies', 'POST', (p) => qk.quickRepliesAll(p))
++export const usePatchQuickReply = () =>
++  useWrite<QuickReplyPatch, QuickReplyOut>('quick-replies', 'PATCH', (p) => qk.quickRepliesAll(p))
++export const useDeleteQuickReply = () =>
++  useWrite<{ id: string }, void>('quick-replies', 'DELETE', (p) => qk.quickRepliesAll(p))
++
++export const useCreateAsset = () =>
++  useWrite<AssetIn, AssetOut>('assets', 'POST', (p) => qk.assetsAll(p))
++export const usePatchAsset = () =>
++  useWrite<AssetPatch, AssetOut>('assets', 'PATCH', (p) => qk.assetsAll(p))
++export const useDeleteAsset = () =>
++  useWrite<{ id: string }, void>('assets', 'DELETE', (p) => qk.assetsAll(p))
++
++export const useCreateCategory = () =>
++  useWrite<CategoryIn, CategoryOut>('resolution-categories', 'POST', (p) => qk.categoriesAll(p))
++export const usePatchCategory = () =>
++  useWrite<CategoryPatch, CategoryOut>('resolution-categories', 'PATCH', (p) => qk.categoriesAll(p))
++export const useDeleteCategory = () =>
++  useWrite<{ id: string }, void>('resolution-categories', 'DELETE', (p) => qk.categoriesAll(p))
+diff --git a/web/src/api/hooks/users.ts b/web/src/api/hooks/users.ts
+index 4375fe5..cbe62e0 100644
+--- a/web/src/api/hooks/users.ts
++++ b/web/src/api/hooks/users.ts
+@@ -1,15 +1,15 @@
+-import { useQuery } from '@tanstack/react-query'
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+ import { useSession } from '../../auth/SessionContext'
+ import { ApiError, api, propertyPath } from '../client'
+ import { qk } from '../queryKeys'
+-import type { DepartmentOut, GuestDetail, StaffUserOut } from '../types'
++import type { CreateStaffRequest, DepartmentOut, GuestDetail, StaffPatch, StaffUserOut } from '../types'
+ 
+ export function useDepartments() {
+   const { propertyId } = useSession()
+   return useQuery<DepartmentOut[], ApiError>({
+     queryKey: qk.departments(propertyId),
+     queryFn: () => api<DepartmentOut[]>(propertyPath(propertyId, 'departments')),
+     staleTime: 5 * 60_000, // departments change about never
+   })
+ }
+ 
+@@ -23,10 +23,38 @@ export function useStaff() {
+ }
+ 
+ export function useGuest(id: string | undefined) {
+   const { propertyId } = useSession()
+   return useQuery<GuestDetail, ApiError>({
+     queryKey: qk.guest(propertyId, id ?? ''),
+     queryFn: () => api<GuestDetail>(propertyPath(propertyId, `guests/${id}`)),
+     enabled: Boolean(id),
+   })
+ }
++
++export function useCreateStaff() {
++  const { propertyId } = useSession()
++  const client = useQueryClient()
++  return useMutation<StaffUserOut, ApiError, CreateStaffRequest>({
++    mutationFn: (body) => api<StaffUserOut>(propertyPath(propertyId, 'users'), { method: 'POST', json: body }),
++    onSuccess: () => void client.invalidateQueries({ queryKey: qk.staffAll(propertyId) }),
++  })
++}
++
++export function usePatchStaff() {
++  const { propertyId } = useSession()
++  const client = useQueryClient()
++  return useMutation<StaffUserOut, ApiError, StaffPatch & { id: string }>({
++    mutationFn: ({ id, ...patch }) =>
++      api<StaffUserOut>(propertyPath(propertyId, `users/${id}`), { method: 'PATCH', json: patch }),
++    onSuccess: () => void client.invalidateQueries({ queryKey: qk.staffAll(propertyId) }),
++  })
++}
++
++export function useDeleteStaff() {
++  const { propertyId } = useSession()
++  const client = useQueryClient()
++  return useMutation<void, ApiError, { id: string }>({
++    mutationFn: ({ id }) => api<void>(propertyPath(propertyId, `users/${id}`), { method: 'DELETE' }),
++    onSuccess: () => void client.invalidateQueries({ queryKey: qk.staffAll(propertyId) }),
++  })
++}
+diff --git a/web/src/api/queryKeys.ts b/web/src/api/queryKeys.ts
+index 896a1f0..d093cf1 100644
+--- a/web/src/api/queryKeys.ts
++++ b/web/src/api/queryKeys.ts
+@@ -7,24 +7,28 @@ export const qk = {
+   conversation: (propertyId: string, id: string) => ['conversation', propertyId, id] as const,
+ 
+   workOrders: (propertyId: string, params: Record<string, string | boolean | null>) =>
+     ['workOrders', propertyId, params] as const,
+   workOrdersAll: (propertyId: string) => ['workOrders', propertyId] as const,
+   workOrder: (propertyId: string, id: string) => ['workOrder', propertyId, id] as const,
+   workOrderPrefill: (propertyId: string, conversationId: string) =>
+     ['workOrderPrefill', propertyId, conversationId] as const,
+ 
+   quickReplies: (propertyId: string, q?: string) => ['quickReplies', propertyId, q ?? ''] as const,
++  quickRepliesAll: (propertyId: string) => ['quickReplies', propertyId] as const,
+   assets: (propertyId: string) => ['assets', propertyId] as const,
++  assetsAll: (propertyId: string) => ['assets', propertyId] as const,
+   categories: (propertyId: string) => ['categories', propertyId] as const,
++  categoriesAll: (propertyId: string) => ['categories', propertyId] as const,
+   departments: (propertyId: string) => ['departments', propertyId] as const,
+   staff: (propertyId: string) => ['staff', propertyId] as const,
++  staffAll: (propertyId: string) => ['staff', propertyId] as const,
+   guest: (propertyId: string, id: string) => ['guest', propertyId, id] as const,
+ 
+   notifications: (propertyId: string, unreadOnly: boolean) =>
+     ['notifications', propertyId, unreadOnly] as const,
+   notificationsAll: (propertyId: string) => ['notifications', propertyId] as const,
+   unreadCount: (propertyId: string) => ['unreadCount', propertyId] as const,
+ 
+   analyticsOverview: (propertyId: string, from: string, to: string) =>
+     ['analytics', 'overview', propertyId, from, to] as const,
+   analyticsAgents: (propertyId: string, from: string, to: string) =>
+diff --git a/web/src/features/admin/AdminPage.test.tsx b/web/src/features/admin/AdminPage.test.tsx
+new file mode 100644
+index 0000000..af91699
+--- /dev/null
++++ b/web/src/features/admin/AdminPage.test.tsx
+@@ -0,0 +1,61 @@
++import { screen } from '@testing-library/react'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { Route, Routes } from 'react-router-dom'
++import { SessionProvider } from '../../auth/SessionContext'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { AdminPage } from './AdminPage'
++
++function mount(route = '/app/admin/quick-replies') {
++  return renderWithProviders(
++    <SessionProvider>
++      <Routes>
++        <Route path="/app/admin/*" element={<AdminPage />} />
++      </Routes>
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'admin' }), route },
++  )
++}
++
++describe('AdminPage', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
++      new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }),
++    ))
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('lists the four live sections as links', async () => {
++    mount()
++    for (const name of ['Users & roles', 'Quick replies', 'Digital assets', 'Resolution categories']) {
++      expect(await screen.findByRole('link', { name })).toBeInTheDocument()
++    }
++  })
++
++  it('lists the Phase 2 sections as disabled, not as links', async () => {
++    mount()
++    await screen.findByRole('link', { name: 'Quick replies' })
++    for (const name of ['Departments', 'Property settings', 'Automations', 'Blocked numbers', 'Integrations']) {
++      expect(screen.getByText(name)).toBeInTheDocument()
++      expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
++    }
++    expect(screen.getByText(/arrive in Phase 2/i)).toBeInTheDocument()
++  })
++
++  it('marks the current section', async () => {
++    mount('/app/admin/users')
++    expect(await screen.findByRole('link', { name: 'Users & roles' })).toHaveAttribute(
++      'aria-current',
++      'page',
++    )
++  })
++
++  it('redirects a bare /app/admin to users', async () => {
++    mount('/app/admin')
++    expect(await screen.findByRole('link', { name: 'Users & roles' })).toHaveAttribute(
++      'aria-current',
++      'page',
++    )
++  })
++})
+diff --git a/web/src/features/admin/AdminPage.tsx b/web/src/features/admin/AdminPage.tsx
+new file mode 100644
+index 0000000..9de4de8
+--- /dev/null
++++ b/web/src/features/admin/AdminPage.tsx
+@@ -0,0 +1,67 @@
++import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
++import { cn } from '../../lib/cn'
++import { AssetsAdmin } from './AssetsAdmin'
++import { CategoriesAdmin } from './CategoriesAdmin'
++import { QuickRepliesAdmin } from './QuickRepliesAdmin'
++import { UsersAdmin } from './UsersAdmin'
++
++// Absolute targets: AdminPage is mounted at the "admin/*" splat, and this project's router
++// future flags (v7_relativeSplatPath) resolve a plain relative `to` against the full current
++// splat path rather than the section's own directory, so a relative "users" link from
++// "/app/admin/quick-replies" resolves to ".../quick-replies/users" instead of ".../users".
++const LIVE = [
++  { to: '/app/admin/users', label: 'Users & roles' },
++  { to: '/app/admin/quick-replies', label: 'Quick replies' },
++  { to: '/app/admin/assets', label: 'Digital assets' },
++  { to: '/app/admin/categories', label: 'Resolution categories' },
++]
++
++// Shown deliberately (mockup Admin.dc.html): an admin should see the product's shape.
++const PHASE_2 = ['Departments', 'Property settings', 'Automations', 'Blocked numbers', 'Integrations']
++
++export function AdminPage() {
++  return (
++    <div className="flex h-full">
++      <nav className="w-[220px] flex-none border-r border-border p-3">
++        <h1 className="mb-3 px-2 text-base font-bold">Admin</h1>
++        <ul className="flex flex-col gap-0.5">
++          {LIVE.map((item) => (
++            <li key={item.to}>
++              <NavLink
++                to={item.to}
++                className={({ isActive }) =>
++                  cn(
++                    'flex h-10 items-center rounded px-3 text-sm font-semibold',
++                    isActive
++                      ? 'bg-surface2 text-text shadow-[inset_3px_0_0_var(--accent)]'
++                      : 'text-text3 hover:text-text',
++                  )
++                }
++              >
++                {item.label}
++              </NavLink>
++            </li>
++          ))}
++          {PHASE_2.map((label) => (
++            <li
++              key={label}
++              aria-disabled="true"
++              className="flex h-10 cursor-not-allowed items-center rounded px-3 text-sm font-semibold text-text4"
++            >
++              {label}
++            </li>
++          ))}
++        </ul>
++        <p className="mt-3 px-3 text-xs text-text4">Greyed items arrive in Phase 2</p>
++      </nav>
++
++      <Routes>
++        <Route index element={<Navigate to="users" replace />} />
++        <Route path="users" element={<UsersAdmin />} />
++        <Route path="quick-replies" element={<QuickRepliesAdmin />} />
++        <Route path="assets" element={<AssetsAdmin />} />
++        <Route path="categories" element={<CategoriesAdmin />} />
++      </Routes>
++    </div>
++  )
++}
+diff --git a/web/src/features/admin/AdminTable.tsx b/web/src/features/admin/AdminTable.tsx
+new file mode 100644
+index 0000000..9756c40
+--- /dev/null
++++ b/web/src/features/admin/AdminTable.tsx
+@@ -0,0 +1,62 @@
++import type { ReactNode } from 'react'
++import { cn } from '../../lib/cn'
++
++export type Column<T> = { key: string; head: string; render: (row: T) => ReactNode; mono?: boolean }
++
++export function AdminTable<T extends { id: string }>({
++  columns,
++  rows,
++  selectedId,
++  onSelect,
++}: {
++  columns: Column<T>[]
++  rows: T[]
++  selectedId: string | null
++  onSelect: (row: T) => void
++}) {
++  return (
++    <table className="w-full">
++      <thead>
++        <tr>
++          {columns.map((column) => (
++            <th
++              key={column.key}
++              className="border-b border-border2 px-3.5 py-2.5 text-left text-[11.5px] font-bold uppercase tracking-wider text-text3"
++            >
++              {column.head}
++            </th>
++          ))}
++        </tr>
++      </thead>
++      <tbody>
++        {rows.map((row) => (
++          <tr
++            key={row.id}
++            tabIndex={0}
++            aria-selected={row.id === selectedId}
++            onClick={() => onSelect(row)}
++            onKeyDown={(event) => {
++              if (event.key === 'Enter' || event.key === ' ') {
++                event.preventDefault()
++                onSelect(row)
++              }
++            }}
++            className={cn('cursor-pointer', row.id === selectedId ? 'bg-sel' : 'hover:bg-surface2')}
++          >
++            {columns.map((column) => (
++              <td
++                key={column.key}
++                className={cn(
++                  'border-b border-border px-3.5 py-3 align-top text-[13.5px]',
++                  column.mono && 'font-mono',
++                )}
++              >
++                {column.render(row)}
++              </td>
++            ))}
++          </tr>
++        ))}
++      </tbody>
++    </table>
++  )
++}
+diff --git a/web/src/features/admin/AssetsAdmin.tsx b/web/src/features/admin/AssetsAdmin.tsx
+new file mode 100644
+index 0000000..0be4f88
+--- /dev/null
++++ b/web/src/features/admin/AssetsAdmin.tsx
+@@ -0,0 +1,197 @@
++import { useState } from 'react'
++import { useAssets, useCreateAsset, useDeleteAsset, usePatchAsset } from '../../api/hooks/content'
++import { useDepartments } from '../../api/hooks/users'
++import type { AssetOut, AssetType } from '../../api/types'
++import { Badge, Button, EmptyState, Input, Spinner, Textarea } from '../../components/ui'
++import { AdminTable, type Column } from './AdminTable'
++import { EditPanel } from './EditPanel'
++
++type Draft = {
++  id?: string
++  name: string
++  type: AssetType
++  url: string
++  description: string | null
++  category: string | null
++  departmentId: string | null
++  validFrom: string | null
++  validUntil: string | null
++  active: boolean
++}
++
++const EMPTY: Draft = {
++  name: '', type: 'file', url: '', description: null, category: null, departmentId: null,
++  validFrom: null, validUntil: null, active: true,
++}
++
++const TYPES: AssetType[] = ['file', 'link', 'menu', 'map', 'form']
++
++const LABEL = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
++const SELECT = 'h-11 w-full rounded border border-border3 bg-surface2 px-3 text-sm text-text focus:border-accent focus:outline-none'
++
++export function AssetsAdmin() {
++  const { data, isPending, error } = useAssets()
++  const { data: departments } = useDepartments()
++  const create = useCreateAsset()
++  const patch = usePatchAsset()
++  const remove = useDeleteAsset()
++  const [draft, setDraft] = useState<Draft | null>(null)
++  const [selected, setSelected] = useState<AssetOut | null>(null)
++
++  const rows = data ?? []
++  const pending = create.isPending || patch.isPending || remove.isPending
++  const failure = (create.error ?? patch.error ?? remove.error)?.message ?? null
++  const draftId = draft?.id
++
++  const columns: Column<AssetOut>[] = [
++    { key: 'name', head: 'Name', render: (r) => r.name },
++    { key: 'type', head: 'Type', render: (r) => r.type },
++    { key: 'shortCode', head: 'Short code', mono: true, render: (r) => r.shortCode },
++    { key: 'sends', head: 'Sends', mono: true, render: (r) => r.sendCount },
++    {
++      key: 'active',
++      head: 'Active',
++      render: (r) => (r.active ? <Badge tone="ok">on</Badge> : <Badge>off</Badge>),
++    },
++  ]
++
++  function open(asset: AssetOut) {
++    setSelected(asset)
++    setDraft({
++      id: asset.id,
++      name: asset.name,
++      type: asset.type,
++      url: asset.url,
++      description: asset.description ?? null,
++      category: asset.category ?? null,
++      departmentId: asset.departmentId ?? null,
++      validFrom: asset.validFrom ?? null,
++      validUntil: asset.validUntil ?? null,
++      active: asset.active,
++    })
++  }
++
++  function save() {
++    if (!draft || !draft.name.trim() || !draft.url.trim()) return
++    const done = () => {
++      setDraft(null)
++      setSelected(null)
++    }
++    if (draft.id) patch.mutate(draft, { onSuccess: done })
++    else create.mutate(draft, { onSuccess: done })
++  }
++
++  return (
++    <div className="flex min-h-0 flex-1">
++      <div className="flex min-w-0 flex-1 flex-col">
++        <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
++          <h1 className="text-base font-bold">Digital assets</h1>
++          <Button
++            variant="primary"
++            className="ml-auto"
++            onClick={() => {
++              setSelected(null)
++              setDraft({ ...EMPTY })
++            }}
++          >
++            New asset
++          </Button>
++        </header>
++
++        <div className="min-h-0 flex-1 overflow-y-auto p-4">
++          {isPending ? (
++            <Spinner />
++          ) : error ? (
++            <EmptyState title="Could not load assets" hint={error.message} />
++          ) : rows.length === 0 ? (
++            <EmptyState title="No assets" hint="Create one to get started." />
++          ) : (
++            <div className="rounded-card border border-border2 bg-surface">
++              <AdminTable columns={columns} rows={rows} selectedId={selected?.id ?? null} onSelect={open} />
++            </div>
++          )}
++        </div>
++      </div>
++
++      {draft ? (
++        <EditPanel
++          title={draft.id ? 'Edit asset' : 'New asset'}
++          subtitle={selected ? `${selected.sendCount} sends` : undefined}
++          saving={pending}
++          error={failure}
++          onSave={save}
++          onCancel={() => {
++            setDraft(null)
++            setSelected(null)
++          }}
++          onDelete={
++            draftId
++              ? () =>
++                  remove.mutate({ id: draftId }, {
++                    onSuccess: () => {
++                      setDraft(null)
++                      setSelected(null)
++                    },
++                  })
++              : undefined
++          }
++        >
++          <div>
++            <label className={LABEL} htmlFor="asset-name">Name</label>
++            <Input id="asset-name" value={draft.name}
++                   onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="asset-type">Type</label>
++            <select id="asset-type" className={SELECT} value={draft.type}
++                    onChange={(e) => setDraft({ ...draft, type: e.target.value as AssetType })}>
++              {TYPES.map((type) => (
++                <option key={type} value={type}>{type}</option>
++              ))}
++            </select>
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="asset-url">URL</label>
++            <Input id="asset-url" value={draft.url}
++                   onChange={(e) => setDraft({ ...draft, url: e.target.value })} />
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="asset-description">Description</label>
++            <Textarea id="asset-description" rows={3} value={draft.description ?? ''}
++                      onChange={(e) => setDraft({ ...draft, description: e.target.value || null })} />
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="asset-category">Category</label>
++            <Input id="asset-category" value={draft.category ?? ''}
++                   onChange={(e) => setDraft({ ...draft, category: e.target.value || null })} />
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="asset-dept">Department</label>
++            <select id="asset-dept" className={SELECT} value={draft.departmentId ?? ''}
++                    onChange={(e) => setDraft({ ...draft, departmentId: e.target.value || null })}>
++              <option value="">All</option>
++              {(departments ?? []).map((d) => (
++                <option key={d.id} value={d.id}>{d.name}</option>
++              ))}
++            </select>
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="asset-valid-from">Valid from</label>
++            <Input id="asset-valid-from" placeholder="ISO date-time" value={draft.validFrom ?? ''}
++                   onChange={(e) => setDraft({ ...draft, validFrom: e.target.value || null })} />
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="asset-valid-until">Valid until</label>
++            <Input id="asset-valid-until" placeholder="ISO date-time" value={draft.validUntil ?? ''}
++                   onChange={(e) => setDraft({ ...draft, validUntil: e.target.value || null })} />
++          </div>
++          <label className="flex items-center gap-2 text-sm">
++            <input type="checkbox" checked={draft.active}
++                   onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />
++            Active
++          </label>
++        </EditPanel>
++      ) : null}
++    </div>
++  )
++}
+diff --git a/web/src/features/admin/CategoriesAdmin.tsx b/web/src/features/admin/CategoriesAdmin.tsx
+new file mode 100644
+index 0000000..59ce50d
+--- /dev/null
++++ b/web/src/features/admin/CategoriesAdmin.tsx
+@@ -0,0 +1,144 @@
++import { useState } from 'react'
++import { useCategories, useCreateCategory, useDeleteCategory, usePatchCategory } from '../../api/hooks/content'
++import type { CategoryOut } from '../../api/types'
++import { Badge, Button, EmptyState, Spinner, Input } from '../../components/ui'
++import { AdminTable, type Column } from './AdminTable'
++import { EditPanel } from './EditPanel'
++
++type Draft = { id?: string; name: string; parentId: string | null; active: boolean }
++
++const EMPTY: Draft = { name: '', parentId: null, active: true }
++
++type FlatCategory = CategoryOut & { depth: number; parentName: string | null }
++
++function flatten(categories: CategoryOut[], depth = 0, parentName: string | null = null): FlatCategory[] {
++  return categories.flatMap((c) => [
++    { ...c, depth, parentName },
++    ...flatten(c.children ?? [], depth + 1, c.name),
++  ])
++}
++
++const LABEL = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
++const SELECT = 'h-11 w-full rounded border border-border3 bg-surface2 px-3 text-sm text-text focus:border-accent focus:outline-none'
++
++export function CategoriesAdmin() {
++  const { data, isPending, error } = useCategories()
++  const create = useCreateCategory()
++  const patch = usePatchCategory()
++  const remove = useDeleteCategory()
++  const [draft, setDraft] = useState<Draft | null>(null)
++  const [selected, setSelected] = useState<FlatCategory | null>(null)
++
++  const rows = flatten(data ?? [])
++  const pending = create.isPending || patch.isPending || remove.isPending
++  const failure = (create.error ?? patch.error ?? remove.error)?.message ?? null
++  const draftId = draft?.id
++
++  const columns: Column<FlatCategory>[] = [
++    {
++      key: 'name',
++      head: 'Name',
++      render: (r) => <span style={{ paddingLeft: r.depth * 16 }}>{r.name}</span>,
++    },
++    { key: 'parent', head: 'Parent', render: (r) => r.parentName ?? '—' },
++    {
++      key: 'active',
++      head: 'Active',
++      render: (r) => (r.active ? <Badge tone="ok">on</Badge> : <Badge>off</Badge>),
++    },
++  ]
++
++  function open(category: FlatCategory) {
++    setSelected(category)
++    setDraft({ id: category.id, name: category.name, parentId: category.parentId ?? null, active: category.active })
++  }
++
++  function save() {
++    if (!draft || !draft.name.trim()) return
++    const done = () => {
++      setDraft(null)
++      setSelected(null)
++    }
++    if (draft.id) patch.mutate(draft, { onSuccess: done })
++    else create.mutate(draft, { onSuccess: done })
++  }
++
++  return (
++    <div className="flex min-h-0 flex-1">
++      <div className="flex min-w-0 flex-1 flex-col">
++        <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
++          <h1 className="text-base font-bold">Resolution categories</h1>
++          <Button
++            variant="primary"
++            className="ml-auto"
++            onClick={() => {
++              setSelected(null)
++              setDraft({ ...EMPTY })
++            }}
++          >
++            New category
++          </Button>
++        </header>
++
++        <div className="min-h-0 flex-1 overflow-y-auto p-4">
++          {isPending ? (
++            <Spinner />
++          ) : error ? (
++            <EmptyState title="Could not load categories" hint={error.message} />
++          ) : rows.length === 0 ? (
++            <EmptyState title="No categories" hint="Create one to get started." />
++          ) : (
++            <div className="rounded-card border border-border2 bg-surface">
++              <AdminTable columns={columns} rows={rows} selectedId={selected?.id ?? null} onSelect={open} />
++            </div>
++          )}
++        </div>
++      </div>
++
++      {draft ? (
++        <EditPanel
++          title={draft.id ? 'Edit category' : 'New category'}
++          saving={pending}
++          error={failure}
++          onSave={save}
++          onCancel={() => {
++            setDraft(null)
++            setSelected(null)
++          }}
++          onDelete={
++            draftId
++              ? () =>
++                  remove.mutate({ id: draftId }, {
++                    onSuccess: () => {
++                      setDraft(null)
++                      setSelected(null)
++                    },
++                  })
++              : undefined
++          }
++        >
++          <div>
++            <label className={LABEL} htmlFor="cat-name">Name</label>
++            <Input id="cat-name" value={draft.name}
++                   onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="cat-parent">Parent</label>
++            <select id="cat-parent" className={SELECT} value={draft.parentId ?? ''}
++                    onChange={(e) => setDraft({ ...draft, parentId: e.target.value || null })}>
++              <option value="">None (top-level)</option>
++              {rows.filter((r) => r.id !== draft.id).map((r) => (
++                <option key={r.id} value={r.id}>{r.name}</option>
++              ))}
++            </select>
++          </div>
++          <label className="flex items-center gap-2 text-sm">
++            <input type="checkbox" checked={draft.active}
++                   onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />
++            Active
++          </label>
++        </EditPanel>
++      ) : null}
++    </div>
++  )
++}
+diff --git a/web/src/features/admin/EditPanel.tsx b/web/src/features/admin/EditPanel.tsx
+new file mode 100644
+index 0000000..9327524
+--- /dev/null
++++ b/web/src/features/admin/EditPanel.tsx
+@@ -0,0 +1,65 @@
++import { useState, type ReactNode } from 'react'
++import { Button } from '../../components/ui'
++
++export function EditPanel({
++  title,
++  subtitle,
++  children,
++  onSave,
++  onDelete,
++  onCancel,
++  saving,
++  error,
++}: {
++  title: string
++  subtitle?: string
++  children: ReactNode
++  onSave: () => void
++  onDelete?: () => void
++  onCancel: () => void
++  saving?: boolean
++  error?: string | null
++}) {
++  const [confirming, setConfirming] = useState(false)
++
++  return (
++    <aside className="w-[340px] flex-none overflow-y-auto border-l border-border bg-bg2 p-4">
++      <header className="mb-3">
++        <h2 className="text-sm font-bold">{title}</h2>
++        {subtitle ? <p className="text-xs text-text3">{subtitle}</p> : null}
++      </header>
++
++      {error ? (
++        <p role="alert" className="mb-3 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
++          {error}
++        </p>
++      ) : null}
++
++      <div className="flex flex-col gap-3">{children}</div>
++
++      <footer className="mt-4 flex flex-wrap items-center gap-2">
++        <Button variant="primary" loading={saving} onClick={onSave}>
++          Save
++        </Button>
++        <Button onClick={onCancel}>Cancel</Button>
++        {onDelete ? (
++          confirming ? (
++            <>
++              <span className="w-full text-xs text-dangerText">
++                Delete this? This cannot be undone.
++              </span>
++              <Button variant="danger" onClick={onDelete}>
++                Confirm
++              </Button>
++              <Button onClick={() => setConfirming(false)}>Keep</Button>
++            </>
++          ) : (
++            <Button variant="ghost" className="ml-auto text-dangerText" onClick={() => setConfirming(true)}>
++              Delete
++            </Button>
++          )
++        ) : null}
++      </footer>
++    </aside>
++  )
++}
+diff --git a/web/src/features/admin/QuickRepliesAdmin.test.tsx b/web/src/features/admin/QuickRepliesAdmin.test.tsx
+new file mode 100644
+index 0000000..d4959f8
+--- /dev/null
++++ b/web/src/features/admin/QuickRepliesAdmin.test.tsx
+@@ -0,0 +1,184 @@
++import { screen, waitFor } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { SessionProvider } from '../../auth/SessionContext'
++import { aDepartment, aQuickReply } from '../../test/factories'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { QuickRepliesAdmin } from './QuickRepliesAdmin'
++
++const REPLIES = [
++  aQuickReply({ id: 'q1', shortcut: '/wifi', title: 'WiFi details', usageCount: 212 }),
++  aQuickReply({ id: 'q2', shortcut: '/shuttle', title: 'Airport shuttle', active: false, usageCount: 0 }),
++]
++
++function serve() {
++  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
++    if (init && init.method && init.method !== 'GET') {
++      return Promise.resolve(
++        new Response(JSON.stringify(aQuickReply()), {
++          status: 200,
++          headers: { 'Content-Type': 'application/json' },
++        }),
++      )
++    }
++    const body = String(input).includes('/departments') ? [aDepartment()] : REPLIES
++    return Promise.resolve(
++      new Response(JSON.stringify(body), {
++        status: 200,
++        headers: { 'Content-Type': 'application/json' },
++      }),
++    )
++  })
++}
++
++function mount() {
++  return renderWithProviders(
++    <SessionProvider>
++      <QuickRepliesAdmin />
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'admin' }), route: '/app/admin/quick-replies' },
++  )
++}
++
++describe('QuickRepliesAdmin', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++    serve()
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('lists replies with shortcut, title and usage', async () => {
++    mount()
++    expect(await screen.findByText('/wifi')).toBeInTheDocument()
++    expect(screen.getByText('WiFi details')).toBeInTheDocument()
++    expect(screen.getByText('212')).toBeInTheDocument()
++  })
++
++  it('reports the active and inactive counts', async () => {
++    mount()
++    expect(await screen.findByText(/1 active · 1 inactive/)).toBeInTheDocument()
++  })
++
++  it('shows no edit panel until something is selected', async () => {
++    mount()
++    await screen.findByText('/wifi')
++    expect(screen.queryByLabelText('Body')).not.toBeInTheDocument()
++  })
++
++  it('opens the edit panel pre-filled when a row is clicked', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('WiFi details'))
++    await waitFor(() => expect(screen.getByLabelText('Shortcut')).toHaveValue('/wifi'))
++    expect(screen.getByLabelText('Title')).toHaveValue('WiFi details')
++    expect(screen.getByLabelText('Body')).toHaveValue(REPLIES[0]!.body)
++  })
++
++  it('shows usage as read-only text, never as a field', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('WiFi details'))
++    await waitFor(() => expect(screen.getByText(/212 uses/)).toBeInTheDocument())
++    expect(screen.queryByLabelText(/uses/i)).not.toBeInTheDocument()
++  })
++
++  it('patches only on save, not on every keystroke', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('WiFi details'))
++    const title = await screen.findByLabelText('Title')
++    await userEvent.clear(title)
++    await userEvent.type(title, 'WiFi info')
++    expect(vi.mocked(fetch).mock.calls.some(([, i]) => i?.method === 'PATCH')).toBe(false)
++    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
++    const patch = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'PATCH')
++    expect(String(patch![0])).toContain('/quick-replies/q1')
++    expect(JSON.parse(String(patch![1]!.body))).toMatchObject({ title: 'WiFi info' })
++  })
++
++  it('creates a new reply through POST', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: /new quick reply/i }))
++    await userEvent.type(screen.getByLabelText('Shortcut'), '/pool')
++    await userEvent.type(screen.getByLabelText('Title'), 'Pool hours')
++    await userEvent.type(screen.getByLabelText('Body'), 'The pool is open 7 AM-10 PM.')
++    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
++    const post = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'POST')
++    expect(JSON.parse(String(post![1]!.body))).toMatchObject({
++      shortcut: '/pool',
++      title: 'Pool hours',
++    })
++  })
++
++  it('asks before deleting and only then calls DELETE', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('WiFi details'))
++    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }))
++    expect(screen.getByText(/cannot be undone/i)).toBeInTheDocument()
++    expect(vi.mocked(fetch).mock.calls.some(([, i]) => i?.method === 'DELETE')).toBe(false)
++    await userEvent.click(screen.getByRole('button', { name: 'Confirm' }))
++    const del = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'DELETE')
++    expect(String(del![0])).toContain('/quick-replies/q1')
++  })
++
++  it('backs out of a delete on Keep', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('WiFi details'))
++    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }))
++    await userEvent.click(screen.getByRole('button', { name: 'Keep' }))
++    expect(screen.queryByText(/cannot be undone/i)).not.toBeInTheDocument()
++  })
++
++  it('shows the server error in the panel and keeps it open', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('WiFi details'))
++    await screen.findByLabelText('Title')
++    vi.mocked(fetch).mockResolvedValueOnce(
++      new Response(
++        JSON.stringify({ error: { code: 'VALIDATION_FAILED', message: 'Shortcut already exists' } }),
++        { status: 400, headers: { 'Content-Type': 'application/json' } },
++      ),
++    )
++    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
++    expect(await screen.findByRole('alert')).toHaveTextContent('Shortcut already exists')
++    expect(screen.getByLabelText('Title')).toBeInTheDocument()
++  })
++
++  it('filters by shortcut or text', async () => {
++    mount()
++    await screen.findByText('/wifi')
++    await userEvent.type(screen.getByPlaceholderText(/search/i), 'shuttle')
++    await waitFor(() =>
++      expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('q=shuttle'))).toBe(true),
++    )
++  })
++
++  // Regression test for the invalidation-key trap: qk.quickReplies(propertyId) with no search
++  // term produces a key that does not match a search-filtered key. If a mutation invalidated
++  // that exact key instead of the `quickRepliesAll` prefix, an edit made while a search filter
++  // is active would save but the filtered list would never refetch — with no error anywhere.
++  it('refreshes a search-filtered list after an edit made under that filter', async () => {
++    mount()
++    await screen.findByText('/wifi')
++    await userEvent.type(screen.getByPlaceholderText(/search/i), 'shuttle')
++    await waitFor(() =>
++      expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('q=shuttle'))).toBe(true),
++    )
++    const filteredGets = () =>
++      vi
++        .mocked(fetch)
++        .mock.calls.filter(
++          ([u, i]) => (!i || !i.method || i.method === 'GET') && String(u).includes('q=shuttle'),
++        ).length
++    const before = filteredGets()
++
++    await userEvent.click(await screen.findByText('WiFi details'))
++    const title = await screen.findByLabelText('Title')
++    await userEvent.clear(title)
++    await userEvent.type(title, 'WiFi info')
++    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
++
++    // A save that only invalidated the exact (unfiltered) key would never re-fetch the
++    // still-active filtered query, so `filteredGets()` would stay flat at `before`.
++    await waitFor(() => expect(filteredGets()).toBeGreaterThan(before))
++  })
++})
+diff --git a/web/src/features/admin/QuickRepliesAdmin.tsx b/web/src/features/admin/QuickRepliesAdmin.tsx
+new file mode 100644
+index 0000000..ffea6b9
+--- /dev/null
++++ b/web/src/features/admin/QuickRepliesAdmin.tsx
+@@ -0,0 +1,199 @@
++import { useState } from 'react'
++import {
++  useCreateQuickReply, useDeleteQuickReply, usePatchQuickReply, useQuickReplies,
++} from '../../api/hooks/content'
++import { useDepartments } from '../../api/hooks/users'
++import type { QuickReplyOut } from '../../api/types'
++import { Badge, Button, EmptyState, Input, Spinner, Textarea } from '../../components/ui'
++import { AdminTable, type Column } from './AdminTable'
++import { EditPanel } from './EditPanel'
++
++type Draft = {
++  id?: string
++  shortcut: string
++  title: string
++  body: string
++  departmentId: string | null
++  category: string | null
++  locale: string
++  active: boolean
++}
++
++const EMPTY: Draft = {
++  shortcut: '', title: '', body: '', departmentId: null, category: null, locale: 'en', active: true,
++}
++
++const LABEL = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
++const SELECT = 'h-11 w-full rounded border border-border3 bg-surface2 px-3 text-sm text-text focus:border-accent focus:outline-none'
++
++export function QuickRepliesAdmin() {
++  const [search, setSearch] = useState('')
++  const { data, isPending, error } = useQuickReplies(search || undefined)
++  const { data: departments } = useDepartments()
++  const create = useCreateQuickReply()
++  const patch = usePatchQuickReply()
++  const remove = useDeleteQuickReply()
++  const [draft, setDraft] = useState<Draft | null>(null)
++  const [selected, setSelected] = useState<QuickReplyOut | null>(null)
++
++  const rows = data ?? []
++  const activeCount = rows.filter((r) => r.active).length
++  const pending = create.isPending || patch.isPending || remove.isPending
++  const failure = (create.error ?? patch.error ?? remove.error)?.message ?? null
++  const draftId = draft?.id
++
++  const columns: Column<QuickReplyOut>[] = [
++    { key: 'shortcut', head: 'Shortcut', mono: true, render: (r) => r.shortcut },
++    { key: 'title', head: 'Title', render: (r) => r.title },
++    {
++      key: 'body',
++      head: 'Body',
++      render: (r) => <span className="text-text3">{r.body.slice(0, 70)}…</span>,
++    },
++    {
++      key: 'dept',
++      head: 'Dept',
++      render: (r) => departments?.find((d) => d.id === r.departmentId)?.name ?? 'All',
++    },
++    { key: 'uses', head: 'Uses', mono: true, render: (r) => r.usageCount },
++    {
++      key: 'active',
++      head: 'Active',
++      render: (r) => (r.active ? <Badge tone="ok">on</Badge> : <Badge>off</Badge>),
++    },
++  ]
++
++  function open(reply: QuickReplyOut) {
++    setSelected(reply)
++    setDraft({
++      id: reply.id,
++      shortcut: reply.shortcut,
++      title: reply.title,
++      body: reply.body,
++      departmentId: reply.departmentId ?? null,
++      category: reply.category ?? null,
++      locale: reply.locale,
++      active: reply.active,
++    })
++  }
++
++  function save() {
++    if (!draft || !draft.shortcut.trim() || !draft.title.trim() || !draft.body.trim()) return
++    const done = () => {
++      setDraft(null)
++      setSelected(null)
++    }
++    if (draft.id) {
++      // The server's QuickReplyPatch has no `locale` field (extra="forbid" rejects it), unlike
++      // QuickReplyIn on create — send only what patch actually accepts.
++      const { id, shortcut, title, body, departmentId, category, active } = draft
++      patch.mutate({ id, shortcut, title, body, departmentId, category, active }, { onSuccess: done })
++    } else {
++      create.mutate(draft, { onSuccess: done })
++    }
++  }
++
++  return (
++    <div className="flex min-h-0 flex-1">
++      <div className="flex min-w-0 flex-1 flex-col">
++        <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
++          <div>
++            <h1 className="text-base font-bold">Quick replies</h1>
++            <p className="text-xs text-text3">
++              {activeCount} active · {rows.length - activeCount} inactive
++            </p>
++          </div>
++          <Input
++            className="ml-4 max-w-xs"
++            placeholder="Search shortcut or text"
++            value={search}
++            onChange={(event) => setSearch(event.target.value)}
++          />
++          <Button
++            variant="primary"
++            className="ml-auto"
++            onClick={() => {
++              setSelected(null)
++              setDraft({ ...EMPTY })
++            }}
++          >
++            New quick reply
++          </Button>
++        </header>
++
++        <div className="min-h-0 flex-1 overflow-y-auto p-4">
++          {isPending ? (
++            <Spinner />
++          ) : error ? (
++            <EmptyState title="Could not load quick replies" hint={error.message} />
++          ) : rows.length === 0 ? (
++            <EmptyState title="No quick replies" hint="Create one to get started." />
++          ) : (
++            <div className="rounded-card border border-border2 bg-surface">
++              <AdminTable columns={columns} rows={rows} selectedId={selected?.id ?? null} onSelect={open} />
++            </div>
++          )}
++        </div>
++      </div>
++
++      {draft ? (
++        <EditPanel
++          title={draft.id ? 'Edit quick reply' : 'New quick reply'}
++          subtitle={selected ? `${selected.usageCount} uses` : undefined}
++          saving={pending}
++          error={failure}
++          onSave={save}
++          onCancel={() => {
++            setDraft(null)
++            setSelected(null)
++          }}
++          onDelete={
++            draftId
++              ? () =>
++                  remove.mutate({ id: draftId }, {
++                    onSuccess: () => {
++                      setDraft(null)
++                      setSelected(null)
++                    },
++                  })
++              : undefined
++          }
++        >
++          <div>
++            <label className={LABEL} htmlFor="qr-shortcut">Shortcut</label>
++            <Input id="qr-shortcut" value={draft.shortcut}
++                   onChange={(e) => setDraft({ ...draft, shortcut: e.target.value })} />
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="qr-title">Title</label>
++            <Input id="qr-title" value={draft.title}
++                   onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="qr-body">Body</label>
++            <Textarea id="qr-body" rows={6} value={draft.body}
++                      onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
++            <p className="mt-1 text-xs text-text3">
++              {'{{guest_first_name}}'} and {'{{room_number}}'} are filled in when sent.
++            </p>
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="qr-dept">Department</label>
++            <select id="qr-dept" className={SELECT} value={draft.departmentId ?? ''}
++                    onChange={(e) => setDraft({ ...draft, departmentId: e.target.value || null })}>
++              <option value="">All</option>
++              {(departments ?? []).map((d) => (
++                <option key={d.id} value={d.id}>{d.name}</option>
++              ))}
++            </select>
++          </div>
++          <label className="flex items-center gap-2 text-sm">
++            <input type="checkbox" checked={draft.active}
++                   onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />
++            Active
++          </label>
++        </EditPanel>
++      ) : null}
++    </div>
++  )
++}
+diff --git a/web/src/features/admin/UsersAdmin.test.tsx b/web/src/features/admin/UsersAdmin.test.tsx
+new file mode 100644
+index 0000000..e1130e8
+--- /dev/null
++++ b/web/src/features/admin/UsersAdmin.test.tsx
+@@ -0,0 +1,111 @@
++import { screen } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { SessionProvider } from '../../auth/SessionContext'
++import { aDepartment, aStaffUser } from '../../test/factories'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { UsersAdmin } from './UsersAdmin'
++
++const STAFF = [
++  aStaffUser({ id: 'u-ava', firstName: 'Ava', lastName: 'Nolan', role: 'agent' }),
++  aStaffUser({
++    id: 'u-eli',
++    firstName: 'Eli',
++    lastName: 'Engineer',
++    email: 'eli@hvh.test',
++    role: 'dept_staff',
++    departmentId: 'dept-eng',
++  }),
++]
++
++function serve() {
++  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
++    if (init && init.method && init.method !== 'GET') {
++      return Promise.resolve(
++        new Response(JSON.stringify(aStaffUser()), {
++          status: 200,
++          headers: { 'Content-Type': 'application/json' },
++        }),
++      )
++    }
++    const body = String(input).includes('/departments') ? [aDepartment()] : STAFF
++    return Promise.resolve(
++      new Response(JSON.stringify(body), {
++        status: 200,
++        headers: { 'Content-Type': 'application/json' },
++      }),
++    )
++  })
++}
++
++function mount() {
++  return renderWithProviders(
++    <SessionProvider>
++      <UsersAdmin />
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'admin' }), route: '/app/admin/users' },
++  )
++}
++
++describe('UsersAdmin', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++    serve()
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('lists staff with name, email, role and department', async () => {
++    mount()
++    expect(await screen.findByText('Ava Nolan')).toBeInTheDocument()
++    expect(screen.getByText('ava@hvh.test')).toBeInTheDocument()
++    expect(screen.getAllByText(/agent/i).length).toBeGreaterThan(0)
++    expect(screen.getByText('Engineering')).toBeInTheDocument()
++  })
++
++  it('offers every role in the enum when editing', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('Ava Nolan'))
++    const select = await screen.findByLabelText('Role')
++    for (const role of ['agent', 'dept_staff', 'supervisor', 'manager', 'admin', 'corporate']) {
++      expect(screen.getByRole('option', { name: role })).toBeInTheDocument()
++    }
++    expect(select).toHaveValue('agent')
++  })
++
++  it('patches the role', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('Ava Nolan'))
++    await userEvent.selectOptions(await screen.findByLabelText('Role'), 'supervisor')
++    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
++    const patch = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'PATCH')
++    expect(String(patch![0])).toContain('/users/u-ava')
++    expect(JSON.parse(String(patch![1]!.body))).toMatchObject({ role: 'supervisor' })
++  })
++
++  it('creates a user with the required identity fields', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: /new user/i }))
++    await userEvent.type(screen.getByLabelText('First name'), 'Nia')
++    await userEvent.type(screen.getByLabelText('Last name'), 'Okafor')
++    await userEvent.type(screen.getByLabelText('Email'), 'nia@hvh.test')
++    await userEvent.selectOptions(screen.getByLabelText('Role'), 'agent')
++    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
++    const post = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'POST')
++    expect(JSON.parse(String(post![1]!.body))).toMatchObject({
++      firstName: 'Nia',
++      lastName: 'Okafor',
++      email: 'nia@hvh.test',
++      role: 'agent',
++    })
++  })
++
++  it('will not create a user without an email', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: /new user/i }))
++    await userEvent.type(screen.getByLabelText('First name'), 'Nia')
++    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
++    expect(vi.mocked(fetch).mock.calls.some(([, i]) => i?.method === 'POST')).toBe(false)
++  })
++})
+diff --git a/web/src/features/admin/UsersAdmin.tsx b/web/src/features/admin/UsersAdmin.tsx
+new file mode 100644
+index 0000000..762ed70
+--- /dev/null
++++ b/web/src/features/admin/UsersAdmin.tsx
+@@ -0,0 +1,207 @@
++import { useState } from 'react'
++import {
++  useCreateStaff, useDeleteStaff, useDepartments, usePatchStaff, useStaff,
++} from '../../api/hooks/users'
++import type { Role, StaffUserOut } from '../../api/types'
++import { Button, EmptyState, Input, Spinner } from '../../components/ui'
++import { AdminTable, type Column } from './AdminTable'
++import { EditPanel } from './EditPanel'
++
++type Draft = {
++  id?: string
++  firstName: string
++  lastName: string
++  email: string
++  role: Role
++  departmentId: string | null
++  password: string | null
++  phone: string | null
++}
++
++const EMPTY: Draft = {
++  firstName: '', lastName: '', email: '', role: 'agent', departmentId: null, password: null, phone: null,
++}
++
++const ROLES: Role[] = ['agent', 'dept_staff', 'supervisor', 'manager', 'admin', 'corporate']
++
++const LABEL = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
++const SELECT = 'h-11 w-full rounded border border-border3 bg-surface2 px-3 text-sm text-text focus:border-accent focus:outline-none'
++
++export function UsersAdmin() {
++  const { data, isPending, error } = useStaff()
++  const { data: departments } = useDepartments()
++  const create = useCreateStaff()
++  const patch = usePatchStaff()
++  const remove = useDeleteStaff()
++  const [draft, setDraft] = useState<Draft | null>(null)
++  const [selected, setSelected] = useState<StaffUserOut | null>(null)
++
++  const rows = data ?? []
++  const pending = create.isPending || patch.isPending || remove.isPending
++  const failure = (create.error ?? patch.error ?? remove.error)?.message ?? null
++  const draftId = draft?.id
++
++  const columns: Column<StaffUserOut>[] = [
++    { key: 'name', head: 'Name', render: (r) => `${r.firstName} ${r.lastName}` },
++    { key: 'email', head: 'Email', render: (r) => r.email },
++    { key: 'role', head: 'Role', render: (r) => r.role },
++    {
++      key: 'dept',
++      head: 'Department',
++      render: (r) => departments?.find((d) => d.id === r.departmentId)?.name ?? '—',
++    },
++  ]
++
++  function open(user: StaffUserOut) {
++    setSelected(user)
++    setDraft({
++      id: user.id,
++      firstName: user.firstName,
++      lastName: user.lastName,
++      email: user.email,
++      role: user.role,
++      departmentId: user.departmentId ?? null,
++      password: null,
++      phone: null,
++    })
++  }
++
++  function save() {
++    if (!draft) return
++    const done = () => {
++      setDraft(null)
++      setSelected(null)
++    }
++    if (draft.id) {
++      patch.mutate(
++        { id: draft.id, role: draft.role, departmentId: draft.departmentId },
++        { onSuccess: done },
++      )
++      return
++    }
++    if (!draft.firstName.trim() || !draft.lastName.trim() || !draft.email.trim()) return
++    create.mutate(
++      {
++        firstName: draft.firstName,
++        lastName: draft.lastName,
++        email: draft.email,
++        role: draft.role,
++        departmentId: draft.departmentId,
++        password: draft.password,
++        phone: draft.phone,
++      },
++      { onSuccess: done },
++    )
++  }
++
++  return (
++    <div className="flex min-h-0 flex-1">
++      <div className="flex min-w-0 flex-1 flex-col">
++        <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
++          <h1 className="text-base font-bold">Users &amp; roles</h1>
++          <Button
++            variant="primary"
++            className="ml-auto"
++            onClick={() => {
++              setSelected(null)
++              setDraft({ ...EMPTY })
++            }}
++          >
++            New user
++          </Button>
++        </header>
++
++        <div className="min-h-0 flex-1 overflow-y-auto p-4">
++          {isPending ? (
++            <Spinner />
++          ) : error ? (
++            <EmptyState title="Could not load staff" hint={error.message} />
++          ) : rows.length === 0 ? (
++            <EmptyState title="No staff" hint="Add one to get started." />
++          ) : (
++            <div className="rounded-card border border-border2 bg-surface">
++              <AdminTable columns={columns} rows={rows} selectedId={selected?.id ?? null} onSelect={open} />
++            </div>
++          )}
++        </div>
++      </div>
++
++      {draft ? (
++        <EditPanel
++          title={draft.id ? 'Edit user' : 'New user'}
++          saving={pending}
++          error={failure}
++          onSave={save}
++          onCancel={() => {
++            setDraft(null)
++            setSelected(null)
++          }}
++          onDelete={
++            draftId
++              ? () =>
++                  remove.mutate({ id: draftId }, {
++                    onSuccess: () => {
++                      setDraft(null)
++                      setSelected(null)
++                    },
++                  })
++              : undefined
++          }
++        >
++          {!draft.id ? (
++            <>
++              <div>
++                <label className={LABEL} htmlFor="user-first">First name</label>
++                <Input id="user-first" value={draft.firstName}
++                       onChange={(e) => setDraft({ ...draft, firstName: e.target.value })} />
++              </div>
++              <div>
++                <label className={LABEL} htmlFor="user-last">Last name</label>
++                <Input id="user-last" value={draft.lastName}
++                       onChange={(e) => setDraft({ ...draft, lastName: e.target.value })} />
++              </div>
++              <div>
++                <label className={LABEL} htmlFor="user-email">Email</label>
++                <Input id="user-email" type="email" value={draft.email}
++                       onChange={(e) => setDraft({ ...draft, email: e.target.value })} />
++              </div>
++            </>
++          ) : null}
++          <div>
++            <label className={LABEL} htmlFor="user-role">Role</label>
++            <select id="user-role" className={SELECT} value={draft.role}
++                    onChange={(e) => setDraft({ ...draft, role: e.target.value as Role })}>
++              {ROLES.map((role) => (
++                <option key={role} value={role}>{role}</option>
++              ))}
++            </select>
++          </div>
++          <div>
++            <label className={LABEL} htmlFor="user-dept">Department</label>
++            <select id="user-dept" className={SELECT} value={draft.departmentId ?? ''}
++                    onChange={(e) => setDraft({ ...draft, departmentId: e.target.value || null })}>
++              <option value="">None</option>
++              {(departments ?? []).map((d) => (
++                <option key={d.id} value={d.id}>{d.name}</option>
++              ))}
++            </select>
++          </div>
++          {!draft.id ? (
++            <>
++              <div>
++                <label className={LABEL} htmlFor="user-password">Password</label>
++                <Input id="user-password" type="password" value={draft.password ?? ''}
++                       onChange={(e) => setDraft({ ...draft, password: e.target.value || null })} />
++              </div>
++              <div>
++                <label className={LABEL} htmlFor="user-phone">Phone</label>
++                <Input id="user-phone" value={draft.phone ?? ''}
++                       onChange={(e) => setDraft({ ...draft, phone: e.target.value || null })} />
++              </div>
++            </>
++          ) : null}
++        </EditPanel>
++      ) : null}
++    </div>
++  )
++}
+diff --git a/web/src/features/login/LoginPage.tsx b/web/src/features/login/LoginPage.tsx
+index a18378c..0b1ba1e 100644
+--- a/web/src/features/login/LoginPage.tsx
++++ b/web/src/features/login/LoginPage.tsx
+@@ -1,25 +1,30 @@
+ import { useState } from 'react'
+ import { Navigate, useLocation } from 'react-router-dom'
+ import { useLogin, useSessionQuery } from '../../api/hooks/auth'
+ import { landingPath } from '../../auth/capabilities'
+ import { Button, Input } from '../../components/ui'
+ 
+ export function LoginPage() {
+   const login = useLogin()
+-  const { data: session } = useSessionQuery()
++  // `isSuccess`, not just `data`: react-query keeps the last-good session payload cached
++  // through a subsequent error (e.g. the cookie dying mid-session, surfaced when some other
++  // request 401s and RequireAuth's refetch fails too). Trusting stale `data` alone bounced a
++  // dead session straight back into the app, which RequireAuth would then bounce right back
++  // out to /login — an instant redirect loop between the two.
++  const { data: session, isSuccess } = useSessionQuery()
+   const location = useLocation()
+   const [email, setEmail] = useState('')
+   const [password, setPassword] = useState('')
+ 
+   // Already signed in (or just signed in): go where the role belongs, or back where we came from.
+-  if (session && session.memberships.length > 0) {
++  if (isSuccess && session && session.memberships.length > 0) {
+     const from = (location.state as { from?: string } | null)?.from
+     return <Navigate to={from ?? landingPath(session.memberships[0]!.role)} replace />
+   }
+ 
+   return (
+     <div className="grid min-h-full place-items-center bg-bg p-6">
+       <form
+         className="w-full max-w-sm rounded-card border border-border2 bg-surface p-6"
+         onSubmit={(event) => {
+           event.preventDefault()
+diff --git a/web/src/routes.test.tsx b/web/src/routes.test.tsx
+index fbcf1c7..d06f2dd 100644
+--- a/web/src/routes.test.tsx
++++ b/web/src/routes.test.tsx
+@@ -36,32 +36,40 @@ describe('AppRoutes', () => {
+     // Infinity), so /api/auth/me is never actually fetched for them; this default only fires
+     // for the one unauthenticated test below. A 204 there makes api() return undefined, which
+     // React Query logs as an error ("Query data cannot be undefined") even though the redirect
+     // it drives is correct — a 401, what /api/auth/me really returns when signed out, avoids
+     // that noise without changing what any test asserts.
+     //
+     // Task 18's Shell fires a real fetch (useUnreadCount) for every /app/* route, session or
+     // not — under a blanket 401 that trips RequireAuth's onUnauthorized handler and bounces a
+     // role-seeded test straight to /login, which is not what any of these tests are about (the
+     // admin route previously never fetched anything, so this race did not exist before Task 18).
+-    // Only that one endpoint is special-cased; everything else keeps 401ing as before.
++    // Task 19 gave the admin/users screen its own real fetches (staff, departments), which hit
++    // the same landmine: a 401 from either one also trips onUnauthorized, and since RequireAuth's
++    // own refetch of /api/auth/me then 401s too, the session query settles into an error state.
++    // Those two are special-cased the same way unread-count is; everything else keeps 401ing.
+     vi.stubGlobal(
+       'fetch',
+       vi.fn().mockImplementation((input: RequestInfo | URL) => {
+         if (String(input).includes('unread-count')) {
+           return Promise.resolve(
+             new Response(JSON.stringify({ count: 0 }), {
+               status: 200,
+               headers: { 'Content-Type': 'application/json' },
+             }),
+           )
+         }
++        if (String(input).includes('/users') || String(input).includes('/departments')) {
++          return Promise.resolve(
++            new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }),
++          )
++        }
+         return Promise.resolve(
+           new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Not signed in' } }), {
+             status: 401,
+             headers: { 'Content-Type': 'application/json' },
+           }),
+         )
+       }),
+     )
+   })
+   afterEach(() => {
+diff --git a/web/src/routes.tsx b/web/src/routes.tsx
+index a567047..3a46d58 100644
+--- a/web/src/routes.tsx
++++ b/web/src/routes.tsx
+@@ -1,28 +1,24 @@
+ import { Suspense, lazy } from 'react'
+ import { Navigate, Route, Routes } from 'react-router-dom'
+ import { useSession } from './auth/SessionContext'
+ import { RequireAuth } from './auth/RequireAuth'
+ import { landingPath } from './auth/capabilities'
+ import { AppLayout } from './AppLayout'
+-import { EmptyState, Spinner } from './components/ui'
++import { Spinner } from './components/ui'
+ import { LoginPage } from './features/login/LoginPage'
+ import { InboxPage } from './features/inbox/InboxPage'
+ import { BoardPage } from './features/board/BoardPage'
+ import { WorkOrderDetailPage } from './features/board/WorkOrderDetailPage'
+ import { AnalyticsPage } from './features/analytics/AnalyticsPage'
+ import { NotificationsPage } from './features/notifications/NotificationsPage'
+-
+-/** Temporary: each feature task replaces one of these with the real screen. */
+-function Placeholder({ name }: { name: string }) {
+-  return <EmptyState title={name} hint="Not built yet." />
+-}
++import { AdminPage } from './features/admin/AdminPage'
+ 
+ function LandingRedirect() {
+   const { role } = useSession()
+   return <Navigate to={landingPath(role)} replace />
+ }
+ 
+ function RequireCapability({
+   capability,
+   children,
+ }: {
+@@ -56,21 +52,21 @@ export function AppRoutes() {
+               <RequireCapability capability="view_property_analytics">
+                 <AnalyticsPage />
+               </RequireCapability>
+             }
+           />
+           <Route path="notifications" element={<NotificationsPage />} />
+           <Route
+             path="admin/*"
+             element={
+               <RequireCapability capability="manage_admin">
+-                <Placeholder name="Admin" />
++                <AdminPage />
+               </RequireCapability>
+             }
+           />
+         </Route>
+       </Route>
+       {SimulatorPage ? (
+         <Route
+           path="/sim"
+           element={
+             <Suspense fallback={<Spinner />}>

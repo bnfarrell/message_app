@@ -1,0 +1,794 @@
+# Review package: 4168073..d870b63
+
+## Commits
+d870b63 feat(server): conversation list/detail/patch, internal notes with mentions, guest-thread shape
+032ad87 docs: point the project remote at bnfarrell/message_app
+
+## Files changed
+ CLAUDE.md                              |   2 +-
+ docs/superpowers/RESUME.md             |   2 +-
+ server/app/api/conversations.py        |  69 ++++++++++-
+ server/app/domain/conversations.py     | 219 ++++++++++++++++++++++++++++++++-
+ server/app/domain/notes.py             |  56 +++++++++
+ server/app/schemas/conversations.py    |  92 ++++++++++++++
+ server/tests/test_conversations_api.py | 122 ++++++++++++++++++
+ server/tests/test_note_leakage.py      |  52 ++++++++
+ 8 files changed, 605 insertions(+), 9 deletions(-)
+
+## Diff
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 5fec757..e36029b 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -2,21 +2,21 @@
+ 
+ ## Project
+ 
+ Unified hotel guest engagement & operations platform. Full spec: `docs/design.md`.
+ Phase 1 scope, stack decisions and acceptance criteria: `docs/superpowers/specs/2026-09-10-hotel-engagement-phase1-design.md`.
+ Implementation plan: `docs/superpowers/plans/2026-09-10-phase1-server.md`. Approved screens: `docs/mockups/`.
+ 
+ Stack: Python 3.12+ · Flask 3 · SQLAlchemy 2 · Alembic · Pydantic v2 · flask-sock · pytest, on SQLite
+ (PostgreSQL by changing `DATABASE_URL`); frontend Vite + React + TypeScript.
+ 
+-**Remote:** https://github.com/bnfarrellUUS/message_app — push the finished work here.
++**Remote:** https://github.com/bnfarrell/message_app — push the finished work here.
+ 
+ ---
+ 
+ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+ 
+ **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+ 
+ ## 1. Think Before Coding
+ 
+ **Don't assume. Don't hide confusion. Surface tradeoffs.**
+diff --git a/docs/superpowers/RESUME.md b/docs/superpowers/RESUME.md
+index ba1a936..2aedbf6 100644
+--- a/docs/superpowers/RESUME.md
++++ b/docs/superpowers/RESUME.md
+@@ -10,21 +10,21 @@ inbox, problems become work orders, and when a work order closes the agent is pr
+ | Document | What it is |
+ |---|---|
+ | `docs/design.md` | The original full product spec (v1.0, all 4 phases) |
+ | `docs/superpowers/specs/2026-09-10-hotel-engagement-phase1-design.md` | **Binding authority.** Phase 1 scope, stack decisions, acceptance criteria |
+ | `docs/superpowers/plans/2026-09-10-phase1-server.md` | **The plan being executed.** 24 tasks, each with complete code and tests |
+ | `docs/mockups/*.dc.html` | Approved screen designs ("Night Shift" direction). Published: https://claude.ai/code/artifact/cc54191d-cdf8-4474-b5a2-eda523b54ad8 |
+ 
+ Stack: Python 3.14 · Flask 3 · SQLAlchemy 2 · Alembic · Pydantic v2 · flask-sock · pytest, on SQLite
+ (PostgreSQL later by changing `DATABASE_URL`). Frontend (not started): Vite + React + TypeScript.
+ 
+-Remote to push to when done: **https://github.com/bnfarrellUUS/message_app** (no git remote configured yet).
++Remote to push to when done: **https://github.com/bnfarrell/message_app** (configured as `origin`; nothing pushed yet).
+ 
+ ## Where the build stands
+ 
+ **Tasks 1–8 of 24 committed and green.** Suite: **64 passing, 0 warnings**
+ (`cd server && ../.venv/Scripts/python.exe -m pytest -q`). Working tree clean.
+ 
+ Reviews for Tasks 6 and 7 were run at the top of session 2 and both came back **clean**
+ (spec ✅, quality Approved, 0 Critical/Important). No reviews are owed.
+ 
+ | # | Task | State |
+diff --git a/server/app/api/conversations.py b/server/app/api/conversations.py
+index 1c9bac7..22b544b 100644
+--- a/server/app/api/conversations.py
++++ b/server/app/api/conversations.py
+@@ -1,22 +1,85 @@
+ from flask import Blueprint, g
+ 
+-from app.api._util import client_meta, db_session, ok, parse_body
++from app.api._util import client_meta, db_session, ok, parse_body, parse_query
+ from app.auth.decorators import require_auth, require_capability, require_property
+-from app.domain import messages
+-from app.schemas.conversations import MessageOut, SendMessageRequest
++from app.auth.permissions import has_capability
++from app.domain import conversations, messages, notes
++from app.schemas.conversations import (
++    ConversationPatch, CreateNoteRequest, ListQuery, MessageOut, SendMessageRequest,
++)
+ 
+ bp = Blueprint("conversations", __name__, url_prefix="/api/p/<property_id>/conversations")
+ 
+ 
++def _viewer():
++    m = g.membership
++    return dict(viewer_user_id=g.user.id, viewer_role=m.role, viewer_department_id=m.department_id)
++
++
++@bp.get("")
++@require_auth
++@require_property
++def list_conversations(property_id: str):
++    q = parse_query(ListQuery)
++    with db_session() as db:
++        return ok(conversations.list(db, g.property_id, filter=q.filter, dept=q.dept, limit=q.limit,
++                                     offset=q.offset, **_viewer()))
++
++
++@bp.get("/<conversation_id>")
++@require_auth
++@require_property
++def get_conversation(property_id: str, conversation_id: str):
++    with db_session() as db:
++        c = conversations.get(db, g.property_id, conversation_id)
++        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
++        return ok(conversations.detail(db, g.property_id, conversation_id))
++
++
+ @bp.post("/<conversation_id>/messages")
+ @require_auth
+ @require_property
+ @require_capability("reply")
+ def send_message(property_id: str, conversation_id: str):
+     body = parse_body(SendMessageRequest)
+     ip, ua = client_meta()
+     with db_session() as db:
+         m = messages.send(db, g.property_id, conversation_id, body.body, author_user_id=g.user.id,
+                           digital_asset_id=body.digital_asset_id, draft_prompt_id=body.draft_prompt_id,
+                           ip=ip, user_agent=ua)
+         return ok(MessageOut.model_validate(m), 201)
++
++
++@bp.post("/<conversation_id>/messages/<message_id>/retry")
++@require_auth
++@require_property
++@require_capability("reply")
++def retry_message(property_id: str, conversation_id: str, message_id: str):
++    with db_session() as db:
++        conversations.get(db, g.property_id, conversation_id)
++        m = messages.retry(db, g.property_id, message_id)
++        return ok(MessageOut.model_validate(m))
++
++
++@bp.post("/<conversation_id>/notes")
++@require_auth
++@require_property
++@require_capability("add_note")
++def add_note(property_id: str, conversation_id: str):
++    body = parse_body(CreateNoteRequest)
++    with db_session() as db:
++        n = notes.create(db, g.property_id, conversation_id, g.user.id, body.body)
++        out = [x for x in notes.list_for(db, g.property_id, conversation_id) if x.id == n.id][0]
++        return ok(out, 201)
++
++
++@bp.patch("/<conversation_id>")
++@require_auth
++@require_property
++@require_capability("assign")
++def patch_conversation(property_id: str, conversation_id: str):
++    changes = parse_body(ConversationPatch)
++    with db_session() as db:
++        conversations.patch(db, g.property_id, conversation_id, g.user.id, changes,
++                            can_archive=has_capability(g.membership.role, "archive"))
++        return ok(conversations.detail(db, g.property_id, conversation_id))
+diff --git a/server/app/domain/conversations.py b/server/app/domain/conversations.py
+index 9b44db2..28af8e5 100644
+--- a/server/app/domain/conversations.py
++++ b/server/app/domain/conversations.py
+@@ -1,20 +1,35 @@
+ from __future__ import annotations
+ 
+-from sqlalchemy import select
++from datetime import timedelta
++
++from sqlalchemy import and_, case, exists, func, or_, select
+ from sqlalchemy.orm import Session
+ 
+ from app import clock
+-from app.errors import NotFound
+-from app.models import Conversation, Guest, Property, Stay
++from app.domain import audit, notifications
++from app.errors import Forbidden, NotFound, ValidationFailed
++from app.models import Conversation, Department, DraftPrompt, Guest, Message, Property, PropertyMembership, Stay, WorkOrder
+ from app.realtime.broadcast import queue_event
+-from app.schemas.enums import Channel, ConversationStatus
++from app.schemas.conversations import (
++    ConversationDetail,
++    ConversationPatch,
++    ConversationSummary,
++    DraftPromptOut,
++    GuestOut,
++    GuestThread,
++    GuestThreadMessage,
++    MessageOut,
++    StayOut,
++    WorkOrderBrief,
++)
++from app.schemas.enums import Channel, ConversationStatus, DraftPromptStatus, Role, WorkOrderStatus
+ 
+ 
+ def get(db: Session, property_id: str, conversation_id: str) -> Conversation:
+     c = db.scalar(select(Conversation).where(Conversation.id == conversation_id,
+                                              Conversation.property_id == property_id))
+     if c is None:
+         raise NotFound("Conversation not found")
+     return c
+ 
+ 
+@@ -54,10 +69,206 @@ def find_or_create_for_guest(db: Session, property_id: str, guest: Guest,
+         c.snoozed_until = None
+     if stay and c.stay_id != stay.id:
+         c.stay_id = stay.id
+     db.flush()
+     return c, False
+ 
+ 
+ def touch_updated(db: Session, c: Conversation) -> None:
+     c.updated_at = clock.now()
+     queue_event(db, c.property_id, "conversation.updated", {"id": c.id})
++
++
++OPEN_WO = [WorkOrderStatus.open, WorkOrderStatus.assigned, WorkOrderStatus.in_progress, WorkOrderStatus.blocked]
++
++
++def _open_wo_exists():
++    return exists().where(WorkOrder.source_conversation_id == Conversation.id, WorkOrder.status.in_(OPEN_WO))
++
++
++def _resolved_condition(db: Session, property_id: str):
++    """Spec §4 'Resolved': open, quiet for N hours, no open work order — and answered, so an ignored
++    guest can never fall out of the queue (a refinement of the spec wording)."""
++    cutoff = clock.now() - timedelta(hours=auto_resolve_hours(db, property_id))
++    return and_(Conversation.status == ConversationStatus.open,
++                Conversation.last_guest_message_at.isnot(None),
++                Conversation.last_guest_message_at < cutoff,
++                ~_unanswered_expr(),
++                ~_open_wo_exists())
++
++
++def _unanswered_expr():
++    return and_(Conversation.last_guest_message_at.isnot(None),
++                or_(Conversation.last_staff_message_at.is_(None),
++                    Conversation.last_staff_message_at < Conversation.last_guest_message_at))
++
++
++def viewer_scope(q, viewer_role: Role, viewer_user_id: str, viewer_department_id: str | None):
++    if viewer_role == Role.dept_staff:
++        return q.where(or_(Conversation.assigned_user_id == viewer_user_id,
++                           Conversation.assigned_department_id == viewer_department_id))
++    return q
++
++
++def list(db: Session, property_id: str, *, filter: str, viewer_user_id: str, viewer_role: Role,
++         viewer_department_id: str | None, dept: str | None = None, limit: int = 50,
++         offset: int = 0) -> list[ConversationSummary]:  # noqa: A001 — mirrors the API name
++    now = clock.now()
++    resolved = _resolved_condition(db, property_id)
++    q = select(Conversation).where(Conversation.property_id == property_id)
++    if filter == "all":
++        q = q.where(Conversation.status == ConversationStatus.open, ~resolved)
++    elif filter == "mine":
++        q = q.where(Conversation.status == ConversationStatus.open, ~resolved,
++                    Conversation.assigned_user_id == viewer_user_id)
++    elif filter == "unassigned":
++        q = q.where(Conversation.status == ConversationStatus.open, ~resolved,
++                    Conversation.assigned_user_id.is_(None), Conversation.assigned_department_id.is_(None))
++    elif filter == "overdue":
++        q = q.where(Conversation.status == ConversationStatus.open, Conversation.sla_due_at.isnot(None),
++                    Conversation.sla_due_at < now)
++    elif filter == "resolved":
++        q = q.where(resolved)
++    elif filter == "archived":
++        q = q.where(Conversation.status == ConversationStatus.archived)
++    elif filter == "snoozed":
++        q = q.where(Conversation.status == ConversationStatus.snoozed)
++    else:
++        raise ValidationFailed(f"Unknown filter {filter!r}")
++    if dept:
++        q = q.where(Conversation.assigned_department_id == dept)
++    q = viewer_scope(q, viewer_role, viewer_user_id, viewer_department_id)
++    q = q.order_by(case((_unanswered_expr(), 0), else_=1),
++                   Conversation.last_guest_message_at.asc().nulls_last(),
++                   Conversation.updated_at.desc()).limit(limit).offset(offset)
++    rows = db.scalars(q).all()
++    return [_summary(db, c) for c in rows]
++
++
++def _last_preview(db: Session, conversation_id: str) -> str | None:
++    body = db.scalar(select(Message.body).where(Message.conversation_id == conversation_id)
++                     .order_by(Message.sent_at.desc()).limit(1))
++    return body[:140] if body else None
++
++
++def _open_wo_count(db: Session, conversation_id: str) -> int:
++    return db.scalar(select(func.count()).select_from(WorkOrder).where(
++        WorkOrder.source_conversation_id == conversation_id, WorkOrder.status.in_(OPEN_WO))) or 0
++
++
++def _summary(db: Session, c: Conversation) -> ConversationSummary:
++    unanswered = bool(c.last_guest_message_at and (c.last_staff_message_at is None
++                                                    or c.last_staff_message_at < c.last_guest_message_at))
++    return ConversationSummary(
++        id=c.id, status=c.status, guest=GuestOut.model_validate(c.guest),
++        room_number=c.stay.room_number if c.stay else None,
++        assigned_user_id=c.assigned_user_id, assigned_department_id=c.assigned_department_id,
++        channel_primary=c.channel_primary, last_guest_message_at=c.last_guest_message_at,
++        last_staff_message_at=c.last_staff_message_at, last_message_preview=_last_preview(db, c.id),
++        sla_due_at=c.sla_due_at, unanswered=unanswered, open_work_order_count=_open_wo_count(db, c.id),
++        snoozed_until=c.snoozed_until,
++    )
++
++
++def assert_viewer_can_see(c: Conversation, viewer_role: Role, viewer_user_id: str,
++                          viewer_department_id: str | None) -> None:
++    if viewer_role == Role.dept_staff and not (
++        c.assigned_user_id == viewer_user_id or c.assigned_department_id == viewer_department_id
++    ):
++        raise Forbidden("This conversation belongs to another department")
++
++
++def detail(db: Session, property_id: str, conversation_id: str) -> ConversationDetail:
++    from app.domain import notes as notes_domain
++
++    c = get(db, property_id, conversation_id)
++    msgs = db.scalars(select(Message).where(Message.conversation_id == c.id).order_by(Message.sent_at)).all()
++    wos = db.scalars(select(WorkOrder).where(WorkOrder.source_conversation_id == c.id)
++                     .order_by(WorkOrder.created_at.desc())).all()
++    prompts = db.execute(select(DraftPrompt, WorkOrder.title).join(WorkOrder, WorkOrder.id == DraftPrompt.work_order_id)
++                         .where(DraftPrompt.conversation_id == c.id, DraftPrompt.status == DraftPromptStatus.pending)
++                         .order_by(DraftPrompt.created_at)).all()
++    return ConversationDetail(
++        id=c.id, status=c.status, guest=GuestOut.model_validate(c.guest),
++        stay=StayOut.model_validate(c.stay) if c.stay else None,
++        assigned_user_id=c.assigned_user_id, assigned_department_id=c.assigned_department_id,
++        channel_primary=c.channel_primary, last_guest_message_at=c.last_guest_message_at,
++        last_staff_message_at=c.last_staff_message_at, first_response_seconds=c.first_response_seconds,
++        sla_due_at=c.sla_due_at, snoozed_until=c.snoozed_until,
++        resolution_category_id=c.resolution_category_id, archived_at=c.archived_at,
++        messages=[MessageOut.model_validate(m) for m in msgs],
++        notes=notes_domain.list_for(db, property_id, c.id),
++        work_orders=[WorkOrderBrief.model_validate(w) for w in wos],
++        draft_prompts=[DraftPromptOut(id=p.id, work_order_id=p.work_order_id, work_order_title=title,
++                                      body=p.body, status=p.status, created_at=p.created_at)
++                       for p, title in prompts],
++    )
++
++
++def guest_thread(db: Session, property_id: str, phone: str) -> GuestThread:
++    """Guest-facing shape. Queries only `message` — internal_note is never touched here."""
++    from app.domain.guests import find_by_phone
++
++    prop = db.get(Property, property_id)
++    guest = find_by_phone(db, property_id, phone)
++    msgs: list[Message] = []
++    if guest:
++        msgs = db.scalars(
++            select(Message).join(Conversation, Conversation.id == Message.conversation_id)
++            .where(Conversation.guest_id == guest.id, Message.property_id == property_id)
++            .order_by(Message.sent_at)
++        ).all()
++    return GuestThread(phone=guest.phone_e164 if guest else phone, property_name=prop.name,
++                       messages=[GuestThreadMessage(id=m.id, direction=m.direction, body=m.body,
++                                                    sent_at=m.sent_at, delivery_status=m.delivery_status)
++                                 for m in msgs])
++
++
++def patch(db: Session, property_id: str, conversation_id: str, actor_user_id: str,
++          changes: ConversationPatch, *, can_archive: bool) -> Conversation:
++    c = get(db, property_id, conversation_id)
++    before = {"status": c.status.value, "assigned_user_id": c.assigned_user_id,
++              "assigned_department_id": c.assigned_department_id}
++    if changes.clear_assignment:
++        c.assigned_user_id = None
++        c.assigned_department_id = None
++    if changes.assigned_user_id is not None:
++        if not db.scalar(select(PropertyMembership.id).where(PropertyMembership.property_id == property_id,
++                                                              PropertyMembership.user_id == changes.assigned_user_id)):
++            raise ValidationFailed("Assignee is not a member of this property")
++        c.assigned_user_id = changes.assigned_user_id
++        if changes.assigned_user_id != actor_user_id:
++            notifications.create(db, property_id, changes.assigned_user_id, "conversation.assigned",
++                                 "Conversation assigned to you", entity_type="conversation", entity_id=c.id)
++    if changes.assigned_department_id is not None:
++        if not db.scalar(select(Department.id).where(Department.id == changes.assigned_department_id,
++                                                     Department.property_id == property_id)):
++            raise ValidationFailed("Unknown department")
++        c.assigned_department_id = changes.assigned_department_id
++        c.assigned_user_id = None if changes.assigned_user_id is None else c.assigned_user_id
++    if changes.status is not None:
++        if changes.status == ConversationStatus.archived:
++            if not can_archive:
++                raise Forbidden("Your role cannot archive conversations")
++            c.status = ConversationStatus.archived
++            c.archived_at = clock.now()
++            c.resolution_category_id = changes.resolution_category_id
++        elif changes.status == ConversationStatus.snoozed:
++            if changes.snoozed_until is None:
++                raise ValidationFailed("snoozedUntil is required to snooze")
++            c.status = ConversationStatus.snoozed
++            c.snoozed_until = changes.snoozed_until
++        elif changes.status == ConversationStatus.open:
++            c.status = ConversationStatus.open
++            c.archived_at = None
++            c.snoozed_until = None
++    elif changes.resolution_category_id is not None:
++        c.resolution_category_id = changes.resolution_category_id
++    db.flush()
++    after = {"status": c.status.value, "assigned_user_id": c.assigned_user_id,
++             "assigned_department_id": c.assigned_department_id}
++    audit.record(db, property_id, actor_user_id, "conversation.patched", "conversation", c.id,
++                 before=before, after=after)
++    queue_event(db, property_id, "conversation.assigned" if before["assigned_user_id"] != after["assigned_user_id"]
++                or before["assigned_department_id"] != after["assigned_department_id"] else "conversation.updated",
++                {"id": c.id})
++    return c
+diff --git a/server/app/domain/notes.py b/server/app/domain/notes.py
+new file mode 100644
+index 0000000..0b14b23
+--- /dev/null
++++ b/server/app/domain/notes.py
+@@ -0,0 +1,56 @@
++from __future__ import annotations
++
++import re
++
++from sqlalchemy import select
++from sqlalchemy.orm import Session
++
++from app.domain import audit, notifications
++from app.domain import conversations as conv_domain
++from app.models import InternalNote, PropertyMembership, UserAccount
++from app.schemas.conversations import NoteOut
++
++_MENTION = re.compile(r"@([A-Za-z][\w'-]*)")
++
++
++def _resolve_mentions(db: Session, property_id: str, body: str) -> list[str]:
++    names = {m.lower() for m in _MENTION.findall(body)}
++    if not names:
++        return []
++    rows = db.execute(
++        select(UserAccount.id, UserAccount.first_name)
++        .join(PropertyMembership, PropertyMembership.user_id == UserAccount.id)
++        .where(PropertyMembership.property_id == property_id)
++    ).all()
++    return [uid for uid, first in rows if first.lower() in names]
++
++
++def create(db: Session, property_id: str, conversation_id: str, author_user_id: str, body: str) -> InternalNote:
++    conv = conv_domain.get(db, property_id, conversation_id)
++    mentions = _resolve_mentions(db, property_id, body)
++    note = InternalNote(conversation_id=conv.id, property_id=property_id, author_user_id=author_user_id,
++                        body=body.strip(), mentions=mentions)
++    db.add(note)
++    db.flush()
++    author = db.get(UserAccount, author_user_id)
++    for uid in mentions:
++        if uid != author_user_id:
++            notifications.create(db, property_id, uid, "note.mention",
++                                 f"{author.first_name} mentioned you", body=body[:140],
++                                 entity_type="conversation", entity_id=conv.id)
++    audit.record(db, property_id, author_user_id, "note.created", "internal_note", note.id,
++                 after={"conversation_id": conv.id})
++    conv_domain.touch_updated(db, conv)
++    return note
++
++
++def list_for(db: Session, property_id: str, conversation_id: str) -> list[NoteOut]:
++    rows = db.execute(
++        select(InternalNote, UserAccount)
++        .join(UserAccount, UserAccount.id == InternalNote.author_user_id)
++        .where(InternalNote.conversation_id == conversation_id, InternalNote.property_id == property_id)
++        .order_by(InternalNote.created_at)
++    ).all()
++    return [NoteOut(id=n.id, author_user_id=n.author_user_id, author_name=f"{u.first_name} {u.last_name}",
++                    body=n.body, mentions=list(n.mentions or []), created_at=n.created_at)
++            for n, u in rows]
+diff --git a/server/app/schemas/conversations.py b/server/app/schemas/conversations.py
+index 29b48ee..409d220 100644
+--- a/server/app/schemas/conversations.py
++++ b/server/app/schemas/conversations.py
+@@ -2,22 +2,26 @@ from datetime import date, datetime
+ 
+ from pydantic import Field
+ 
+ from app.schemas.common import CamelModel
+ from app.schemas.enums import (
+     AuthorType,
+     Channel,
+     ConversationStatus,
+     DeliveryStatus,
+     Direction,
++    DraftPromptStatus,
++    Priority,
+     SmsConsentStatus,
+     StayStatus,
++    WorkOrderStatus,
++    WorkOrderType,
+ )
+ 
+ 
+ class MessageOut(CamelModel):
+     id: str
+     conversation_id: str
+     direction: Direction
+     author_type: AuthorType
+     author_user_id: str | None = None
+     channel: Channel
+@@ -70,10 +74,98 @@ class ConversationSummary(CamelModel):
+     sla_due_at: datetime | None = None
+     unanswered: bool
+     open_work_order_count: int
+     snoozed_until: datetime | None = None
+ 
+ 
+ class SendMessageRequest(CamelModel):
+     body: str = Field(min_length=1, max_length=1600)
+     digital_asset_id: str | None = None
+     draft_prompt_id: str | None = None
++
++
++class NoteOut(CamelModel):
++    id: str
++    author_user_id: str
++    author_name: str
++    body: str
++    mentions: list[str]
++    created_at: datetime
++
++
++class WorkOrderBrief(CamelModel):
++    id: str
++    title: str
++    status: WorkOrderStatus
++    priority: Priority
++    type: WorkOrderType
++    department_id: str | None = None
++    assigned_user_id: str | None = None
++    created_at: datetime
++    completed_at: datetime | None = None
++    guest_notified_at: datetime | None = None
++
++
++class DraftPromptOut(CamelModel):
++    id: str
++    work_order_id: str
++    work_order_title: str
++    body: str
++    status: DraftPromptStatus
++    created_at: datetime
++
++
++class ConversationDetail(CamelModel):
++    id: str
++    status: ConversationStatus
++    guest: GuestOut
++    stay: StayOut | None = None
++    assigned_user_id: str | None = None
++    assigned_department_id: str | None = None
++    channel_primary: Channel
++    last_guest_message_at: datetime | None = None
++    last_staff_message_at: datetime | None = None
++    first_response_seconds: int | None = None
++    sla_due_at: datetime | None = None
++    snoozed_until: datetime | None = None
++    resolution_category_id: str | None = None
++    archived_at: datetime | None = None
++    messages: list[MessageOut]
++    notes: list[NoteOut]
++    work_orders: list[WorkOrderBrief]
++    draft_prompts: list[DraftPromptOut]
++
++
++class GuestThreadMessage(CamelModel):
++    """What a guest could ever see. Deliberately has no field that could carry an internal note."""
++
++    id: str
++    direction: Direction
++    body: str
++    sent_at: datetime | None = None
++    delivery_status: DeliveryStatus
++
++
++class GuestThread(CamelModel):
++    phone: str
++    property_name: str
++    messages: list[GuestThreadMessage]
++
++
++class ConversationPatch(CamelModel):
++    assigned_user_id: str | None = None
++    assigned_department_id: str | None = None
++    status: ConversationStatus | None = None
++    resolution_category_id: str | None = None
++    snoozed_until: datetime | None = None
++    clear_assignment: bool = False
++
++
++class CreateNoteRequest(CamelModel):
++    body: str = Field(min_length=1, max_length=4000)
++
++
++class ListQuery(CamelModel):
++    filter: str = "all"
++    dept: str | None = None
++    limit: int = Field(default=50, ge=1, le=200)
++    offset: int = Field(default=0, ge=0)
+diff --git a/server/tests/test_conversations_api.py b/server/tests/test_conversations_api.py
+new file mode 100644
+index 0000000..d998d00
+--- /dev/null
++++ b/server/tests/test_conversations_api.py
+@@ -0,0 +1,122 @@
++from datetime import timedelta
++
++from sqlalchemy import select
++
++from app import clock
++from app.models import Conversation, Message
++from app.schemas.enums import ConversationStatus, DeliveryStatus
++from tests.factories import inbound
++
++
++def _cid(database, guest_id):
++    with database.session() as db:
++        return db.scalar(select(Conversation.id).where(Conversation.guest_id == guest_id))
++
++
++def _base(fx):
++    return f"/api/p/{fx.property_a.id}/conversations"
++
++
++def test_list_sorts_oldest_unanswered_first_and_shows_context(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_nostay_a.phone_e164, "late checkout?")
++    clock.advance(minutes=1)
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
++    c = login("agent@hvh.test")
++    rows = c.get(_base(fx)).get_json()
++    assert [r["guest"]["firstName"] for r in rows] == ["Diego", "Sarah"]
++    sarah = rows[1]
++    assert sarah["roomNumber"] == "412" and sarah["unanswered"] is True
++    assert sarah["lastMessagePreview"] == "AC broken"
++    assert sarah["slaDueAt"] is not None
++
++
++def test_filters_mine_unassigned_overdue_resolved_archived(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_nostay_a.phone_e164, "one")
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "two")
++    diego, sarah = _cid(database, fx.guest_nostay_a.id), _cid(database, fx.guest_inhouse_a.id)
++    c = login("agent@hvh.test")
++    assert c.patch(f"{_base(fx)}/{sarah}", json={"assignedUserId": fx.agent_a.id}).status_code == 200
++    assert {r["id"] for r in c.get(_base(fx) + "?filter=mine").get_json()} == {sarah}
++    assert {r["id"] for r in c.get(_base(fx) + "?filter=unassigned").get_json()} == {diego}
++    assert c.get(_base(fx) + "?filter=overdue").get_json() == []
++    clock.advance(minutes=16)
++    assert {r["id"] for r in c.get(_base(fx) + "?filter=overdue").get_json()} == {diego, sarah}
++    # Resolved: no guest message for 4h and no open WO → leaves "all", appears in "resolved".
++    c.post(f"{_base(fx)}/{diego}/messages", json={"body": "Sure"})
++    clock.advance(hours=4, minutes=1)
++    assert diego not in {r["id"] for r in c.get(_base(fx)).get_json()}
++    assert {r["id"] for r in c.get(_base(fx) + "?filter=resolved").get_json()} == {diego}
++    # Archive with a category (none seeded → null), then it lives only in "archived".
++    assert c.patch(f"{_base(fx)}/{diego}", json={"status": "archived"}).status_code == 200
++    assert {r["id"] for r in c.get(_base(fx) + "?filter=archived").get_json()} == {diego}
++    assert diego not in {r["id"] for r in c.get(_base(fx) + "?filter=resolved").get_json()}
++
++
++def test_dept_staff_sees_only_their_department_or_own_conversations(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_nostay_a.phone_e164, "one")
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "two")
++    diego, sarah = _cid(database, fx.guest_nostay_a.id), _cid(database, fx.guest_inhouse_a.id)
++    agent = login("agent@hvh.test")
++    agent.patch(f"{_base(fx)}/{sarah}", json={"assignedDepartmentId": fx.dept_engineering.id})
++    eng = login("engineer@hvh.test")
++    assert {r["id"] for r in eng.get(_base(fx)).get_json()} == {sarah}
++    assert eng.get(f"{_base(fx)}/{diego}").status_code == 403
++
++
++def test_detail_includes_messages_notes_and_stay(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    c = login("agent@hvh.test")
++    assert c.post(f"{_base(fx)}/{cid}/notes", json={"body": "Gold guest, @Marcus please watch"}).status_code == 201
++    d = c.get(f"{_base(fx)}/{cid}").get_json()
++    assert d["guest"]["firstName"] == "Sarah" and d["stay"]["roomNumber"] == "412"
++    assert [m["body"] for m in d["messages"]] == ["AC broken"]
++    assert d["notes"][0]["body"].startswith("Gold guest") and d["notes"][0]["authorName"] == "Ava Agent"
++    assert d["workOrders"] == [] and d["draftPrompts"] == []
++
++
++def test_note_mention_notifies_mentioned_user(app, fx, client, database, login):
++    from app.models import Notification
++
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    login("agent@hvh.test").post(f"{_base(fx)}/{cid}/notes", json={"body": "@Marcus can you take this"})
++    with database.session() as db:
++        n = db.scalar(select(Notification).where(Notification.type == "note.mention"))
++        assert n.user_id == fx.agent_a2.id
++
++
++def test_snooze_hides_and_wakes(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    c = login("agent@hvh.test")
++    until = (clock.now() + timedelta(hours=1)).isoformat()
++    assert c.patch(f"{_base(fx)}/{cid}", json={"status": "snoozed", "snoozedUntil": until}).status_code == 200
++    assert c.get(_base(fx)).get_json() == []
++    with database.session() as db:
++        assert db.get(Conversation, cid).status == ConversationStatus.snoozed
++
++
++def test_retry_failed_message_via_api(app, fx, client, database, login, worker):
++    """§11.1 #4 (server half): failure carries the provider error; retry re-queues."""
++    with database.session() as db:
++        g = db.get(type(fx.guest_inhouse_a), fx.guest_inhouse_a.id)
++        g.phone_e164 = "+15552000000"
++    inbound(client, fx, "+15552000000", "hi")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    c = login("agent@hvh.test")
++    mid = c.post(f"{_base(fx)}/{cid}/messages", json={"body": "hello"}).get_json()["id"]
++    worker.tick(); clock.advance(seconds=0.5); worker.tick()
++    d = c.get(f"{_base(fx)}/{cid}").get_json()
++    failed = [m for m in d["messages"] if m["id"] == mid][0]
++    assert failed["deliveryStatus"] == "failed" and failed["providerErrorCode"] == "30007"
++    res = c.post(f"{_base(fx)}/{cid}/messages/{mid}/retry")
++    assert res.status_code == 200 and res.get_json()["deliveryStatus"] == "queued"
++
++
++def test_archive_requires_capability(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    login("agent@hvh.test").patch(f"{_base(fx)}/{cid}", json={"assignedDepartmentId": fx.dept_engineering.id})
++    eng = login("engineer@hvh.test")
++    assert eng.patch(f"{_base(fx)}/{cid}", json={"status": "archived"}).status_code == 403
+diff --git a/server/tests/test_note_leakage.py b/server/tests/test_note_leakage.py
+new file mode 100644
+index 0000000..0fadacc
+--- /dev/null
++++ b/server/tests/test_note_leakage.py
+@@ -0,0 +1,52 @@
++"""§11.1 #10: an internal note never appears in any guest-facing payload."""
++import json
++
++from pydantic import ValidationError
++
++from app.domain import conversations
++from app.schemas.conversations import GuestThread
++from tests.factories import inbound
++
++SECRET = "SECRET-NOTE-do-not-leak-7f3a"
++
++
++def test_guest_thread_excludes_notes_entirely(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
++    from sqlalchemy import select
++
++    from app.models import Conversation
++
++    with database.session() as db:
++        cid = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
++    c = login("agent@hvh.test")
++    c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/notes", json={"body": SECRET})
++    c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages", json={"body": "visible reply"})
++    with database.session() as db:
++        thread = conversations.guest_thread(db, fx.property_a.id, fx.guest_inhouse_a.phone_e164)
++    payload = json.dumps(thread.model_dump(mode="json", by_alias=True))
++    assert SECRET not in payload
++    assert "visible reply" in payload
++    assert "note" not in payload.lower()
++
++
++def test_guest_thread_schema_rejects_a_notes_field():
++    try:
++        GuestThread.model_validate({"phone": "+1", "propertyName": "x", "messages": [], "notes": []})
++    except ValidationError:
++        return
++    raise AssertionError("GuestThread accepted a 'notes' field — it must be extra='forbid'")
++
++
++def test_staff_detail_keeps_notes_in_a_separate_array(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
++    from sqlalchemy import select
++
++    from app.models import Conversation
++
++    with database.session() as db:
++        cid = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
++    c = login("agent@hvh.test")
++    c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/notes", json={"body": SECRET})
++    d = c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()
++    assert all(SECRET not in m["body"] for m in d["messages"])
++    assert d["notes"][0]["body"] == SECRET

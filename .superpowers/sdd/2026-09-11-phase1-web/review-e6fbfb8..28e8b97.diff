@@ -1,0 +1,863 @@
+# Review package: e6fbfb8..28e8b97
+
+## Commits
+28e8b97 feat(web): composer "Quick" and "Work order" buttons, per restoration R1.3
+e15daf4 feat(web): guest panel "Previous stays" section, per restoration R1.2
+9e0b37f feat(web): internal-note composer, per restoration R1.1
+
+## Files changed
+ web/src/features/inbox/Composer.test.tsx         | 160 ++++++++++++++++++---
+ web/src/features/inbox/Composer.tsx              | 176 ++++++++++++++++++-----
+ web/src/features/inbox/ConversationView.test.tsx |  36 +++++
+ web/src/features/inbox/GuestPanel.test.tsx       |  65 ++++++++-
+ web/src/features/inbox/GuestPanel.tsx            |  52 ++++++-
+ 5 files changed, 430 insertions(+), 59 deletions(-)
+
+## Diff
+diff --git a/web/src/features/inbox/Composer.test.tsx b/web/src/features/inbox/Composer.test.tsx
+index f56b0c1..c680cb7 100644
+--- a/web/src/features/inbox/Composer.test.tsx
++++ b/web/src/features/inbox/Composer.test.tsx
+@@ -1,30 +1,41 @@
+ import { screen, waitFor } from '@testing-library/react'
+ import userEvent from '@testing-library/user-event'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import { RealtimeProvider } from '../../api/ws'
++import type { Role } from '../../api/types'
+ import { SessionProvider } from '../../auth/SessionContext'
+-import { aAsset, aConversationDetail, aGuest, aMessage, aQuickReply } from '../../test/factories'
++import { ToastProvider } from '../../components/ui'
++import { aAsset, aConversationDetail, aGuest, aMessage, aNote, aQuickReply } from '../../test/factories'
+ import { renderWithProviders, sessionFixture } from '../../test/harness'
+ import { Composer } from './Composer'
+ 
+ function routes(overrides: Record<string, unknown> = {}) {
+   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+     const url = String(input)
+     const method = init?.method ?? 'GET'
+     const table: Record<string, unknown> = {
+       'quick-replies': [aQuickReply()],
+       assets: [aAsset()],
+       departments: [],
+       users: [],
+       ...overrides,
+     }
++    if (url.includes('/notes') && method === 'POST') {
++      const body = JSON.parse(String(init?.body ?? '{}')) as { body: string }
++      return Promise.resolve(
++        new Response(JSON.stringify(aNote({ id: 'n-real', body: body.body })), {
++          status: 201,
++          headers: { 'Content-Type': 'application/json' },
++        }),
++      )
++    }
+     if (url.includes('/messages') && method === 'POST') {
+       const body = JSON.parse(String(init?.body ?? '{}')) as { body: string }
+       return Promise.resolve(
+         new Response(
+           JSON.stringify(
+             (table['send'] as unknown) ??
+               aMessage({ id: 'm-real', direction: 'outbound', authorType: 'staff', body: body.body, deliveryStatus: 'queued' }),
+           ),
+           { status: 201, headers: { 'Content-Type': 'application/json' } },
+         ),
+@@ -44,31 +55,36 @@ function routes(overrides: Record<string, unknown> = {}) {
+     const key = Object.keys(table).find((k) => url.includes(k))
+     return Promise.resolve(
+       new Response(JSON.stringify(key ? table[key] : aConversationDetail()), {
+         status: 200,
+         headers: { 'Content-Type': 'application/json' },
+       }),
+     )
+   })
+ }
+ 
+-function mount(detail = aConversationDetail()) {
++function mount(detail = aConversationDetail(), role: Role = 'agent') {
+   return renderWithProviders(
+     <SessionProvider>
+-      <RealtimeProvider>
+-        <Composer conversationId={detail.id} conversation={detail} />
+-      </RealtimeProvider>
++      <ToastProvider>
++        <RealtimeProvider>
++          <Composer conversationId={detail.id} conversation={detail} />
++        </RealtimeProvider>
++      </ToastProvider>
+     </SessionProvider>,
+-    { session: sessionFixture({ role: 'agent' }), route: `/app/inbox/${detail.id}` },
++    { session: sessionFixture({ role }), route: `/app/inbox/${detail.id}` },
+   )
+ }
+ 
++const notePosts = () =>
++  vi.mocked(fetch).mock.calls.filter(([u, i]) => String(u).includes('/notes') && i?.method === 'POST')
++
+ describe('Composer', () => {
+   beforeEach(() => {
+     vi.stubGlobal('fetch', vi.fn())
+     vi.stubGlobal(
+       'WebSocket',
+       class {
+         static OPEN = 1
+         readyState = 1
+         onopen: (() => void) | null = null
+         onmessage: unknown = null
+@@ -287,27 +303,131 @@ describe('Composer', () => {
+       } as unknown as typeof WebSocket,
+     )
+     mount()
+     const box = await screen.findByRole('textbox')
+     await userEvent.click(box)
+     await waitFor(() => expect(frames.some((f) => f.includes('"state":"composing"'))).toBe(true))
+     await userEvent.tab()
+     await waitFor(() => expect(frames.some((f) => f.includes('"state":"viewing"'))).toBe(true))
+   })
+ 
+-  // Added per the Task 14 dispatch: corporate holds view_all_conversations and add_note
+-  // but not reply, so it must get a read-only thread rather than a composer the server
+-  // would reject a send from.
+-  it('renders nothing for a role without the reply capability', async () => {
+-    const detail = aConversationDetail()
+-    renderWithProviders(
+-      <SessionProvider>
+-        <RealtimeProvider>
+-          <Composer conversationId={detail.id} conversation={detail} />
+-        </RealtimeProvider>
+-      </SessionProvider>,
+-      { session: sessionFixture({ role: 'corporate' }), route: `/app/inbox/${detail.id}` },
++  // R1.1 supersedes the Task 14 expectation that corporate gets nothing at all: corporate
++  // holds `add_note`, so it gets a note-only composer — and still no outbound send.
++  it('offers a role without `reply` the note composer and no outbound send', async () => {
++    mount(aConversationDetail(), 'corporate')
++    expect(await screen.findByRole('textbox')).toHaveAttribute(
++      'placeholder',
++      'Internal note — not sent to the guest',
+     )
+-    await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument())
+-    expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument()
++    expect(screen.getByRole('button', { name: 'Note' })).toHaveAttribute('aria-pressed', 'true')
++    expect(screen.queryByRole('button', { name: 'Reply' })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: /^send$/i })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: /attach/i })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: /quick/i })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: /work order/i })).not.toBeInTheDocument()
++  })
++
++  it('posts a note through the notes endpoint, not the messages endpoint', async () => {
++    mount(aConversationDetail(), 'corporate')
++    const box = await screen.findByRole('textbox')
++    await userEvent.type(box, 'Raised WO #204 to Engineering, urgent.')
++    await userEvent.click(screen.getByRole('button', { name: /add note/i }))
++    await waitFor(() => expect(notePosts()).toHaveLength(1))
++    expect(JSON.parse(String(notePosts()[0]![1]!.body))).toEqual({
++      body: 'Raised WO #204 to Engineering, urgent.',
++    })
++    expect(
++      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/messages') && i?.method === 'POST'),
++    ).toBe(false)
++    await waitFor(() => expect(box).toHaveValue(''))
++  })
++
++  // The toggle keys off `add_note`, never `reply` — gating it on `reply` is what left
++  // corporate with nothing it could do anywhere in the inbox.
++  it('shows the Reply/Note toggle to a role that holds both capabilities', async () => {
++    mount()
++    expect(await screen.findByRole('button', { name: 'Reply' })).toHaveAttribute('aria-pressed', 'true')
++    expect(screen.getByRole('button', { name: 'Note' })).toHaveAttribute('aria-pressed', 'false')
++  })
++
++  it('drops the SMS-only affordances when switched to Note mode', async () => {
++    mount()
++    await userEvent.type(await screen.findByRole('textbox'), 'Hello there')
++    expect(screen.getByTestId('segment-counter')).toBeInTheDocument()
++    await userEvent.click(screen.getByRole('button', { name: 'Note' }))
++    expect(screen.queryByTestId('segment-counter')).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: /attach/i })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: /quick/i })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: /work order/i })).not.toBeInTheDocument()
++  })
++
++  it('does not open the quick-reply palette in Note mode', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
++    await userEvent.type(screen.getByRole('textbox'), '/wifi')
++    expect(screen.queryByTestId('qr-q-1')).not.toBeInTheDocument()
++  })
++
++  // Consent governs outbound SMS, not internal notes: an opted-out guest must not stop
++  // staff recording one.
++  it('posts a note for an opted-out guest, and hides the SMS consent warning', async () => {
++    mount(aConversationDetail({ guest: aGuest({ smsConsentStatus: 'opted_out' }) }))
++    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
++    expect(screen.queryByText(/opted out of SMS/i)).not.toBeInTheDocument()
++    const box = screen.getByRole('textbox')
++    expect(box).toBeEnabled()
++    await userEvent.type(box, 'Guest opted out — call room 412 instead.')
++    await userEvent.keyboard('{Control>}{Enter}{/Control}')
++    await waitFor(() => expect(notePosts()).toHaveLength(1))
++    expect(JSON.parse(String(notePosts()[0]![1]!.body))).toEqual({
++      body: 'Guest opted out — call room 412 instead.',
++    })
++  })
++
++  it('gives the note text back when the server rejects it', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
++    const box = screen.getByRole('textbox')
++    await userEvent.type(box, 'A note')
++    vi.mocked(fetch).mockResolvedValueOnce(
++      new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: 'Not allowed' } }), {
++        status: 403,
++        headers: { 'Content-Type': 'application/json' },
++      }),
++    )
++    await userEvent.keyboard('{Control>}{Enter}{/Control}')
++    expect(await screen.findByRole('alert')).toHaveTextContent('Not allowed')
++    await waitFor(() => expect(box).toHaveValue('A note'))
++  })
++
++  // R1.3 — the palette was reachable only by typing '/', which nothing advertises.
++  it('opens the quick-reply palette from the Quick button', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: /quick/i }))
++    expect(await screen.findByTestId('qr-q-1')).toBeInTheDocument()
++  })
++
++  it('keeps an existing draft when the Quick button opens the palette', async () => {
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.type(box, 'Half a sentence')
++    await userEvent.click(screen.getByRole('button', { name: /quick/i }))
++    expect(await screen.findByTestId('qr-q-1')).toBeInTheDocument()
++    expect(box).toHaveValue('Half a sentence')
++  })
++
++  it('opens the work-order modal from the composer', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: /work order/i }))
++    expect(await screen.findByRole('dialog')).toHaveTextContent(/create work order/i)
++  })
++
++  it('orders the composer actions Quick · Asset · Work order', async () => {
++    mount()
++    await screen.findByRole('textbox')
++    const labels = screen
++      .getAllByRole('button')
++      .map((b) => b.textContent?.trim())
++      .filter((t) => t === 'Quick' || t === 'Attach' || t === 'Work order')
++    expect(labels).toEqual(['Quick', 'Attach', 'Work order'])
+   })
+ })
+diff --git a/web/src/features/inbox/Composer.tsx b/web/src/features/inbox/Composer.tsx
+index 2a3d4b2..7d5ae63 100644
+--- a/web/src/features/inbox/Composer.tsx
++++ b/web/src/features/inbox/Composer.tsx
+@@ -1,117 +1,163 @@
+ import { useEffect, useRef, useState } from 'react'
+ import { useQuickReplies, useRenderQuickReply } from '../../api/hooks/content'
+-import { useSendMessage } from '../../api/hooks/conversations'
++import { useAddNote, useSendMessage } from '../../api/hooks/conversations'
+ import { useRealtime } from '../../api/ws'
+ import { useSession } from '../../auth/SessionContext'
+ import type { ConversationDetail } from '../../api/types'
+ import { Button, Textarea } from '../../components/ui'
+ import { cn } from '../../lib/cn'
+ import { charCount, segmentCount } from '../../lib/segments'
+ import { AssetPicker } from './AssetPicker'
++import { CreateWorkOrderModal } from './CreateWorkOrderModal'
+ import { QuickReplyPalette } from './QuickReplyPalette'
+ 
++type Mode = 'reply' | 'note'
++
+ export function Composer({
+   conversationId,
+   conversation,
+   draftBody,
+   draftPromptId: draftPromptIdIn,
+   onDraftConsumed,
+ }: {
+   conversationId: string
+   conversation: ConversationDetail
+   draftBody?: string
+   draftPromptId?: string | null
+   onDraftConsumed?: () => void
+ }) {
+   const { can } = useSession()
++  const canReply = can('reply')
++  const canNote = can('add_note')
+   const [body, setBody] = useState('')
+   const [assetId, setAssetId] = useState<string | null>(null)
+   const [draftPromptId, setDraftPromptId] = useState<string | null>(null)
++  // Reply or internal note. A role that cannot reply but can note (corporate) starts — and
++  // stays — in note mode; it is the only thing it is allowed to write here.
++  const [mode, setMode] = useState<Mode>(canReply ? 'reply' : 'note')
+   // Escape hides the palette without touching the draft; typing again reopens it.
+   const [paletteDismissed, setPaletteDismissed] = useState(false)
++  // The "Quick" button opens the same palette the '/' prefix opens, without rewriting a
++  // draft the agent has already typed.
++  const [paletteForced, setPaletteForced] = useState(false)
++  const [woOpen, setWoOpen] = useState(false)
+   const box = useRef<HTMLTextAreaElement>(null)
+   const send = useSendMessage(conversationId)
++  const addNote = useAddNote(conversationId)
+   const { data: replies } = useQuickReplies()
+   const render = useRenderQuickReply()
+   const { setPresence } = useRealtime()
+ 
+   // A draft handed down from the prompt banner (Task 15) loads once, then clears.
+   // This must be an effect, not a render-phase setState — the latter loops.
+   useEffect(() => {
+     if (draftBody) {
+       setBody(draftBody)
+       setDraftPromptId(draftPromptIdIn ?? null)
++      // A suggested guest reply is an SMS, never a note — switch back if we were noting.
++      if (canReply) setMode('reply')
+       box.current?.focus()
+       onDraftConsumed?.()
+     }
+-  }, [draftBody, draftPromptIdIn, onDraftConsumed])
++  }, [draftBody, draftPromptIdIn, onDraftConsumed, canReply])
+ 
+   // The palette opens only when '/' starts the draft — 'either/or' must not trigger it.
+-  const paletteOpen =
+-    body.startsWith('/') && !body.includes(' ') && !body.includes('\n') && !paletteDismissed
++  const slashOpen = body.startsWith('/') && !body.includes(' ') && !body.includes('\n')
++  const paletteOpen = mode === 'reply' && !paletteDismissed && (slashOpen || paletteForced)
+   const segments = segmentCount(body)
+   const characters = charCount(body)
+   const optedOut = conversation.guest.smsConsentStatus === 'opted_out'
++  const noteMode = mode === 'note'
++  const pending = noteMode ? addNote.isPending : send.isPending
++  const error = noteMode ? addNote.error : send.error
+ 
+   function submit() {
+     const trimmed = body.trim()
++    if (!trimmed || pending) return
++    if (noteMode) {
++      addNote.mutate({ body: trimmed }, { onError: () => setBody(trimmed) })
++      setBody('')
++      return
++    }
+     // A quick reply still resolving (or one that failed) must never let the raw
+     // /shortcut text reach a guest — block the send until it settles.
+-    if (!trimmed || send.isPending || render.isPending) return
++    if (render.isPending) return
+     send.mutate(
+       {
+         body: trimmed,
+         digitalAssetId: assetId,
+         draftPromptId,
+       },
+       {
+         onError: () => setBody(trimmed), // give the text back; retyping is the real cost
+       },
+     )
+     setBody('')
+     setAssetId(null)
+     setDraftPromptId(null)
+   }
+ 
+-  // A role without `reply` (e.g. corporate) legitimately reaches the thread but must get
+-  // it read-only — no textarea, no send button, no quick-reply palette. `add_note` is a
+-  // separate capability and is not gated here.
+-  if (!can('reply')) return null
++  // A role with neither capability (none ship today, but the matrix is data) legitimately
++  // reaches the thread and must get it read-only.
++  if (!canReply && !canNote) return null
+ 
+   return (
+     <div className="border-t border-border p-3">
+-      {optedOut ? (
++      {optedOut && !noteMode ? (
+         <p className="mb-2 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
+           This guest has opted out of SMS. A send will be rejected unless they text START.
+         </p>
+       ) : null}
+ 
+-      {send.error ? (
++      {error ? (
+         <p role="alert" className="mb-2 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
+-          {send.error.message}
++          {error.message}
+         </p>
+       ) : null}
+ 
+       {render.error ? (
+         <p role="alert" className="mb-2 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
+           {render.error.message}
+         </p>
+       ) : null}
+ 
++      {canNote ? (
++        <div className="mb-2 inline-flex gap-1 rounded border border-border3 bg-surface2 p-0.5">
++          {canReply ? (
++            <ModeTab label="Reply" active={!noteMode} onClick={() => setMode('reply')} />
++          ) : null}
++          <ModeTab
++            label="Note"
++            active={noteMode}
++            onClick={() => {
++              setMode('note')
++              setPaletteForced(false)
++            }}
++            note
++          />
++        </div>
++      ) : null}
++
+       <div className="relative">
+         {paletteOpen && replies ? (
+           <QuickReplyPalette
+             replies={replies}
+-            term={body}
+-            onClose={() => setPaletteDismissed(true)}
++            // A forced-open palette over an existing draft lists everything rather than
++            // filtering by prose that was never a shortcut.
++            term={slashOpen ? body : ''}
++            onClose={() => {
++              setPaletteDismissed(true)
++              setPaletteForced(false)
++            }}
+             onPick={(reply) => {
++              setPaletteForced(false)
+               // The server interpolates; we never substitute tokens client-side.
+               render.mutate(
+                 { id: reply.id, conversationId },
+                 {
+                   onSuccess: (rendered) => {
+                     setBody(rendered.body)
+                     box.current?.focus()
+                   },
+                   onError: () => {
+                     // Never leave the raw /shortcut sitting in the box — a client that
+@@ -122,57 +168,121 @@ export function Composer({
+                 },
+               )
+             }}
+           />
+         ) : null}
+ 
+         <Textarea
+           ref={box}
+           rows={3}
+           value={body}
+-          placeholder="Type a reply, or / for a quick reply"
++          placeholder={
++            noteMode ? 'Internal note — not sent to the guest' : 'Type a reply, or / for a quick reply'
++          }
++          // `cn` concatenates, it does not resolve Tailwind conflicts, and the palette's
++          // own source order otherwise lets Textarea's bg-surface2/text-text win here.
++          className={noteMode ? '!border-noteBorder !bg-noteBg !text-noteText' : undefined}
+           onChange={(event) => {
+             setBody(event.target.value)
+             setPaletteDismissed(false)
+           }}
+           onFocus={() => setPresence(conversationId, 'composing')}
+           onBlur={() => setPresence(conversationId, 'viewing')}
+           onKeyDown={(event) => {
+             if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+               event.preventDefault()
+               submit()
+             }
+           }}
+         />
+       </div>
+ 
+       <div className="mt-2 flex items-center gap-3">
+-        <AssetPicker
+-          onPick={(asset) => {
+-            setAssetId(asset.id)
+-            setBody((current) => `${current}${current ? ' ' : ''}${window.location.origin}/a/${asset.shortCode}`)
+-          }}
+-        />
+-        {segments > 0 ? (
+-          <span
+-            data-testid="segment-counter"
+-            className={cn(
+-              'font-mono text-xs',
+-              segments > 4 ? 'text-dangerText' : segments > 1 ? 'text-warnText' : 'text-text3',
+-            )}
+-          >
+-            {characters} chars · {segments} segment{segments === 1 ? '' : 's'}
+-          </span>
++        {/* A note is not an SMS: no quick replies, no asset link, no segment cost. */}
++        {!noteMode ? (
++          <>
++            <Button
++              onClick={() => {
++                setPaletteDismissed(false)
++                setPaletteForced(true)
++                box.current?.focus()
++              }}
++            >
++              Quick
++            </Button>
++            <AssetPicker
++              onPick={(asset) => {
++                setAssetId(asset.id)
++                setBody((current) => `${current}${current ? ' ' : ''}${window.location.origin}/a/${asset.shortCode}`)
++              }}
++            />
++            {can('create_work_order') ? (
++              <Button onClick={() => setWoOpen(true)}>
++                Work order
++              </Button>
++            ) : null}
++            {segments > 0 ? (
++              <span
++                data-testid="segment-counter"
++                className={cn(
++                  'font-mono text-xs',
++                  segments > 4 ? 'text-dangerText' : segments > 1 ? 'text-warnText' : 'text-text3',
++                )}
++              >
++                {characters} chars · {segments} segment{segments === 1 ? '' : 's'}
++              </span>
++            ) : null}
++          </>
+         ) : null}
+         <Button
+           variant="primary"
+           className="ml-auto"
+-          loading={send.isPending}
++          loading={pending}
+           onClick={submit}
+           title="Ctrl+Enter"
+         >
+-          Send
++          {noteMode ? 'Add note' : 'Send'}
+         </Button>
+       </div>
++
++      {/* Mounted only while open: the modal needs a ToastProvider, and an always-mounted
++          copy would impose that on every consumer of the composer for nothing. */}
++      {woOpen ? (
++        <CreateWorkOrderModal
++          conversationId={conversationId}
++          open
++          onClose={() => setWoOpen(false)}
++        />
++      ) : null}
+     </div>
+   )
+ }
++
++function ModeTab({
++  label,
++  active,
++  onClick,
++  note,
++}: {
++  label: string
++  active: boolean
++  onClick: () => void
++  note?: boolean
++}) {
++  return (
++    <button
++      type="button"
++      aria-pressed={active}
++      onClick={onClick}
++      className={cn(
++        'rounded px-3 py-1 text-xs font-bold uppercase tracking-wide',
++        active
++          ? note
++            ? 'bg-noteBg text-noteText'
++            : 'bg-surface text-text'
++          : 'text-text3 hover:text-text',
++      )}
++    >
++      {label}
++    </button>
++  )
++}
+diff --git a/web/src/features/inbox/ConversationView.test.tsx b/web/src/features/inbox/ConversationView.test.tsx
+index 4cae6e2..13b39c0 100644
+--- a/web/src/features/inbox/ConversationView.test.tsx
++++ b/web/src/features/inbox/ConversationView.test.tsx
+@@ -1,12 +1,14 @@
+ import { screen, within } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import type { NoteOut } from '../../api/types'
+ import { RealtimeProvider } from '../../api/ws'
+ import { SessionProvider } from '../../auth/SessionContext'
+ import { ToastProvider } from '../../components/ui'
+ import { aConversationDetail, aGuest, aMessage, aNote, aStaffUser } from '../../test/factories'
+ import { renderWithProviders, sessionFixture } from '../../test/harness'
+ import { ConversationView } from './ConversationView'
+ 
+ function serve(detail: unknown) {
+   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+     const url = String(input)
+@@ -95,20 +97,54 @@ describe('ConversationView', () => {
+   it('warns but does not disable the thread for an opted-out guest (§5.3)', async () => {
+     serve(aConversationDetail({ guest: aGuest({ smsConsentStatus: 'opted_out' }) }))
+     mount()
+     // Both the header chip and the guest panel's consent section show it (§5.2/§5.3) — any is proof of the warning.
+     const warnings = await screen.findAllByText(/opted out/i)
+     expect(warnings.length).toBeGreaterThan(0)
+     // "does not disable the thread" is half the title and was never asserted.
+     expect(screen.getByRole('textbox')).toBeEnabled()
+   })
+ 
++  // R1.1: nothing in the product could create a note before this. The whole loop is under
++  // test — POST /notes, then the invalidated detail query putting it in the thread.
++  it('writes an internal note and shows it in the thread', async () => {
++    let notes: NoteOut[] = []
++    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
++      const url = String(input)
++      if (url.includes('/notes') && init?.method === 'POST') {
++        const sent = JSON.parse(String(init.body)) as { body: string }
++        const created = aNote({ id: 'n-new', body: sent.body })
++        notes = [created]
++        return Promise.resolve(
++          new Response(JSON.stringify(created), {
++            status: 201,
++            headers: { 'Content-Type': 'application/json' },
++          }),
++        )
++      }
++      // Everything but the conversation detail itself is a list route here.
++      const body = url.includes('/users')
++        ? [aStaffUser()]
++        : url.includes('/conversations/c-1')
++          ? aConversationDetail({ notes })
++          : []
++      return Promise.resolve(
++        new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }),
++      )
++    })
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
++    await userEvent.type(screen.getByRole('textbox'), 'Raised WO #204 to Engineering.')
++    await userEvent.click(screen.getByRole('button', { name: /add note/i }))
++    expect(await screen.findByTestId('note')).toHaveTextContent('Raised WO #204 to Engineering.')
++  })
++
+   it('shows an error state when the conversation cannot be loaded', async () => {
+     vi.mocked(fetch).mockResolvedValue(
+       new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Conversation not found' } }), {
+         status: 404,
+         headers: { 'Content-Type': 'application/json' },
+       }),
+     )
+     mount()
+     expect(await screen.findByText('Conversation not found')).toBeInTheDocument()
+   })
+diff --git a/web/src/features/inbox/GuestPanel.test.tsx b/web/src/features/inbox/GuestPanel.test.tsx
+index 6eee750..6f81a1f 100644
+--- a/web/src/features/inbox/GuestPanel.test.tsx
++++ b/web/src/features/inbox/GuestPanel.test.tsx
+@@ -1,28 +1,49 @@
+-import { screen } from '@testing-library/react'
+-import { describe, expect, it } from 'vitest'
++import { screen, waitFor } from '@testing-library/react'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import type { Role, StayOut } from '../../api/types'
+ import { SessionProvider } from '../../auth/SessionContext'
+-import { aConversationDetail, aGuest } from '../../test/factories'
++import { aConversationDetail, aGuest, aStay } from '../../test/factories'
+ import { renderWithProviders, sessionFixture } from '../../test/harness'
+ import { GuestPanel } from './GuestPanel'
+ import { aWorkOrder, aDraftPrompt, aNote } from '../../test/factories'
+ 
+-function mount(detail = aConversationDetail()) {
++/** GET /guests/<id> — the only call this panel makes. */
++function serveStays(stays: StayOut[]) {
++  vi.mocked(fetch).mockImplementation(() =>
++    Promise.resolve(
++      new Response(JSON.stringify({ guest: aGuest(), stays, conversationIds: ['c-1'] }), {
++        status: 200,
++        headers: { 'Content-Type': 'application/json' },
++      }),
++    ),
++  )
++}
++
++function mount(detail = aConversationDetail(), role: Role = 'agent') {
+   return renderWithProviders(
+     <SessionProvider>
+       <GuestPanel conversation={detail} />
+     </SessionProvider>,
+-    { session: sessionFixture({ role: 'agent' }), route: '/app/inbox/c-1' },
++    { session: sessionFixture({ role }), route: '/app/inbox/c-1' },
+   )
+ }
+ 
+ describe('GuestPanel', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++    serveStays([])
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
+   it('shows the guest identity and phone in mono', async () => {
+     mount()
+     expect(await screen.findByText('Sarah Chen')).toBeInTheDocument()
+     expect(screen.getByText('+15551234567').className).toContain('font-mono')
+   })
+ 
+   it('shows the stay: room, type, dates and stay count', async () => {
+     mount()
+     expect(await screen.findByText('412 · King')).toBeInTheDocument()
+     expect(screen.getByText(/2026-09-09/)).toBeInTheDocument()
+@@ -54,11 +75,45 @@ describe('GuestPanel', () => {
+ 
+   it('lists recent notes', async () => {
+     mount(aConversationDetail({ notes: [aNote({ body: 'Guest is Gold, 4th stay.' })] }))
+     expect(await screen.findByText('Guest is Gold, 4th stay.')).toBeInTheDocument()
+   })
+ 
+   it('handles a guest with no stay without crashing', async () => {
+     mount(aConversationDetail({ stay: null, guest: aGuest({ firstName: null, lastName: null }) }))
+     expect(await screen.findByText('No stay on file')).toBeInTheDocument()
+   })
++
++  // R1.2 — `StayOut` carries no rating and no conversation count, so the mockup's
++  // "1 conv" and "5★" are not rendered: month, nights and status are what exist.
++  it('lists previous stays as month, nights and status', async () => {
++    serveStays([
++      aStay(),
++      aStay({ id: 's-0', arrivalDate: '2026-06-14', departureDate: '2026-06-16', status: 'checked_out' }),
++    ])
++    mount()
++    const line = await screen.findByText('JUN 2026 · 2N · CHECKED OUT')
++    expect(line.className).toContain('font-mono')
++  })
++
++  it('excludes the current stay, which has its own section', async () => {
++    serveStays([aStay()])
++    mount()
++    expect(await screen.findByText('Previous stays')).toBeInTheDocument()
++    await waitFor(() => expect(screen.getByText('Previous stays').parentElement).toHaveTextContent('None'))
++  })
++
++  it('says None for a first-time guest', async () => {
++    serveStays([])
++    mount()
++    await waitFor(() => expect(screen.getByText('Previous stays').parentElement).toHaveTextContent('None'))
++  })
++
++  // GET /guests/<id> is gated server-side on view_all_conversations, which dept_staff
++  // lacks — showing the section would only produce a 403.
++  it('hides the section, and asks for nothing, for a role without view_all_conversations', async () => {
++    mount(aConversationDetail(), 'dept_staff')
++    await screen.findByText('Sarah Chen')
++    expect(screen.queryByText('Previous stays')).not.toBeInTheDocument()
++    expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('/guests/'))).toBe(false)
++  })
+ })
+diff --git a/web/src/features/inbox/GuestPanel.tsx b/web/src/features/inbox/GuestPanel.tsx
+index 9145d26..35f62a0 100644
+--- a/web/src/features/inbox/GuestPanel.tsx
++++ b/web/src/features/inbox/GuestPanel.tsx
+@@ -1,16 +1,44 @@
+ import type { ReactNode } from 'react'
+ import { Link } from 'react-router-dom'
+-import type { ConversationDetail } from '../../api/types'
++import { useGuest } from '../../api/hooks/users'
++import type { ConversationDetail, StayOut } from '../../api/types'
++import { useSession } from '../../auth/SessionContext'
+ import { Badge } from '../../components/ui'
+ import { ordinal } from '../../lib/ordinal'
+ 
++const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
++
++/** `YYYY-MM-DD` only — parsed by hand so a date-only string is not shifted by the local zone. */
++function ymd(date: string): [number, number, number] {
++  const [y, m, d] = date.split('-').map(Number)
++  return [y ?? 0, m ?? 1, d ?? 1]
++}
++
++/**
++ * "JUN 2026 · 2N · CHECKED OUT". The mockup's line also carries a conversation count and a
++ * star rating; `StayOut` has neither field, so neither is rendered.
++ */
++function stayLine(stay: StayOut): string {
++  const [ay, am, ad] = ymd(stay.arrivalDate)
++  const [dy, dm, dd] = ymd(stay.departureDate)
++  const nights = Math.max(
++    0,
++    Math.round((Date.UTC(dy, dm - 1, dd) - Date.UTC(ay, am - 1, ad)) / 86_400_000),
++  )
++  return [
++    `${MONTHS[am - 1] ?? '—'} ${ay}`,
++    `${nights}N`,
++    stay.status.replace('_', ' ').toUpperCase(),
++  ].join(' · ')
++}
++
+ const CONSENT: Record<string, { tone: 'ok' | 'danger' | 'neutral'; label: string }> = {
+   opted_in: { tone: 'ok', label: 'Opted in' },
+   opted_out: { tone: 'danger', label: 'Opted out' },
+   unknown: { tone: 'neutral', label: 'Consent unknown' },
+ }
+ 
+ function Section({ title, children }: { title: string; children: ReactNode }) {
+   return (
+     <section className="border-b border-border px-4 py-4">
+       <h3 className="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-text3">{title}</h3>
+@@ -23,23 +51,29 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
+   return (
+     <div className="flex items-baseline justify-between gap-3 py-1">
+       <span className="text-xs text-text3">{label}</span>
+       <span className="text-right text-[13px] font-semibold">{value}</span>
+     </div>
+   )
+ }
+ 
+ export function GuestPanel({ conversation }: { conversation: ConversationDetail }) {
+   const { guest, stay, workOrders, draftPrompts, notes } = conversation
++  const { can } = useSession()
+   const name = [guest.firstName, guest.lastName].filter(Boolean).join(' ') || guest.phoneE164
+   const consent = CONSENT[guest.smsConsentStatus] ?? CONSENT['unknown']!
+   const pending = draftPrompts.filter((p) => p.status === 'pending')
++  // GET /guests/<id> is gated on `view_all_conversations` server-side, which dept_staff
++  // lacks — asking for it as dept_staff would only earn a 403.
++  const canSeeHistory = can('view_all_conversations')
++  const guestDetail = useGuest(canSeeHistory ? guest.id : undefined)
++  const previousStays = (guestDetail.data?.stays ?? []).filter((s) => s.id !== stay?.id)
+ 
+   return (
+     // §5.2: three columns only at ≥1024px. Below that the guest panel must be genuinely
+     // absent, not zero-width — `hidden` (not a width collapse) keeps its border from
+     // still occupying the two-column layout.
+     <aside className="hidden w-[300px] flex-none overflow-y-auto border-l border-border bg-bg2 lg:block">
+       <Section title="Guest">
+         <p className="text-sm font-semibold">{name}</p>
+         <p className="font-mono text-xs text-text3">{guest.phoneE164}</p>
+         <div className="mt-2 flex flex-wrap gap-1.5">
+@@ -98,13 +132,29 @@ export function GuestPanel({ conversation }: { conversation: ConversationDetail
+         ) : (
+           <ul className="flex flex-col gap-2">
+             {notes.slice(-5).map((note) => (
+               <li key={note.id} className="rounded border border-noteBorder bg-noteBg p-2 text-xs text-noteText">
+                 {note.body}
+               </li>
+             ))}
+           </ul>
+         )}
+       </Section>
++
++      {canSeeHistory ? (
++        <Section title="Previous stays">
++          {guestDetail.isPending ? null : previousStays.length === 0 ? (
++            <p className="text-xs text-text3">None</p>
++          ) : (
++            <ul className="flex flex-col gap-1.5">
++              {previousStays.map((s) => (
++                <li key={s.id} className="font-mono text-xs text-text2">
++                  {stayLine(s)}
++                </li>
++              ))}
++            </ul>
++          )}
++        </Section>
++      ) : null}
+     </aside>
+   )
+ }

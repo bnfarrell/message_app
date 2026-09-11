@@ -1,0 +1,60 @@
+# Review package: 410ba29..f14d021
+
+## Commits
+f14d021 fix(web): make the staleness guard newline-independent
+
+## Files changed
+ web/src/api/types.generated.test.ts | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/web/src/api/types.generated.test.ts b/web/src/api/types.generated.test.ts
+index 337ed37..c1f3a73 100644
+--- a/web/src/api/types.generated.test.ts
++++ b/web/src/api/types.generated.test.ts
+@@ -18,32 +18,44 @@ const committed = join(here, 'types.generated.ts')
+ // so its package.json resolves via plain Node module resolution, and its
+ // declared bin path is read from that same package.json rather than
+ // hard-coded, so this stays correct across upgrades. Running it directly
+ // with `node <entry>` needs no shell, which avoids Node's DEP0190 warning
+ // for passing an argv array together with shell:true.
+ const require = createRequire(import.meta.url)
+ const json2tsPackageJson = require.resolve('json-schema-to-typescript/package.json')
+ const json2tsBin = (require(json2tsPackageJson) as { bin: { json2ts: string } }).bin.json2ts
+ const json2tsCli = join(dirname(json2tsPackageJson), json2tsBin)
+ 
++// Compare content, not line endings: the committed blob's CRLF-vs-LF state is a
++// platform/checkout artifact (no .gitattributes normalises it repo-wide — that's
++// Task 21's job), while json2ts emits native line endings for whatever platform
++// it runs on. Without normalising, this guard would only ever pass on the OS
++// that originally generated the committed file.
++const normalizeNewlines = (text: string): string => text.replace(/\r\n/g, '\n')
++
+ describe('generated API types', () => {
+   it('are exactly what the generator produces from the committed schema', () => {
+     const dir = mkdtempSync(join(tmpdir(), 'json2ts-'))
+     try {
+       const out = join(dir, 'types.ts')
+       execFileSync(
+         process.execPath,
+         [json2tsCli, '--input', schema, '--output', out,
+          '--style.singleQuote', '--no-additionalProperties', '--unreachableDefinitions'],
+         { stdio: 'pipe' },
+       )
+-      expect(readFileSync(committed, 'utf8')).toBe(readFileSync(out, 'utf8'))
++      const committedContent = normalizeNewlines(readFileSync(committed, 'utf8'))
++      const freshContent = normalizeNewlines(readFileSync(out, 'utf8'))
++      expect(
++        committedContent,
++        'web/src/api/types.generated.ts is stale relative to web/src/api/schema.json — run `npm run gen:types` and commit the result',
++      ).toBe(freshContent)
+     } finally {
+       rmSync(dir, { recursive: true, force: true })
+     }
+   }, 60_000)
+ 
+   it('exports the models the client depends on', () => {
+     const src = readFileSync(committed, 'utf8')
+     for (const name of [
+       'SessionOut', 'ConversationSummary', 'ConversationDetail', 'MessageOut',
+       'WorkOrderDetail', 'WorkOrderPrefill', 'QuickReplyOut', 'AssetOut',

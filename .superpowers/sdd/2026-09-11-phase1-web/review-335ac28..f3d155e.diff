@@ -1,0 +1,363 @@
+# Review package: 335ac28..f3d155e
+
+## Commits
+f3d155e style(web): reskin palette to Slate & Steel Blue
+b95855a fix(web): stop the 5-15min SLA bucket rendering as a breach
+
+## Files changed
+ docs/superpowers/plans/2026-09-11-phase1-web.md   | 54 +++++++++++------------
+ web/src/features/analytics/AnalyticsPage.test.tsx | 10 ++++-
+ web/src/features/analytics/AnalyticsPage.tsx      |  6 ++-
+ web/src/index.css                                 | 46 +++++++++----------
+ web/src/index.css.test.ts                         |  6 +--
+ 5 files changed, 66 insertions(+), 56 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-09-11-phase1-web.md b/docs/superpowers/plans/2026-09-11-phase1-web.md
+index 624506b..25ac1de 100644
+--- a/docs/superpowers/plans/2026-09-11-phase1-web.md
++++ b/docs/superpowers/plans/2026-09-11-phase1-web.md
+@@ -18,21 +18,21 @@
+ 
+ - **Node 20+ and npm.** All web commands run from `web/`. The repo root `package.json` today holds only `server`, `seed`, `test:server` and `schema` — Task 1 adds `web`, `dev` and `gen:types` alongside them.
+ - **TypeScript `strict: true`.** No `any` in committed code; no `@ts-ignore` without a comment naming the reason.
+ - **Types are generated, never hand-written.** `web/src/api/schema.json` *is* the server's export target — there is no copy step. `app/schemas/export_json_schema.py` **writes that path itself** and prints only `wrote <path>`, so run it as the existing root `npm run schema` (`cd server && python -m app.schemas.export_json_schema`). Never redirect its stdout into the file; §4.8's `> web/src/api/schema.json` form describes an earlier draft and would clobber the schema with that one log line. `npm run gen:types` reads it and writes `src/api/types.generated.ts`. Both are committed; a Vitest re-runs the generator and fails if the committed output is stale.
+ - **Wire format is camelCase.** The server already emits camelCase; do not transform casing in the client.
+ - **Server state only in TanStack Query.** No Redux, no Zustand, no server data in React state or context. UI-only state (open menus, draft text, selected tab) lives in components.
+ - **Exactly one WebSocket** for the whole app, owned by `useRealtime()`. Components read from it; they never construct one.
+ - **Error body shape is `{"error": {"code", "message", "details"?}}`.** The API client unwraps it into a typed `ApiError`; screens render `error.message`.
+ - **Auth is a cookie (`sid`, HttpOnly).** The client cannot read it. Session state comes from `GET /api/auth/me`. Never store credentials or tokens in `localStorage`.
+ - **Theme tokens are the mockups' values verbatim** (Task 1 lists both palettes). Dark is the default; light is a per-user toggle persisted server-side in `notification_prefs.theme`, falling back to `prefers-color-scheme`.
+-- **Status colours are reserved:** green = ok, amber = warn/accent, red = danger. Never decorative.
++- **Status colours are reserved:** green = ok, amber = warn, blue = accent/primary action, red = danger. Never decorative.
+ - **Radii are three values, from the mockups, not two:** **6 px** (`rounded-md`) for tags/badges, avatars and the SLA timer chip (`.tag`, `.av`, `.timer`); **8 px** (`rounded`) for controls — buttons, inputs, nav rows (`.btn`, `.inp`, `.nav`); **10 px** (`rounded-card`) for cards and message bubbles (`.card`, `.bubble`). Verified against `docs/mockups/*.dc.html`. Earlier drafts of this plan said "8-10 px radii", which is wrong and caused a false-positive review finding against Task 4 — quote this line to reviewers, not that summary.
+ - **Fonts:** Space Grotesk (UI), JetBrains Mono (room numbers, timers, ids, counts), both with system fallbacks.
+ - **No component library and no charting library.** `src/components/ui/` holds ~8 small primitives; bars are CSS.
+ - **`/sim` is excluded from the production build.**
+ - Commit after every task with the message given. Never commit `node_modules/`, `dist/`, or `.env`.
+ 
+ ## File Structure
+ 
+ ```
+ web/
+@@ -320,53 +320,53 @@ export default {
+ - [ ] **Step 4: Write `web/src/index.css` with both palettes verbatim**
+ 
+ These are the exact values from `docs/mockups/Main.dc.html` (dark) and `MainLight.dc.html` (light). Copy them character for character; they are the approved design.
+ 
+ ```css
+ @tailwind base;
+ @tailwind components;
+ @tailwind utilities;
+ 
+ :root {
+-  --bg: #0e1116; --bg2: #11151b; --nav: #0b0e12; --surface: #161a21;
+-  --surface2: #1a1f28; --border: #1f242d; --border2: #262c36; --border3: #2c3441;
+-  --text: #e7eaf0; --text2: #aab2c0; --text3: #8b94a5; --text4: #59627a;
+-  --accent: #f0b323; --accentText: #0e1116; --roomNum: #f0b323; --sel: #1a1f28;
+-  --outBg: #2b3a55; --outText: #e7eaf0;
+-  --autoBg: #1a1f28; --autoText: #aab2c0; --autoBorder: #2c3441;
+-  --noteBg: #2a2410; --noteBorder: #5a4a12; --noteText: #f5dfa0; --noteIcon: #f0b323;
++  --bg: #0f141a; --bg2: #131a21; --nav: #0b0f14; --surface: #171d26;
++  --surface2: #1c2430; --border: #232b36; --border2: #2a3441; --border3: #35414f;
++  --text: #e6eaf0; --text2: #a8b3c2; --text3: #8792a3; --text4: #5a6473;
++  --accent: #4f8fd4; --accentText: #0b1016; --roomNum: #7ab3ea; --sel: #172231;
++  --outBg: #1e3a5f; --outText: #e6eaf0;
++  --autoBg: #1c2430; --autoText: #a8b3c2; --autoBorder: #35414f;
++  --noteBg: #2a2410; --noteBorder: #5a4a12; --noteText: #f5dfa0; --noteIcon: #f5a623;
+   --okBg: #12301f; --okText: #4ade80; --okBorder: #1f5a3a; --okBtn: #4ade80;
+-  --okBtnText: #0e1116; --okBanner: #d1fae5;
+-  --warnBg: #3a2a10; --warnText: #f0b323;
+-  --dangerBg: #3a1418; --dangerText: #ff5d5d; --danger: #ff5d5d;
+-  --presenceBg: #2a2140; --presenceText: #c4b5fd; --presenceAv: #a78bfa;
+-  --avMuted: #8b94a5; --avText: #0e1116;
+-  --tagBg: #1f242d; --tagText: #8b94a5;
+-  --timerDoneBg: #161a21; --timerDoneText: #8b94a5;
++  --okBtnText: #0b1016; --okBanner: #d1fae5;
++  --warnBg: #3a2a10; --warnText: #f5a623;
++  --dangerBg: #3a1418; --dangerText: #f26d6d; --danger: #f26d6d;
++  --presenceBg: #23213d; --presenceText: #c4b5fd; --presenceAv: #a78bfa;
++  --avMuted: #8792a3; --avText: #0b1016;
++  --tagBg: #232b36; --tagText: #8792a3;
++  --timerDoneBg: #171d26; --timerDoneText: #8792a3;
+ }
+ 
+ [data-theme='light'] {
+-  --bg: #f2f4f7; --bg2: #f7f8fa; --nav: #ffffff; --surface: #ffffff;
+-  --surface2: #eef1f5; --border: #dfe3ea; --border2: #d3d9e2; --border3: #c5ccd8;
+-  --text: #0e1116; --text2: #3d4655; --text3: #6b7486; --text4: #9aa3b2;
+-  --accent: #f0b323; --accentText: #0e1116; --roomNum: #9a6b00; --sel: #fff7e0;
+-  --outBg: #2b3a55; --outText: #ffffff;
+-  --autoBg: #eef1f5; --autoText: #3d4655; --autoBorder: #d3d9e2;
++  --bg: #f5f7fa; --bg2: #fafbfc; --nav: #ffffff; --surface: #ffffff;
++  --surface2: #eef2f7; --border: #dfe4ec; --border2: #d2d9e4; --border3: #c3ccd9;
++  --text: #0f141a; --text2: #3c4757; --text3: #667286; --text4: #97a1b0;
++  --accent: #2563eb; --accentText: #ffffff; --roomNum: #1d4ed8; --sel: #eff4fb;
++  --outBg: #1e3a5f; --outText: #ffffff;
++  --autoBg: #eef2f7; --autoText: #3c4757; --autoBorder: #d2d9e4;
+   --noteBg: #fff8e1; --noteBorder: #e6c96a; --noteText: #5c4300; --noteIcon: #9a6b00;
+   --okBg: #e3f7ea; --okText: #15803d; --okBorder: #a7e3bd; --okBtn: #15803d;
+   --okBtnText: #ffffff; --okBanner: #064e3b;
+   --warnBg: #fff1cf; --warnText: #8a5a10;
+   --dangerBg: #fde4e4; --dangerText: #b91c1c; --danger: #dc2626;
+   --presenceBg: #ede9fe; --presenceText: #5b21b6; --presenceAv: #7c3aed;
+-  --avMuted: #6b7486; --avText: #ffffff;
+-  --tagBg: #eef1f5; --tagText: #6b7486;
+-  --timerDoneBg: #eef1f5; --timerDoneText: #9aa3b2;
++  --avMuted: #667286; --avText: #ffffff;
++  --tagBg: #eef2f7; --tagText: #667286;
++  --timerDoneBg: #eef2f7; --timerDoneText: #97a1b0;
+ }
+ 
+ @layer base {
+   html, body, #root { height: 100%; }
+   body {
+     margin: 0;
+     background: var(--bg);
+     color: var(--text);
+     font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+     -webkit-font-smoothing: antialiased;
+@@ -414,23 +414,23 @@ describe('design tokens', () => {
+     const dark = block(':root')
+     for (const t of TOKENS) expect(dark, `--${t} missing from :root`).toContain(`--${t}:`)
+   })
+ 
+   it('redefines all 45 tokens in the light palette', () => {
+     const light = block("[data-theme='light']")
+     for (const t of TOKENS) expect(light, `--${t} missing from light`).toContain(`--${t}:`)
+   })
+ 
+   it('pins the approved accent and danger values in both palettes', () => {
+-    expect(block(':root')).toContain('--accent: #f0b323')
+-    expect(block("[data-theme='light']")).toContain('--accent: #f0b323')
+-    expect(block(':root')).toContain('--danger: #ff5d5d')
++    expect(block(':root')).toContain('--accent: #4f8fd4')
++    expect(block("[data-theme='light']")).toContain('--accent: #2563eb')
++    expect(block(':root')).toContain('--danger: #f26d6d')
+     expect(block("[data-theme='light']")).toContain('--danger: #dc2626')
+   })
+ 
+   it('has 45 tokens and no more, so a stray colour cannot sneak in', () => {
+     const declared = new Set([...block(':root').matchAll(/--([a-zA-Z0-9]+):/g)].map((m) => m[1]))
+     expect([...declared].sort()).toEqual([...TOKENS].sort())
+   })
+ })
+ ```
+ 
+diff --git a/web/src/features/analytics/AnalyticsPage.test.tsx b/web/src/features/analytics/AnalyticsPage.test.tsx
+index 8117f8f..7463f92 100644
+--- a/web/src/features/analytics/AnalyticsPage.test.tsx
++++ b/web/src/features/analytics/AnalyticsPage.test.tsx
+@@ -19,21 +19,24 @@ const OVERVIEW = {
+   workOrdersClosed: 61,
+   workOrdersFromConversations: 9,
+   meanTimeToResolveSeconds: 2280,
+   inboundByHour: [
+     { hour: 0, count: 2 },
+     { hour: 18, count: 31 },
+   ],
+   inboundByDay: [{ day: '2026-09-10', count: 40 }],
+   firstResponseDistribution: [
+     { label: '< 2 min', count: 88, share: 0.41 },
+-    { label: '15–30', count: 19, share: 0.09 },
++    { label: '2–5 min', count: 40, share: 0.19 },
++    { label: '5–15 min', count: 30, share: 0.14 },
++    { label: '15–30 min', count: 19, share: 0.09 },
++    { label: '30+ min', count: 37, share: 0.17 },
+   ],
+   workOrdersByDepartment: [
+     { departmentId: 'dept-eng', departmentName: 'Engineering', closed: 34, meanTimeToResolveSeconds: 2820 },
+   ],
+ }
+ 
+ const AGENTS = [
+   {
+     userId: 'u-ava',
+     name: 'Ava',
+@@ -131,23 +134,26 @@ describe('AnalyticsPage', () => {
+     mount('manager')
+     expect(await screen.findByRole('button', { name: 'Export' })).toBeInTheDocument()
+   })
+ 
+   it('hides Export from a supervisor, who lacks the capability', async () => {
+     mount('supervisor')
+     await screen.findByText('214')
+     expect(screen.queryByRole('button', { name: 'Export' })).not.toBeInTheDocument()
+   })
+ 
+-  it('marks the over-SLA reply bucket in red', async () => {
++  it('marks only the past-SLA reply buckets in red', async () => {
+     mount()
+     await screen.findByText('214')
++    // "5–15 min" is entirely within the 15-minute SLA and must not read as a breach.
++    expect(screen.getByText('14%').className).not.toContain('dangerText')
++    // "15–30 min" is past the SLA.
+     expect(screen.getByText('9%').className).toContain('dangerText')
+   })
+ 
+   it('shows the department breakdown', async () => {
+     mount()
+     expect(await screen.findByText('Engineering')).toBeInTheDocument()
+     // Defect in the brief's fixture: departmentBucket.meanTimeToResolveSeconds is 2820s
+     // (= 47m), not the 2280s (= 38m) used for the unrelated top-level KPI. formatDuration(2820)
+     // is correctly "47m"; the assertion is corrected to match the given fixture value.
+     expect(screen.getByText(/34 · 47m/)).toBeInTheDocument()
+diff --git a/web/src/features/analytics/AnalyticsPage.tsx b/web/src/features/analytics/AnalyticsPage.tsx
+index 053c00b..0a77df1 100644
+--- a/web/src/features/analytics/AnalyticsPage.tsx
++++ b/web/src/features/analytics/AnalyticsPage.tsx
+@@ -10,20 +10,24 @@ import { RANGE_LABELS, rangeFor, type RangeKey } from './dateRange'
+ import { StatCard } from './StatCard'
+ 
+ /** No data is not a fast response — never render a null duration as 0s. */
+ function duration(seconds: number | null | undefined): string {
+   return seconds === null || seconds === undefined ? '—' : formatDuration(seconds)
+ }
+ 
+ const CARD = 'rounded-card border border-border2 bg-surface p-4'
+ const H = 'mb-3 text-[13px] font-bold uppercase tracking-wider text-text3'
+ 
++// The server's stable bucket order (see app/domain/analytics.py) — only these two are past
++// the 15-minute SLA. Matched by exact label, not substring: "5–15 min" contains "15" too.
++const PAST_SLA_LABELS = new Set(['15–30 min', '30+ min'])
++
+ export function AnalyticsPage() {
+   const { membership, can } = useSession()
+   const [key, setKey] = useState<RangeKey>('7d')
+   const { from, to } = useMemo(() => rangeFor(key), [key])
+   const overview = useOverview(from, to)
+   const agents = useAgentStats(from, to)
+ 
+   if (overview.isPending) {
+     return (
+       <div className="grid h-full place-items-center">
+@@ -126,21 +130,21 @@ export function AnalyticsPage() {
+         </section>
+ 
+         <section className={CARD}>
+           <h2 className={H}>Time to first reply</h2>
+           <BarList
+             rows={d.firstResponseDistribution.map((bucket) => ({
+               label: bucket.label,
+               value: `${Math.round(bucket.share * 100)}%`,
+               share: bucket.share,
+               // The only red: buckets past the 15-minute SLA.
+-              danger: bucket.label.includes('15') || bucket.label.includes('30'),
++              danger: PAST_SLA_LABELS.has(bucket.label),
+             }))}
+           />
+           <p className="mt-3 text-[12.5px] text-text3">Red is past the 15-minute SLA.</p>
+         </section>
+       </div>
+ 
+       <section className={`${CARD} mb-4`}>
+         <h2 className={H}>Agents</h2>
+         {agents.isPending ? (
+           <Spinner />
+diff --git a/web/src/index.css b/web/src/index.css
+index 6d5047e..2d7aebb 100644
+--- a/web/src/index.css
++++ b/web/src/index.css
+@@ -1,48 +1,48 @@
+ @tailwind base;
+ @tailwind components;
+ @tailwind utilities;
+ 
+ :root {
+-  --bg: #0e1116; --bg2: #11151b; --nav: #0b0e12; --surface: #161a21;
+-  --surface2: #1a1f28; --border: #1f242d; --border2: #262c36; --border3: #2c3441;
+-  --text: #e7eaf0; --text2: #aab2c0; --text3: #8b94a5; --text4: #59627a;
+-  --accent: #f0b323; --accentText: #0e1116; --roomNum: #f0b323; --sel: #1a1f28;
+-  --outBg: #2b3a55; --outText: #e7eaf0;
+-  --autoBg: #1a1f28; --autoText: #aab2c0; --autoBorder: #2c3441;
+-  --noteBg: #2a2410; --noteBorder: #5a4a12; --noteText: #f5dfa0; --noteIcon: #f0b323;
++  --bg: #0f141a; --bg2: #131a21; --nav: #0b0f14; --surface: #171d26;
++  --surface2: #1c2430; --border: #232b36; --border2: #2a3441; --border3: #35414f;
++  --text: #e6eaf0; --text2: #a8b3c2; --text3: #8792a3; --text4: #5a6473;
++  --accent: #4f8fd4; --accentText: #0b1016; --roomNum: #7ab3ea; --sel: #172231;
++  --outBg: #1e3a5f; --outText: #e6eaf0;
++  --autoBg: #1c2430; --autoText: #a8b3c2; --autoBorder: #35414f;
++  --noteBg: #2a2410; --noteBorder: #5a4a12; --noteText: #f5dfa0; --noteIcon: #f5a623;
+   --okBg: #12301f; --okText: #4ade80; --okBorder: #1f5a3a; --okBtn: #4ade80;
+-  --okBtnText: #0e1116; --okBanner: #d1fae5;
+-  --warnBg: #3a2a10; --warnText: #f0b323;
+-  --dangerBg: #3a1418; --dangerText: #ff5d5d; --danger: #ff5d5d;
+-  --presenceBg: #2a2140; --presenceText: #c4b5fd; --presenceAv: #a78bfa;
+-  --avMuted: #8b94a5; --avText: #0e1116;
+-  --tagBg: #1f242d; --tagText: #8b94a5;
+-  --timerDoneBg: #161a21; --timerDoneText: #8b94a5;
++  --okBtnText: #0b1016; --okBanner: #d1fae5;
++  --warnBg: #3a2a10; --warnText: #f5a623;
++  --dangerBg: #3a1418; --dangerText: #f26d6d; --danger: #f26d6d;
++  --presenceBg: #23213d; --presenceText: #c4b5fd; --presenceAv: #a78bfa;
++  --avMuted: #8792a3; --avText: #0b1016;
++  --tagBg: #232b36; --tagText: #8792a3;
++  --timerDoneBg: #171d26; --timerDoneText: #8792a3;
+ }
+ 
+ [data-theme='light'] {
+-  --bg: #f2f4f7; --bg2: #f7f8fa; --nav: #ffffff; --surface: #ffffff;
+-  --surface2: #eef1f5; --border: #dfe3ea; --border2: #d3d9e2; --border3: #c5ccd8;
+-  --text: #0e1116; --text2: #3d4655; --text3: #6b7486; --text4: #9aa3b2;
+-  --accent: #f0b323; --accentText: #0e1116; --roomNum: #9a6b00; --sel: #fff7e0;
+-  --outBg: #2b3a55; --outText: #ffffff;
+-  --autoBg: #eef1f5; --autoText: #3d4655; --autoBorder: #d3d9e2;
++  --bg: #f5f7fa; --bg2: #fafbfc; --nav: #ffffff; --surface: #ffffff;
++  --surface2: #eef2f7; --border: #dfe4ec; --border2: #d2d9e4; --border3: #c3ccd9;
++  --text: #0f141a; --text2: #3c4757; --text3: #667286; --text4: #97a1b0;
++  --accent: #2563eb; --accentText: #ffffff; --roomNum: #1d4ed8; --sel: #eff4fb;
++  --outBg: #1e3a5f; --outText: #ffffff;
++  --autoBg: #eef2f7; --autoText: #3c4757; --autoBorder: #d2d9e4;
+   --noteBg: #fff8e1; --noteBorder: #e6c96a; --noteText: #5c4300; --noteIcon: #9a6b00;
+   --okBg: #e3f7ea; --okText: #15803d; --okBorder: #a7e3bd; --okBtn: #15803d;
+   --okBtnText: #ffffff; --okBanner: #064e3b;
+   --warnBg: #fff1cf; --warnText: #8a5a10;
+   --dangerBg: #fde4e4; --dangerText: #b91c1c; --danger: #dc2626;
+   --presenceBg: #ede9fe; --presenceText: #5b21b6; --presenceAv: #7c3aed;
+-  --avMuted: #6b7486; --avText: #ffffff;
+-  --tagBg: #eef1f5; --tagText: #6b7486;
+-  --timerDoneBg: #eef1f5; --timerDoneText: #9aa3b2;
++  --avMuted: #667286; --avText: #ffffff;
++  --tagBg: #eef2f7; --tagText: #667286;
++  --timerDoneBg: #eef2f7; --timerDoneText: #97a1b0;
+ }
+ 
+ @layer base {
+   html, body, #root { height: 100%; }
+   body {
+     margin: 0;
+     background: var(--bg);
+     color: var(--text);
+     font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+     -webkit-font-smoothing: antialiased;
+diff --git a/web/src/index.css.test.ts b/web/src/index.css.test.ts
+index 8a9f2cd..5095215 100644
+--- a/web/src/index.css.test.ts
++++ b/web/src/index.css.test.ts
+@@ -25,23 +25,23 @@ describe('design tokens', () => {
+     const dark = block(':root')
+     for (const t of TOKENS) expect(dark, `--${t} missing from :root`).toContain(`--${t}:`)
+   })
+ 
+   it('redefines all 45 tokens in the light palette', () => {
+     const light = block("[data-theme='light']")
+     for (const t of TOKENS) expect(light, `--${t} missing from light`).toContain(`--${t}:`)
+   })
+ 
+   it('pins the approved accent and danger values in both palettes', () => {
+-    expect(block(':root')).toContain('--accent: #f0b323')
+-    expect(block("[data-theme='light']")).toContain('--accent: #f0b323')
+-    expect(block(':root')).toContain('--danger: #ff5d5d')
++    expect(block(':root')).toContain('--accent: #4f8fd4')
++    expect(block("[data-theme='light']")).toContain('--accent: #2563eb')
++    expect(block(':root')).toContain('--danger: #f26d6d')
+     expect(block("[data-theme='light']")).toContain('--danger: #dc2626')
+   })
+ 
+   it('has 45 tokens and no more, so a stray colour cannot sneak in', () => {
+     const declaredTokens = (selector: string) =>
+       [...new Set([...block(selector).matchAll(/--([a-zA-Z0-9]+):/g)].map((m) => m[1]))].sort()
+ 
+     expect(declaredTokens(':root')).toEqual([...TOKENS].sort())
+     expect(declaredTokens("[data-theme='light']")).toEqual([...TOKENS].sort())
+   })

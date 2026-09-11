@@ -1,0 +1,307 @@
+# Review package: d3d0e8b..01294d9
+
+## Commits
+01294d9 fix(server): tenant-isolate WS presence conversationIds, serialize per-connection sends
+
+## Files changed
+ server/app/__init__.py          |  2 +-
+ server/app/realtime/registry.py |  6 +++--
+ server/app/realtime/ws.py       | 21 ++++++++++++-----
+ server/tests/test_presence.py   |  4 +++-
+ server/tests/test_ws.py         | 50 +++++++++++++++++++++++++++++++++++------
+ 5 files changed, 66 insertions(+), 17 deletions(-)
+
+## Diff
+diff --git a/server/app/__init__.py b/server/app/__init__.py
+index 66e38d2..9941bc5 100644
+--- a/server/app/__init__.py
++++ b/server/app/__init__.py
+@@ -71,13 +71,13 @@ def create_app(config: Config | None = None) -> Flask:
+     under_reloader = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+     if config.START_WORKER and (under_reloader or config.is_production):
+         with app.extensions["db"].session() as db:
+             for job_type in _jobs.RECURRING:
+                 _jobs.ensure_recurring(db, job_type)
+         app.extensions["worker"].start()
+ 
+     from app.realtime.ws import sock, start_sweeper
+ 
+     sock.init_app(app)
+-    if config.START_WORKER and (under_reloader or not app.debug):
++    if config.START_WORKER and (under_reloader or config.is_production):
+         start_sweeper(app)
+     return app
+diff --git a/server/app/realtime/registry.py b/server/app/realtime/registry.py
+index a4429a8..5f7f61e 100644
+--- a/server/app/realtime/registry.py
++++ b/server/app/realtime/registry.py
+@@ -1,22 +1,23 @@
+ from __future__ import annotations
+ 
+ import threading
+-from dataclasses import dataclass
++from dataclasses import dataclass, field
+ from typing import Any
+ 
+ 
+ @dataclass
+ class Conn:
+     ws: Any
+     property_id: str
+     user_id: str
++    send_lock: threading.Lock = field(default_factory=threading.Lock)
+ 
+ 
+ class ConnectionRegistry:
+     """In-memory set of live WebSocket connections, grouped by property. Single process by design."""
+ 
+     def __init__(self):
+         self._conns: dict[int, Conn] = {}
+         self._lock = threading.Lock()
+ 
+     def add(self, ws: Any, property_id: str, user_id: str) -> None:
+@@ -35,18 +36,19 @@ class ConnectionRegistry:
+         with self._lock:
+             return {c.user_id for c in self._conns.values() if c.property_id == property_id}
+ 
+     def send(self, property_id: str, text: str, user_id: str | None = None) -> int:
+         with self._lock:
+             targets = [c for c in self._conns.values()
+                        if c.property_id == property_id and (user_id is None or c.user_id == user_id)]
+         delivered = 0
+         for c in targets:
+             try:
+-                c.ws.send(text)
++                with c.send_lock:
++                    c.ws.send(text)
+                 delivered += 1
+             except Exception:
+                 self.remove(c.ws)
+         return delivered
+ 
+ 
+ connections = ConnectionRegistry()
+diff --git a/server/app/realtime/ws.py b/server/app/realtime/ws.py
+index ee70a36..f3aa267 100644
+--- a/server/app/realtime/ws.py
++++ b/server/app/realtime/ws.py
+@@ -4,89 +4,98 @@ import json
+ import logging
+ import threading
+ 
+ from flask import Flask, request
+ from flask_sock import Sock
+ from sqlalchemy import select
+ 
+ from app import clock
+ from app.auth.sessions import COOKIE_NAME, load_session
+ from app.db import get_db
+-from app.models import PropertyMembership, UserAccount
++from app.models import Conversation, PropertyMembership, UserAccount
+ from app.realtime import presence
+ from app.realtime.registry import connections
+ 
+ log = logging.getLogger("ws")
+ sock = Sock()
+ 
+ 
+ @sock.route("/ws")
+ def ws_route(ws):
+     token = request.cookies.get(COOKIE_NAME)
+     user = None
+     if token:
+         with get_db().session() as db:
+             s = load_session(db, token)
+             if s:
+                 u = db.get(UserAccount, s.user_id)
+-                user = {"id": u.id, "firstName": u.first_name, "avatarUrl": u.avatar_url}
++                if u is not None:
++                    user = {"id": u.id, "firstName": u.first_name, "avatarUrl": u.avatar_url}
+     if user is None:
+         ws.close(4401, "unauthorized")
+         return
+     property_id: str | None = None
+     try:
+         while True:
+             raw = ws.receive()
+             if raw is None:
+                 break
+             try:
+                 frame = json.loads(raw)
+             except ValueError:
+                 continue
++            if not isinstance(frame, dict):
++                continue
+             kind = frame.get("type")
+             if kind == "subscribe":
+                 pid = frame.get("propertyId")
+                 with get_db().session() as db:
+                     ok = db.scalar(select(PropertyMembership.id).where(PropertyMembership.user_id == user["id"],
+                                                                        PropertyMembership.property_id == pid))
+                 if not ok:
+                     ws.close(4403, "no membership")
+                     return
+-                if property_id:
++                if property_id and property_id != pid:
+                     connections.remove(ws)
++                    presence.broadcast_presence(property_id, presence.store.clear_user(user["id"]))
+                 property_id = pid
+                 connections.add(ws, property_id, user["id"])
+                 ws.send(json.dumps({"type": "subscribed", "propertyId": property_id, "at": clock.now().isoformat()}))
+             elif kind == "presence" and property_id:
++                cid = frame.get("conversationId")
++                if cid is not None:
++                    with get_db().session() as db:
++                        conv_property_id = db.scalar(select(Conversation.property_id)
++                                                      .where(Conversation.id == cid))
++                    if conv_property_id != property_id:
++                        continue
+                 state = frame.get("state") if frame.get("state") in ("viewing", "composing") else "viewing"
+-                changed = presence.store.update(frame.get("conversationId"), user, state)
++                changed = presence.store.update(cid, user, state)
+                 presence.broadcast_presence(property_id, changed)
+             elif kind == "heartbeat" and property_id:
+                 presence.store.touch(user["id"])  # refresh seen_at without changing state
+     except Exception:  # noqa: BLE001 — connection errors are routine
+         log.debug("ws closed", exc_info=True)
+     finally:
+         connections.remove(ws)
+         if property_id:
+             presence.broadcast_presence(property_id, presence.store.clear_user(user["id"]))
+ 
+ 
+ def start_sweeper(app: Flask, interval: float = 5.0) -> threading.Thread:
+     stop = threading.Event()
+ 
+     def loop():
+         while not stop.wait(interval):
+             changed = presence.store.sweep(clock.now())
+             # We don't know each conversation's property here; look them up cheaply.
+             if changed:
+-                from app.models import Conversation
+-
+                 with app.app_context(), get_db().session() as db:
+                     rows = db.execute(select(Conversation.id, Conversation.property_id)
+                                       .where(Conversation.id.in_(list(changed)))).all()
+                 by_prop: dict[str, set[str]] = {}
+                 for cid, pid in rows:
+                     by_prop.setdefault(pid, set()).add(cid)
+                 for pid, cids in by_prop.items():
+                     presence.broadcast_presence(pid, cids)
+ 
+     t = threading.Thread(target=loop, name="presence-sweeper", daemon=True)
+diff --git a/server/tests/test_presence.py b/server/tests/test_presence.py
+index b7fe3b6..22eb5d3 100644
+--- a/server/tests/test_presence.py
++++ b/server/tests/test_presence.py
+@@ -22,21 +22,23 @@ def test_moving_conversations_reports_both():
+     assert s.snapshot("c1") == [] and [u["id"] for u in s.snapshot("c2")] == ["u1"]
+ 
+ 
+ def test_null_conversation_clears():
+     s = PresenceStore()
+     s.update("c1", AVA, "viewing")
+     assert s.update(None, AVA, "viewing") == {"c1"}
+     assert s.snapshot("c1") == []
+ 
+ 
+-def test_sweep_expires_stale_entries():
++def test_sweep_expires_stale_entries(app):
++    # `app` is requested only so its fixture's clock.reset() teardown runs after this test's
++    # clock.freeze/advance, instead of leaking a frozen clock into whichever test runs next.
+     s = PresenceStore()
+     clock.freeze(clock.now())
+     s.update("c1", AVA, "viewing")
+     clock.advance(seconds=11)
+     s.update("c1", MARCUS, "viewing")
+     assert s.sweep(clock.now()) == {"c1"}
+     assert [u["id"] for u in s.snapshot("c1")] == ["u2"]
+ 
+ 
+ def test_clear_user():
+diff --git a/server/tests/test_ws.py b/server/tests/test_ws.py
+index 6fb4491..b84631f 100644
+--- a/server/tests/test_ws.py
++++ b/server/tests/test_ws.py
+@@ -49,38 +49,74 @@ def test_subscribe_and_receive_broadcast(app, fx, live_server, login, database):
+ 
+ def test_subscribe_to_other_property_is_refused(app, fx, live_server, login):
+     from simple_websocket import ConnectionClosed
+ 
+     ws = _connect(live_server, _cookie(login))
+     ws.send(json.dumps({"type": "subscribe", "propertyId": fx.property_b.id}))
+     with pytest.raises(ConnectionClosed):
+         ws.receive(timeout=2)
+ 
+ 
+-def test_presence_is_fanned_out_to_the_property(app, fx, live_server, login):
++def test_presence_is_fanned_out_to_the_property(app, fx, live_server, login, database):
++    from tests.factories import make_conversation
++
++    with database.session() as db:
++        conv_id = make_conversation(db, fx).id
+     a = _connect(live_server, _cookie(login))
+     b = _connect(live_server, "sid=" + login("agent2@hvh.test").get_cookie("sid").value)
+     for ws in (a, b):
+         ws.send(json.dumps({"type": "subscribe", "propertyId": fx.property_a.id}))
+         assert json.loads(ws.receive(timeout=2))["type"] == "subscribed"
+-    a.send(json.dumps({"type": "presence", "conversationId": "c-412", "state": "composing"}))
++    a.send(json.dumps({"type": "presence", "conversationId": conv_id, "state": "composing"}))
+     got = json.loads(b.receive(timeout=2))
+-    assert got["type"] == "presence.update" and got["payload"]["conversationId"] == "c-412"
++    assert got["type"] == "presence.update" and got["payload"]["conversationId"] == conv_id
+     assert got["payload"]["users"][0]["firstName"] == "Ava" and got["payload"]["users"][0]["state"] == "composing"
+     a.close(); b.close()
+ 
+ 
+-def test_disconnect_clears_presence(app, fx, live_server, login):
++def test_disconnect_clears_presence(app, fx, live_server, login, database):
++    from tests.factories import make_conversation
++
++    with database.session() as db:
++        conv_id = make_conversation(db, fx).id
+     a = _connect(live_server, _cookie(login))
+     b = _connect(live_server, "sid=" + login("agent2@hvh.test").get_cookie("sid").value)
+     for ws in (a, b):
+         ws.send(json.dumps({"type": "subscribe", "propertyId": fx.property_a.id}))
+         assert json.loads(ws.receive(timeout=2))["type"] == "subscribed"
+-    a.send(json.dumps({"type": "presence", "conversationId": "c-777", "state": "viewing"}))
++    a.send(json.dumps({"type": "presence", "conversationId": conv_id, "state": "viewing"}))
+     got = json.loads(b.receive(timeout=2))
+-    assert got["payload"]["conversationId"] == "c-777"
++    assert got["payload"]["conversationId"] == conv_id
+     assert [u["id"] for u in got["payload"]["users"]] == [fx.agent_a.id]
+     a.close()
+     got2 = json.loads(b.receive(timeout=2))
+-    assert got2["type"] == "presence.update" and got2["payload"]["conversationId"] == "c-777"
++    assert got2["type"] == "presence.update" and got2["payload"]["conversationId"] == conv_id
+     assert got2["payload"]["users"] == []
+     b.close()
++
++
++def test_presence_for_foreign_conversation_is_refused(app, fx, live_server, login, database):
++    """A conversationId belonging to a property the socket isn't subscribed to must never enter
++    the shared presence store — otherwise the next legitimate user of that other property would
++    see an impostor's name/avatar in their typing indicator (Task 19 review, Finding 2)."""
++    from tests.factories import make_conversation
++
++    with database.session() as db:
++        foreign_conv_id = make_conversation(db, fx, guest=fx.guest_b).id
++        own_conv_id = make_conversation(db, fx).id
++    a = _connect(live_server, _cookie(login))
++    b = _connect(live_server, "sid=" + login("agent2@hvh.test").get_cookie("sid").value)
++    for ws in (a, b):
++        ws.send(json.dumps({"type": "subscribe", "propertyId": fx.property_a.id}))
++        assert json.loads(ws.receive(timeout=2))["type"] == "subscribed"
++    a.send(json.dumps({"type": "presence", "conversationId": foreign_conv_id, "state": "viewing"}))
++    # A second, legitimate presence frame on the same connection is processed after the first by
++    # the single reader thread, so its broadcast proves the foreign one above was already handled.
++    a.send(json.dumps({"type": "presence", "conversationId": own_conv_id, "state": "viewing"}))
++    got = json.loads(b.receive(timeout=2))
++    assert got["payload"]["conversationId"] == own_conv_id
++
++    from app.realtime.presence import store
++
++    assert store.snapshot(foreign_conv_id) == []
++    a.close()
++    b.close()

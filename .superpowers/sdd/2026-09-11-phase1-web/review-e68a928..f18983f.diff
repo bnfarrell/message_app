@@ -1,0 +1,112 @@
+# Review package: e68a928..f18983f
+
+## Commits
+f18983f fix(web): guard the webstorage-disabling flag instead of hard-coding it
+
+## Files changed
+ web/package.json   |  3 +++
+ web/vite.config.ts | 45 ++++++++++++++++++++++++++++++++++++---------
+ 2 files changed, 39 insertions(+), 9 deletions(-)
+
+## Diff
+diff --git a/web/package.json b/web/package.json
+index d2d264e..9586384 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -1,14 +1,17 @@
+ {
+   "name": "concierge-web",
+   "private": true,
+   "type": "module",
++  "engines": {
++    "node": ">=20"
++  },
+   "scripts": {
+     "dev": "vite",
+     "build": "tsc -b && vite build",
+     "preview": "vite preview",
+     "test": "vitest run",
+     "test:watch": "vitest",
+     "test:e2e": "playwright test",
+     "gen:types": "json2ts --input src/api/schema.json --output src/api/types.generated.ts --style.singleQuote --no-additionalProperties --unreachableDefinitions",
+     "lint": "eslint src --ext .ts,.tsx"
+   },
+diff --git a/web/vite.config.ts b/web/vite.config.ts
+index b6b105d..fe079ee 100644
+--- a/web/vite.config.ts
++++ b/web/vite.config.ts
+@@ -1,15 +1,45 @@
++import { spawnSync } from 'node:child_process'
+ import { defineConfig } from 'vitest/config'
+ import react from '@vitejs/plugin-react'
+ 
+ const API = 'http://127.0.0.1:5000'
+ 
++/**
++ * True only if the currently-running Node binary accepts `flag` as a CLI argument.
++ * Any other outcome (unrecognised flag, or the spawn itself failing for an unrelated
++ * reason) is treated as "unsupported" rather than thrown, and nothing is printed --
++ * an unsupported flag is an expected, silent case here, not an error.
++ */
++function nodeAcceptsFlag(flag: string): boolean {
++  try {
++    return spawnSync(process.execPath, [flag, '-e', ''], { stdio: 'ignore' }).status === 0
++  } catch {
++    return false
++  }
++}
++
++// Node 25+ enables a native `localStorage`/`sessionStorage` global by default (it was
++// opt-in behind --experimental-webstorage from Node 22.4 through 24.x). That global shadows
++// jsdom's working implementation: vitest only copies a jsdom `window` property onto the test
++// global when that key isn't already present on `global`, so Node's stub (which throws
++// without --localstorage-file) wins and jsdom's storage never gets installed.
++//
++// The flag to disable it was renamed from --no-experimental-webstorage to --no-webstorage
++// partway through Node 25, and this project's floor is Node 20 (see package.json engines),
++// which has no such flag at all -- passing an unrecognised flag makes every worker's `node`
++// invocation exit immediately with "bad option", a total suite outage, not a test failure.
++// So: probe for both spellings and use whichever this Node build actually accepts (if any),
++// instead of hard-coding one.
++const webStorageFlag = ['--no-webstorage', '--no-experimental-webstorage'].find(nodeAcceptsFlag)
++const webStorageExecArgv = webStorageFlag ? [webStorageFlag] : []
++
+ export default defineConfig({
+   plugins: [react()],
+   server: {
+     port: 5173,
+     proxy: {
+       '/api': { target: API, changeOrigin: true },
+       '/a': { target: API, changeOrigin: true },
+       '/ws': { target: API, ws: true, changeOrigin: true },
+     },
+   },
+@@ -18,22 +48,19 @@ export default defineConfig({
+     environmentMatchGlobs: [
+       ['src/index.css.test.ts', 'node'],
+       ['src/api/types.generated.test.ts', 'node'],
+     ],
+     globals: true,
+     setupFiles: ['./vitest.setup.ts'],
+     css: false,
+     // Unit and component tests only. tests/e2e/ belongs to Playwright.
+     include: ['src/**/*.test.{ts,tsx}'],
+     poolOptions: {
+-      // Node's own global `localStorage` (stable since Node 22) shadows jsdom's working
+-      // implementation: vitest only copies a jsdom window property onto the test global when
+-      // that key isn't already present on `global`, so Node's stub (which throws without
+-      // --localstorage-file) wins and jsdom's storage never gets installed. Disabling Node's
+-      // built-in lets vitest fall through to jsdom's real localStorage/sessionStorage.
+-      // Vitest's default pool is 'forks', not 'threads' -- set execArgv on both so the fix
+-      // holds regardless of which pool a future config change (or CLI flag) selects.
+-      threads: { execArgv: ['--no-experimental-webstorage'] },
+-      forks: { execArgv: ['--no-experimental-webstorage'] },
++      // See webStorageExecArgv above. Empty on a Node that doesn't need or support the flag
++      // (e.g. this project's Node 20 floor). Vitest's default pool is 'forks', not 'threads' --
++      // set execArgv on both so the fix holds regardless of which pool a future config change
++      // (or CLI flag) selects.
++      threads: { execArgv: webStorageExecArgv },
++      forks: { execArgv: webStorageExecArgv },
+     },
+   },
+ })

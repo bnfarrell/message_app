@@ -1,0 +1,1433 @@
+# Review package: 28e8b97..554a950
+
+## Commits
+554a950 feat(server): property settings GET/PATCH endpoint
+182c459 feat(server): departments become full CRUD, with a referential delete guard
+2ba6cb8 feat(server): patchable quick-reply locale, plus a non-mutating preview
+
+## Files changed
+ server/app/__init__.py                   |   2 +
+ server/app/api/departments.py            |  37 +++-
+ server/app/api/properties.py             |  25 +++
+ server/app/api/quick_replies.py          |  32 ++-
+ server/app/domain/properties.py          |  53 +++++
+ server/app/domain/quick_replies.py       |  16 ++
+ server/app/domain/users.py               |  58 ++++-
+ server/app/schemas/content.py            |  10 +-
+ server/app/schemas/export_json_schema.py |   4 +-
+ server/app/schemas/properties.py         |  35 +++
+ server/app/schemas/users.py              |  14 ++
+ server/pyproject.toml                    |   4 +
+ server/tests/test_content.py             |  88 ++++++++
+ server/tests/test_departments_users.py   | 120 ++++++++++
+ server/tests/test_property_settings.py   |  88 ++++++++
+ web/src/api/schema.json                  | 365 +++++++++++++++++++++++++++++++
+ 16 files changed, 945 insertions(+), 6 deletions(-)
+
+## Diff
+diff --git a/server/app/__init__.py b/server/app/__init__.py
+index 3ccad3e..f292c71 100644
+--- a/server/app/__init__.py
++++ b/server/app/__init__.py
+@@ -45,29 +45,31 @@ def create_app(config: Config | None = None) -> Flask:
+         analytics,
+         assets,
+         auth,
+         categories,
+         conversations,
+         departments,
+         guests,
+         health,
+         hooks,
+         notifications,
++        properties,
+         quick_replies,
+         short_links,
+         users,
+         work_orders,
+     )
+ 
+     app.register_blueprint(health.bp)
+     app.register_blueprint(auth.bp)
+     app.register_blueprint(departments.bp)
++    app.register_blueprint(properties.bp)
+     app.register_blueprint(users.bp)
+     app.register_blueprint(guests.bp)
+     app.register_blueprint(notifications.bp)
+     app.register_blueprint(conversations.bp)
+     app.register_blueprint(work_orders.bp)
+     app.register_blueprint(quick_replies.bp)
+     app.register_blueprint(assets.bp)
+     app.register_blueprint(categories.bp)
+     app.register_blueprint(short_links.bp)
+     app.register_blueprint(hooks.bp)
+diff --git a/server/app/api/departments.py b/server/app/api/departments.py
+index 4fc19cc..db51be0 100644
+--- a/server/app/api/departments.py
++++ b/server/app/api/departments.py
+@@ -1,15 +1,48 @@
+ from flask import Blueprint, g
+ 
+-from app.api._util import db_session, ok
+-from app.auth.decorators import require_auth, require_property
++from app.api._util import db_session, no_content, ok, parse_body
++from app.auth.decorators import require_auth, require_capability, require_property
+ from app.domain import users
++from app.schemas.users import DepartmentIn, DepartmentOut, DepartmentPatch
+ 
+ bp = Blueprint("departments", __name__, url_prefix="/api/p/<property_id>/departments")
+ 
+ 
+ @bp.get("")
+ @require_auth
+ @require_property
+ def list_departments(property_id: str):
++    """Deliberately ungated: department pickers all over the product read this list."""
+     with db_session() as db:
+         return ok(users.list_departments(db, g.property_id))
++
++
++@bp.post("")
++@require_auth
++@require_property
++@require_capability("manage_admin")
++def create_department(property_id: str):
++    with db_session() as db:
++        created = users.create_department(db, g.property_id, parse_body(DepartmentIn))
++        return ok(DepartmentOut.model_validate(created), 201)
++
++
++@bp.patch("/<department_id>")
++@require_auth
++@require_property
++@require_capability("manage_admin")
++def update_department(property_id: str, department_id: str):
++    with db_session() as db:
++        updated = users.update_department(db, g.property_id, department_id,
++                                          parse_body(DepartmentPatch))
++        return ok(DepartmentOut.model_validate(updated))
++
++
++@bp.delete("/<department_id>")
++@require_auth
++@require_property
++@require_capability("manage_admin")
++def delete_department(property_id: str, department_id: str):
++    with db_session() as db:
++        users.delete_department(db, g.property_id, department_id)
++    return no_content()
+diff --git a/server/app/api/properties.py b/server/app/api/properties.py
+new file mode 100644
+index 0000000..bca947a
+--- /dev/null
++++ b/server/app/api/properties.py
+@@ -0,0 +1,25 @@
++from flask import Blueprint, g
++
++from app.api._util import db_session, ok, parse_body
++from app.auth.decorators import require_auth, require_capability, require_property
++from app.domain import properties
++from app.schemas.properties import PropertySettingsPatch
++
++bp = Blueprint("properties", __name__, url_prefix="/api/p/<property_id>/settings")
++
++
++@bp.get("")
++@require_auth
++@require_property
++def get_settings(property_id: str):
++    with db_session() as db:
++        return ok(properties.settings(db, g.property_id))
++
++
++@bp.patch("")
++@require_auth
++@require_property
++@require_capability("manage_admin")
++def update_settings(property_id: str):
++    with db_session() as db:
++        return ok(properties.update_settings(db, g.property_id, parse_body(PropertySettingsPatch)))
+diff --git a/server/app/api/quick_replies.py b/server/app/api/quick_replies.py
+index 20c1918..585a19c 100644
+--- a/server/app/api/quick_replies.py
++++ b/server/app/api/quick_replies.py
+@@ -1,16 +1,22 @@
+ from flask import Blueprint, g, request
+ 
+ from app.api._util import db_session, no_content, ok, parse_body
+ from app.auth.decorators import require_auth, require_capability, require_property
+ from app.domain import conversations, quick_replies
+-from app.schemas.content import QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderRequest
++from app.schemas.content import (
++    PreviewRequest,
++    QuickReplyIn,
++    QuickReplyOut,
++    QuickReplyPatch,
++    RenderRequest,
++)
+ 
+ bp = Blueprint("quick_replies", __name__, url_prefix="/api/p/<property_id>/quick-replies")
+ 
+ 
+ @bp.get("")
+ @require_auth
+ @require_property
+ def list_quick_replies(property_id: str):
+     with db_session() as db:
+         return ok(quick_replies.list(db, g.property_id, q=request.args.get("q"),
+@@ -54,10 +60,34 @@ def delete_quick_reply(property_id: str, quick_reply_id: str):
+ @require_auth
+ @require_property
+ @require_capability("reply")
+ def render_quick_reply(property_id: str, quick_reply_id: str):
+     body = parse_body(RenderRequest)
+     with db_session() as db:
+         conversations.get_for_viewer(db, g.property_id, body.conversation_id, g.membership.role,
+                                      g.user.id, g.membership.department_id)
+         return ok(quick_replies.render(db, g.property_id, quick_reply_id, body.conversation_id,
+                                        g.user.id))
++
++
++@bp.get("/variables")
++@require_auth
++@require_property
++def list_variables(property_id: str):
++    """The authoritative `{{variable}}` list (ruling D68), so the client never hardcodes it."""
++    return ok(list(quick_replies.VARIABLES))
++
++
++@bp.post("/preview")
++@require_auth
++@require_property
++@require_capability("manage_admin")
++def preview_quick_reply(property_id: str):
++    """Read-only sibling of /render for the admin editor: arbitrary body text, no usage_count
++    bump, and gated on the screen's own capability so `corporate` is not locked out."""
++    body = parse_body(PreviewRequest)
++    with db_session() as db:
++        if body.conversation_id:
++            conversations.get_for_viewer(db, g.property_id, body.conversation_id,
++                                         g.membership.role, g.user.id, g.membership.department_id)
++        return ok(quick_replies.preview(db, g.property_id, body.body, body.conversation_id,
++                                        g.user.id))
+diff --git a/server/app/domain/properties.py b/server/app/domain/properties.py
+new file mode 100644
+index 0000000..14eed3c
+--- /dev/null
++++ b/server/app/domain/properties.py
+@@ -0,0 +1,53 @@
++from __future__ import annotations
++
++from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
++
++from sqlalchemy.orm import Session
++
++from app.domain.guests import normalize_phone
++from app.errors import NotFound, ValidationFailed
++from app.models import Property
++from app.schemas.properties import PropertySettingsOut, PropertySettingsPatch
++
++# Stored E.164: app/channels/inbound.py routes an inbound SMS by matching
++# `Property.sms_number == guests.normalize_phone(to_number)`, so a settings edit that saved a
++# prettified number would silently stop inbound routing for the property.
++_PHONE_FIELDS = ("phone", "sms_number")
++
++
++def normalize_timezone(raw: str) -> str:
++    """The zone is the intended basis for analytics bucketing, so a typo must be rejected rather
++    than persisted. Validated here rather than in a Pydantic validator to match `normalize_phone`,
++    the codebase's existing field-normalisation precedent."""
++    try:
++        ZoneInfo(raw)
++    except (ZoneInfoNotFoundError, ValueError) as e:
++        raise ValidationFailed("Invalid time zone", details={"timezone": raw}) from e
++    return raw
++
++
++def get(db: Session, property_id: str) -> Property:
++    p = db.get(Property, property_id)
++    if p is None:
++        raise NotFound("Property not found")
++    return p
++
++
++def settings(db: Session, property_id: str) -> PropertySettingsOut:
++    return PropertySettingsOut.model_validate(get(db, property_id))
++
++
++def update_settings(db: Session, property_id: str,
++                    data: PropertySettingsPatch) -> PropertySettingsOut:
++    p = get(db, property_id)
++    for k, v in data.model_dump(exclude_unset=True).items():
++        if v is not None:
++            if k in _PHONE_FIELDS:
++                v = normalize_phone(v)
++            elif k == "timezone":
++                v = normalize_timezone(v)
++            elif k == "currency":
++                v = v.upper()
++        setattr(p, k, v)
++    db.flush()
++    return PropertySettingsOut.model_validate(p)
+diff --git a/server/app/domain/quick_replies.py b/server/app/domain/quick_replies.py
+index 1ceae7a..d8fa810 100644
+--- a/server/app/domain/quick_replies.py
++++ b/server/app/domain/quick_replies.py
+@@ -114,17 +114,33 @@ def context_for_conversation(db: Session, property_id: str, conversation_id: str
+     agent = db.get(UserAccount, agent_user_id) if agent_user_id else None
+     return {
+         "guest_first_name": guest.first_name,
+         "room_number": stay.room_number if stay else None,
+         "property_name": prop.name,
+         "agent_first_name": agent.first_name if agent else None,
+         "departure_date": stay.departure_date.strftime("%A, %b %d") if stay else None,
+     }
+ 
+ 
++def preview(db: Session, property_id: str, body: str, conversation_id: str | None,
++            agent_user_id: str | None) -> RenderedQuickReply:
++    """Renders arbitrary body text without touching a single row.
++
++    Deliberately not `render()`: that one bumps `usage_count` (which the admin table displays as
++    "Uses"), needs a saved row and a real conversation, and is gated on `reply` — a capability
++    `corporate` does not hold even though it can open the admin screen. Every variable with no
++    context — including the no-conversation case — falls back through `interpolate`.
++    """
++    ctx = (context_for_conversation(db, property_id, conversation_id, agent_user_id)
++           if conversation_id else {})
++    rendered = interpolate(body, ctx)
++    return RenderedQuickReply(body=rendered, segments=segment_count(rendered),
++                              characters=len(rendered))
++
++
+ def render(db: Session, property_id: str, quick_reply_id: str, conversation_id: str,
+            agent_user_id: str | None) -> RenderedQuickReply:
+     r = get(db, property_id, quick_reply_id)
+     body = interpolate(r.body,
+                        context_for_conversation(db, property_id, conversation_id, agent_user_id))
+     r.usage_count += 1
+     return RenderedQuickReply(body=body, segments=segment_count(body), characters=len(body))
+diff --git a/server/app/domain/users.py b/server/app/domain/users.py
+index 3c16cd5..5e05546 100644
+--- a/server/app/domain/users.py
++++ b/server/app/domain/users.py
+@@ -1,37 +1,93 @@
+ from __future__ import annotations
+ 
+ from sqlalchemy import select
+ from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
+ 
+ from app.auth.passwords import hash_password
+ from app.auth.permissions import has_capability
+ from app.domain import audit
+ from app.errors import Conflict, NotFound, ValidationFailed
+-from app.models import Department, PropertyMembership, UserAccount
++from app.models import (
++    Conversation,
++    Department,
++    DigitalAsset,
++    PropertyMembership,
++    QuickReply,
++    UserAccount,
++    WorkOrder,
++)
+ from app.schemas.enums import Role
+ from app.schemas.users import (
+     CreateStaffRequest,
++    DepartmentIn,
+     DepartmentOut,
++    DepartmentPatch,
+     StaffPatch,
+     StaffUserOut,
+ )
+ 
+ 
+ def list_departments(db: Session, property_id: str) -> list[DepartmentOut]:
+     rows = db.scalars(
+         select(Department).where(Department.property_id == property_id).order_by(Department.name)
+     ).all()
+     return [DepartmentOut.model_validate(d) for d in rows]
+ 
+ 
++def get_department(db: Session, property_id: str, department_id: str) -> Department:
++    d = db.scalar(select(Department).where(Department.id == department_id,
++                                           Department.property_id == property_id))
++    if d is None:
++        raise NotFound("Department not found")
++    return d
++
++
++def create_department(db: Session, property_id: str, data: DepartmentIn) -> Department:
++    d = Department(property_id=property_id, **data.model_dump())
++    db.add(d)
++    db.flush()
++    return d
++
++
++def update_department(db: Session, property_id: str, department_id: str,
++                      data: DepartmentPatch) -> Department:
++    d = get_department(db, property_id, department_id)
++    for k, v in data.model_dump(exclude_unset=True).items():
++        setattr(d, k, v)
++    db.flush()
++    return d
++
++
++# Every nullable FK to department.id, with the message the admin sees if it still points here.
++# Phase 1 does not soft-delete (design.md line 86) and these columns have no ON DELETE behaviour,
++# so a delete that went through would either fail at the constraint or silently orphan the
++# reference — e.g. null out a work order's owning department. Deactivating the department
++# (active=False) is the escape hatch, so every message says so.
++_DEPARTMENT_REFERENCES = (
++    (PropertyMembership.department_id, "Move the staff members in this department to another one"),
++    (QuickReply.department_id, "Reassign the quick replies in this department"),
++    (DigitalAsset.department_id, "Reassign the digital assets in this department"),
++    (Conversation.assigned_department_id, "Reassign the conversations assigned to this department"),
++    (WorkOrder.department_id, "Reassign the work orders assigned to this department"),
++)
++
++
++def delete_department(db: Session, property_id: str, department_id: str) -> None:
++    d = get_department(db, property_id, department_id)
++    for column, fix in _DEPARTMENT_REFERENCES:
++        if db.scalar(select(column).where(column == d.id).limit(1)):
++            raise Conflict(f"{fix} first, or deactivate the department instead")
++    db.delete(d)
++
++
+ def list_staff(db: Session, property_id: str) -> list[StaffUserOut]:
+     rows = db.execute(
+         select(UserAccount, PropertyMembership)
+         .join(PropertyMembership, PropertyMembership.user_id == UserAccount.id)
+         .where(PropertyMembership.property_id == property_id)
+         .order_by(UserAccount.first_name, UserAccount.last_name)
+     ).all()
+     return [
+         StaffUserOut(id=u.id, email=u.email, first_name=u.first_name, last_name=u.last_name,
+                      avatar_url=u.avatar_url, role=m.role, department_id=m.department_id,
+diff --git a/server/app/schemas/content.py b/server/app/schemas/content.py
+index ac8ff4c..a6ccfad 100644
+--- a/server/app/schemas/content.py
++++ b/server/app/schemas/content.py
+@@ -5,49 +5,57 @@ from pydantic import Field
+ from app.schemas.common import CamelModel
+ from app.schemas.enums import AssetType
+ 
+ 
+ class QuickReplyIn(CamelModel):
+     shortcut: str = Field(min_length=2, max_length=40, pattern=r"^/[a-z0-9_-]+$")
+     title: str = Field(min_length=1, max_length=120)
+     body: str = Field(min_length=1, max_length=1600)
+     category: str | None = None
+     department_id: str | None = None
+-    locale: str = "en"
++    locale: str = Field(default="en", min_length=1, max_length=8)
+     active: bool = True
+ 
+ 
+ class QuickReplyPatch(CamelModel):
+     shortcut: str | None = Field(default=None, pattern=r"^/[a-z0-9_-]+$")
+     title: str | None = None
+     body: str | None = None
+     category: str | None = None
+     department_id: str | None = None
++    locale: str | None = Field(default=None, min_length=1, max_length=8)
+     active: bool | None = None
+ 
+ 
+ class QuickReplyOut(CamelModel):
+     id: str
+     shortcut: str
+     title: str
+     body: str
+     category: str | None = None
+     department_id: str | None = None
+     locale: str
+     usage_count: int
+     active: bool
+ 
+ 
+ class RenderRequest(CamelModel):
+     conversation_id: str
+ 
+ 
++class PreviewRequest(CamelModel):
++    """Previews arbitrary body text, so the admin editor can render unsaved drafts."""
++
++    body: str = Field(min_length=1, max_length=1600)
++    conversation_id: str | None = None
++
++
+ class RenderedQuickReply(CamelModel):
+     body: str
+     segments: int
+     characters: int
+ 
+ 
+ class AssetIn(CamelModel):
+     name: str = Field(min_length=1, max_length=120)
+     description: str | None = None
+     category: str | None = None
+diff --git a/server/app/schemas/export_json_schema.py b/server/app/schemas/export_json_schema.py
+index 4ab8204..e9b525b 100644
+--- a/server/app/schemas/export_json_schema.py
++++ b/server/app/schemas/export_json_schema.py
+@@ -9,25 +9,27 @@ from pathlib import Path
+ from pydantic import BaseModel
+ from pydantic.json_schema import models_json_schema
+ 
+ from app.schemas import (
+     analytics,
+     auth,
+     content,
+     conversations,
+     dev,
+     notifications,
++    properties,
+     users,
+     work_orders,
+ )
+ 
+-MODULES = (auth, users, conversations, work_orders, content, notifications, analytics, dev)
++MODULES = (auth, users, conversations, work_orders, content, notifications, analytics,
++           properties, dev)
+ DEFAULT_OUT = str(Path(__file__).resolve().parents[3] / "web" / "src" / "api" / "schema.json")
+ 
+ 
+ def _models() -> list[type[BaseModel]]:
+     seen: dict[str, type[BaseModel]] = {}
+     for mod in MODULES:
+         for name, obj in vars(mod).items():
+             if (isinstance(obj, type) and issubclass(obj, BaseModel)
+                     and obj.__module__ == mod.__name__):
+                 seen[name] = obj
+diff --git a/server/app/schemas/properties.py b/server/app/schemas/properties.py
+new file mode 100644
+index 0000000..fdef9d8
+--- /dev/null
++++ b/server/app/schemas/properties.py
+@@ -0,0 +1,35 @@
++from pydantic import Field
++
++from app.schemas.common import CamelModel
++
++
++class PropertySettingsOut(CamelModel):
++    id: str
++    name: str
++    code: str
++    timezone: str
++    address: str | None = None
++    phone: str | None = None
++    sms_number: str | None = None
++    brand: str | None = None
++    currency: str
++    logo_url: str | None = None
++    primary_color: str | None = None
++
++
++class PropertySettingsPatch(CamelModel):
++    """`code` is intentionally absent: it is unique across the whole install and identifies the
++    property, so renaming it is not a settings edit. `Property.settings` (an untyped JSON bag) is
++    intentionally absent too — nothing in the UI needs it. `timezone`, `phone` and `sms_number`
++    carry only their column lengths here; their real validation lives in app/domain/properties.py
++    beside the reason each one is load-bearing."""
++
++    name: str | None = Field(default=None, min_length=1, max_length=200)
++    timezone: str | None = Field(default=None, max_length=64)
++    address: str | None = Field(default=None, max_length=400)
++    phone: str | None = Field(default=None, max_length=32)
++    sms_number: str | None = Field(default=None, max_length=32)
++    brand: str | None = Field(default=None, max_length=100)
++    currency: str | None = Field(default=None, pattern=r"^[A-Za-z]{3}$")
++    logo_url: str | None = Field(default=None, max_length=500)
++    primary_color: str | None = Field(default=None, max_length=16)
+diff --git a/server/app/schemas/users.py b/server/app/schemas/users.py
+index 6bf4be8..0bdf6ba 100644
+--- a/server/app/schemas/users.py
++++ b/server/app/schemas/users.py
+@@ -1,17 +1,31 @@
+ from pydantic import EmailStr, Field
+ 
+ from app.schemas.common import CamelModel
+ from app.schemas.conversations import GuestOut, StayOut
+ from app.schemas.enums import DepartmentType, Role
+ 
+ 
++class DepartmentIn(CamelModel):
++    name: str = Field(min_length=1, max_length=100)
++    type: DepartmentType
++    escalation_minutes: int = Field(default=15, gt=0)
++    active: bool = True
++
++
++class DepartmentPatch(CamelModel):
++    name: str | None = Field(default=None, min_length=1, max_length=100)
++    type: DepartmentType | None = None
++    escalation_minutes: int | None = Field(default=None, gt=0)
++    active: bool | None = None
++
++
+ class DepartmentOut(CamelModel):
+     id: str
+     name: str
+     type: DepartmentType
+     escalation_minutes: int
+     active: bool
+ 
+ 
+ class StaffUserOut(CamelModel):
+     id: str
+diff --git a/server/pyproject.toml b/server/pyproject.toml
+index 9f04ffd..69633a1 100644
+--- a/server/pyproject.toml
++++ b/server/pyproject.toml
+@@ -4,20 +4,24 @@ version = "0.1.0"
+ description = "Hotel guest engagement & operations platform — Phase 1 server"
+ requires-python = ">=3.12"
+ dependencies = [
+   "flask>=3.1",
+   "sqlalchemy>=2.0.36",
+   "alembic>=1.14",
+   "pydantic[email]>=2.9",
+   "bcrypt>=4.2",
+   "flask-sock>=0.7",
+   "python-dotenv>=1.0",
++  # zoneinfo has no tz database on Windows (and on slim Linux images); the property
++  # timezone validator in app/domain/properties.py would otherwise reject every
++  # valid IANA zone there.
++  "tzdata>=2024.1",
+ ]
+ 
+ [project.optional-dependencies]
+ dev = ["pytest>=8", "ruff>=0.6", "simple-websocket>=1.1"]
+ 
+ [build-system]
+ requires = ["setuptools>=68"]
+ build-backend = "setuptools.build_meta"
+ 
+ [tool.setuptools.packages.find]
+diff --git a/server/tests/test_content.py b/server/tests/test_content.py
+index ea468b9..b0d0649 100644
+--- a/server/tests/test_content.py
++++ b/server/tests/test_content.py
+@@ -115,10 +115,98 @@ def test_resolution_category_delete_blocked_by_conversation_reference(app, fx, c
+     must be rejected with a clean 409, not an unhandled IntegrityError/500."""
+     base = f"/api/p/{fx.property_a.id}/resolution-categories"
+     admin = login("admin@hvh.test")
+     cat = admin.post(base, json={"name": "Noise complaint"}).get_json()
+     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "loud neighbors")
+     cid = _cid(database, fx.guest_inhouse_a.id)
+     resp = admin.patch(f"/api/p/{fx.property_a.id}/conversations/{cid}",
+                        json={"status": "archived", "resolutionCategoryId": cat["id"]})
+     assert resp.status_code == 200
+     assert admin.delete(f"{base}/{cat['id']}").status_code == 409
++
++
++def test_quick_reply_locale_is_patchable(app, fx, login):
++    base = f"/api/p/{fx.property_a.id}/quick-replies"
++    admin = login("admin@hvh.test")
++    qr = admin.post(base, json={"shortcut": "/bienvenue", "title": "Welcome",
++                                "body": "Bonjour {{guest_first_name}}."}).get_json()
++    assert qr["locale"] == "en"
++    patched = admin.patch(f"{base}/{qr['id']}", json={"locale": "fr-CA"})
++    assert patched.status_code == 200
++    body = patched.get_json()
++    assert body["locale"] == "fr-CA"
++    assert (body["shortcut"], body["title"], body["body"], body["active"]) == (
++        qr["shortcut"], qr["title"], qr["body"], qr["active"])
++    assert admin.get(base).get_json()[0]["locale"] == "fr-CA"  # persisted
++    # the column is String(8); an over-long value must not reach the database
++    assert admin.patch(f"{base}/{qr['id']}", json={"locale": "x" * 9}).status_code == 400
++
++
++def test_quick_reply_variables_endpoint_is_the_authoritative_list(app, fx, login):
++    from app.domain.quick_replies import VARIABLES
++
++    res = login("agent@hvh.test").get(f"/api/p/{fx.property_a.id}/quick-replies/variables")
++    assert res.status_code == 200
++    assert res.get_json() == list(VARIABLES)
++    assert "property_name" in res.get_json()  # the mockup omits this chip; the server is the truth
++
++
++def test_preview_falls_back_without_a_conversation(app, fx, login):
++    from app.domain.quick_replies import FALLBACKS
++
++    url = f"/api/p/{fx.property_a.id}/quick-replies/preview"
++    body = "Hi {{guest_first_name}}, room {{room_number}} — see {{agent_first_name}}."
++    res = login("admin@hvh.test").post(url, json={"body": body})
++    assert res.status_code == 200, res.get_json()
++    out = res.get_json()
++    assert out["body"] == (f"Hi {FALLBACKS['guest_first_name']}, "
++                           f"room {FALLBACKS['room_number']} — "
++                           f"see {FALLBACKS['agent_first_name']}.")
++    assert out["characters"] == len(out["body"])
++
++
++def test_preview_uses_real_guest_data_with_a_conversation(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    url = f"/api/p/{fx.property_a.id}/quick-replies/preview"
++    out = login("admin@hvh.test").post(url, json={
++        "body": "Hi {{guest_first_name}} in {{room_number}} at {{property_name}}.",
++        "conversationId": cid}).get_json()
++    assert out["body"] == "Hi Sarah in 412 at Harbourview Hotel."
++
++
++def test_preview_does_not_touch_usage_count(app, fx, database, login):
++    """The regression that made /render unusable as a preview: the admin table shows a "Uses"
++    column, and previewing must not inflate it."""
++    from app.models import QuickReply
++
++    base = f"/api/p/{fx.property_a.id}/quick-replies"
++    admin = login("admin@hvh.test")
++    qr = admin.post(base, json={"shortcut": "/spa", "title": "Spa",
++                                "body": "The spa closes at 8."}).get_json()
++    with database.session() as db:
++        before = db.get(QuickReply, qr["id"]).usage_count
++    for _ in range(3):
++        res = admin.post(f"{base}/preview", json={"body": "The spa closes at 8."})
++        assert res.status_code == 200
++    with database.session() as db:
++        assert db.get(QuickReply, qr["id"]).usage_count == before == 0
++
++
++def test_preview_capability_differs_from_render(app, fx, login):
++    """`corporate` holds manage_admin but not `reply`, so it can open the admin screen and must be
++    able to drive the preview pane on it — the second reason /render cannot serve this."""
++    url = f"/api/p/{fx.property_a.id}/quick-replies/preview"
++    assert login("corporate@hvh.test").post(url, json={"body": "hello"}).status_code == 200
++    for email in ("agent@hvh.test", "manager@hvh.test", "engineer@hvh.test"):
++        assert login(email).post(url, json={"body": "hello"}).status_code == 403
++
++
++def test_preview_counts_segments_the_same_way_the_sender_does(app, fx, login):
++    from app.domain.sms import segment_count
++
++    url = f"/api/p/{fx.property_a.id}/quick-replies/preview"
++    admin = login("admin@hvh.test")
++    for body in ("a" * 160, "a" * 161, "café " * 20, "😀" + "a" * 69):
++        out = admin.post(url, json={"body": body}).get_json()
++        assert (out["segments"], out["characters"]) == (segment_count(body), len(body)), body
++    assert admin.post(url, json={"body": ""}).status_code == 400
+diff --git a/server/tests/test_departments_users.py b/server/tests/test_departments_users.py
+index da9533a..d1a98db 100644
+--- a/server/tests/test_departments_users.py
++++ b/server/tests/test_departments_users.py
+@@ -1,17 +1,137 @@
++import pytest
++
++from app.schemas.enums import Role, WorkOrderType
++
++
+ def test_departments_lists_only_this_property(app, fx, login):
+     c = login("agent@hvh.test")
+     res = c.get(f"/api/p/{fx.property_a.id}/departments")
+     assert res.status_code == 200
+     names = sorted(d["name"] for d in res.get_json())
+     assert names == ["Engineering", "Front Desk", "Housekeeping"]
+ 
+ 
+ def test_users_lists_staff_with_roles(app, fx, login):
+     c = login("agent@hvh.test")
+     res = c.get(f"/api/p/{fx.property_a.id}/users")
+     assert res.status_code == 200
+     rows = {u["email"]: u for u in res.get_json()}
+     assert rows["engineer@hvh.test"]["role"] == "dept_staff"
+     assert rows["engineer@hvh.test"]["departmentId"] == fx.dept_engineering.id
+     assert "admin@lsi.test" not in rows
+     assert "passwordHash" not in rows["engineer@hvh.test"]
++
++
++def _make_department(admin, fx, **overrides) -> dict:
++    body = {"name": "Spa", "type": "spa"} | overrides
++    res = admin.post(f"/api/p/{fx.property_a.id}/departments", json=body)
++    assert res.status_code == 201, res.get_json()
++    return res.get_json()
++
++
++def test_department_create_patch_and_delete(app, fx, login):
++    base = f"/api/p/{fx.property_a.id}/departments"
++    admin = login("admin@hvh.test")
++    d = _make_department(admin, fx, escalation_minutes=30)
++    assert d["type"] == "spa" and d["escalationMinutes"] == 30 and d["active"] is True
++
++    assert d["id"] in [x["id"] for x in login("agent@hvh.test").get(base).get_json()]
++
++    for field, value in (("name", "Spa & Wellness"), ("type", "other"),
++                         ("escalationMinutes", 45), ("active", False)):
++        res = admin.patch(f"{base}/{d['id']}", json={field: value})
++        assert res.status_code == 200, res.get_json()
++        assert res.get_json()[field] == value
++    patched = admin.patch(f"{base}/{d['id']}", json={}).get_json()
++    assert patched == {"id": d["id"], "name": "Spa & Wellness", "type": "other",
++                       "escalationMinutes": 45, "active": False}
++
++    assert admin.delete(f"{base}/{d['id']}").status_code == 204
++    assert admin.delete(f"{base}/{d['id']}").status_code == 404
++    assert d["id"] not in [x["id"] for x in admin.get(base).get_json()]
++
++
++def test_department_writes_require_manage_admin(app, fx, login):
++    base = f"/api/p/{fx.property_a.id}/departments"
++    admin = login("admin@hvh.test")
++    d = _make_department(admin, fx)
++    for c in (login("agent@hvh.test"), login("manager@hvh.test")):
++        assert c.get(base).status_code == 200  # reads stay open to every member
++        assert c.post(base, json={"name": "Valet", "type": "valet"}).status_code == 403
++        assert c.patch(f"{base}/{d['id']}", json={"name": "x"}).status_code == 403
++        assert c.delete(f"{base}/{d['id']}").status_code == 403
++    corporate = login("corporate@hvh.test")  # manage_admin = {admin, corporate}
++    assert corporate.patch(f"{base}/{d['id']}", json={"name": "Spa 2"}).status_code == 200
++
++
++def test_department_validation_and_cross_property_scope(app, fx, login):
++    base = f"/api/p/{fx.property_a.id}/departments"
++    admin = login("admin@hvh.test")
++    assert admin.post(base, json={"name": "", "type": "spa"}).status_code == 400
++    assert admin.post(base, json={"name": "Spa", "type": "sauna"}).status_code == 400
++    assert admin.post(base, json={"name": "Spa", "type": "spa",
++                                  "escalationMinutes": 0}).status_code == 400
++    # a department of property B is invisible here, not merely unauthorised
++    b_dept = login("admin@lsi.test").get(
++        f"/api/p/{fx.property_b.id}/departments").get_json()[0]
++    assert admin.patch(f"{base}/{b_dept['id']}", json={"name": "x"}).status_code == 404
++    assert admin.delete(f"{base}/{b_dept['id']}").status_code == 404
++
++
++def _ref_membership(db, fx, dept_id):
++    from app.models import PropertyMembership, UserAccount
++
++    u = UserAccount(email="spa@hvh.test", first_name="Sal", last_name="Spa")
++    db.add(u)
++    db.flush()
++    db.add(PropertyMembership(user_id=u.id, property_id=fx.property_a.id, role=Role.dept_staff,
++                              department_id=dept_id))
++
++
++def _ref_quick_reply(db, fx, dept_id):
++    from app.models import QuickReply
++
++    db.add(QuickReply(property_id=fx.property_a.id, department_id=dept_id, shortcut="/spa",
++                      title="Spa hours", body="The spa is open until 8pm."))
++
++
++def _ref_digital_asset(db, fx, dept_id):
++    from app.models import DigitalAsset
++
++    db.add(DigitalAsset(property_id=fx.property_a.id, department_id=dept_id, name="Spa menu",
++                        url="https://example.test/spa.pdf", short_code="spa123"))
++
++
++def _ref_conversation(db, fx, dept_id):
++    from tests.factories import make_conversation
++
++    make_conversation(db, fx, assigned_department_id=dept_id)
++
++
++def _ref_work_order(db, fx, dept_id):
++    from app.models import WorkOrder
++
++    db.add(WorkOrder(property_id=fx.property_a.id, title="Fix the sauna",
++                     type=WorkOrderType.maintenance, department_id=dept_id))
++
++
++@pytest.mark.parametrize("add_reference", [
++    _ref_membership, _ref_quick_reply, _ref_digital_asset, _ref_conversation, _ref_work_order,
++], ids=["membership", "quick_reply", "digital_asset", "conversation", "work_order"])
++def test_department_delete_is_refused_while_anything_references_it(app, fx, database, login,
++                                                                   add_reference):
++    """Every nullable FK to department.id must block the delete. Phase 1 has no soft delete and
++    no ON DELETE behaviour, so a delete that went through would orphan the reference."""
++    base = f"/api/p/{fx.property_a.id}/departments"
++    admin = login("admin@hvh.test")
++    d = _make_department(admin, fx)
++    with database.session() as db:
++        add_reference(db, fx, d["id"])
++
++    res = admin.delete(f"{base}/{d['id']}")
++    assert res.status_code == 409, res.get_json()
++    assert "deactivate" in res.get_json()["error"]["message"]
++    assert d["id"] in [x["id"] for x in admin.get(base).get_json()]
++
++    # deactivating is the documented escape hatch and must still work
++    assert admin.patch(f"{base}/{d['id']}", json={"active": False}).get_json()["active"] is False
+diff --git a/server/tests/test_property_settings.py b/server/tests/test_property_settings.py
+new file mode 100644
+index 0000000..82b095b
+--- /dev/null
++++ b/server/tests/test_property_settings.py
+@@ -0,0 +1,88 @@
++from sqlalchemy import select
++
++from app.models import Property
++
++
++def _settings_url(property_id: str) -> str:
++    return f"/api/p/{property_id}/settings"
++
++
++def test_get_settings_returns_the_whole_shape(app, fx, login):
++    res = login("agent@hvh.test").get(_settings_url(fx.property_a.id))
++    assert res.status_code == 200
++    body = res.get_json()
++    assert set(body) == {"id", "name", "code", "timezone", "address", "phone", "smsNumber",
++                         "brand", "currency", "logoUrl", "primaryColor"}
++    assert body["id"] == fx.property_a.id
++    assert body["code"] == fx.property_a.code
++    assert "settings" not in body  # the untyped JSON bag is never exposed
++
++
++def test_patch_settings_updates_each_field(app, fx, database, login):
++    url = _settings_url(fx.property_a.id)
++    admin = login("admin@hvh.test")
++    patch = {"name": "Harbourview Hotel & Spa", "timezone": "Europe/Lisbon",
++             "address": "1 Harbour Way", "phone": "+15550111", "smsNumber": "+15550122",
++             "brand": "Harbourview Collection", "currency": "eur",
++             "logoUrl": "https://example.test/logo.png", "primaryColor": "#0F62FE"}
++    res = admin.patch(url, json=patch)
++    assert res.status_code == 200, res.get_json()
++    body = res.get_json()
++    expected = patch | {"currency": "EUR"}  # currency is upper-cased, everything else as sent
++    assert {k: body[k] for k in expected} == expected
++    assert body["code"] == fx.property_a.code  # unchanged and not patchable
++    assert admin.get(url).get_json() == body  # persisted, not just echoed
++    with database.session() as db:
++        p = db.get(Property, fx.property_a.id)
++        assert p.name == "Harbourview Hotel & Spa" and p.timezone == "Europe/Lisbon"
++        assert p.settings  # the JSON bag is untouched by a settings patch
++
++
++def test_patch_settings_normalises_phone_numbers(app, fx, login):
++    """Inbound routing matches Property.sms_number against guests.normalize_phone(To), so a
++    prettified number saved here would silently stop inbound SMS for the property."""
++    admin = login("admin@hvh.test")
++    body = admin.patch(_settings_url(fx.property_a.id),
++                       json={"smsNumber": "(555) 012-3456", "phone": "555 012 3457"}).get_json()
++    assert body["smsNumber"] == "+15550123456" and body["phone"] == "+15550123457"
++    assert admin.patch(_settings_url(fx.property_a.id),
++                       json={"smsNumber": "not a phone"}).status_code == 400
++
++
++def test_patch_settings_rejects_a_bad_timezone(app, fx, database, login):
++    admin = login("admin@hvh.test")
++    for bad in ("America/Nowhere", "EST5EDT7", "../../etc/passwd", ""):
++        res = admin.patch(_settings_url(fx.property_a.id), json={"timezone": bad})
++        assert res.status_code == 400, (bad, res.status_code)
++    assert admin.patch(_settings_url(fx.property_a.id),
++                       json={"timezone": "Asia/Tokyo"}).status_code == 200
++    with database.session() as db:
++        assert db.scalar(select(Property.timezone)
++                         .where(Property.id == fx.property_a.id)) == "Asia/Tokyo"
++
++
++def test_patch_settings_rejects_code_and_out_of_range_values(app, fx, database, login):
++    """`code` is unique across the install and identifies the property: CamelModel forbids extra
++    fields, so sending it is a 400 rather than a silent no-op."""
++    url = _settings_url(fx.property_a.id)
++    admin = login("admin@hvh.test")
++    res = admin.patch(url, json={"code": "NEW"})
++    assert res.status_code == 400
++    assert admin.patch(url, json={"currency": "EUROS"}).status_code == 400
++    assert admin.patch(url, json={"name": "x" * 201}).status_code == 400
++    assert admin.patch(url, json={"settings": {"sla_minutes": 1}}).status_code == 400
++    with database.session() as db:
++        assert db.get(Property, fx.property_a.id).code == fx.property_a.code
++
++
++def test_settings_capability_and_tenant_gates(app, fx, login):
++    url = _settings_url(fx.property_a.id)
++    for email in ("agent@hvh.test", "manager@hvh.test", "engineer@hvh.test"):
++        c = login(email)
++        assert c.get(url).status_code == 200  # every member may read
++        assert c.patch(url, json={"name": "Nope"}).status_code == 403
++    assert login("corporate@hvh.test").patch(url, json={"brand": "Group"}).status_code == 200
++    admin_a = login("admin@hvh.test")
++    other = _settings_url(fx.property_b.id)
++    assert admin_a.get(other).status_code == 403
++    assert admin_a.patch(other, json={"name": "Hijacked"}).status_code == 403
+diff --git a/web/src/api/schema.json b/web/src/api/schema.json
+index a7bb086..cddeffd 100644
+--- a/web/src/api/schema.json
++++ b/web/src/api/schema.json
+@@ -1242,20 +1242,51 @@
+           "title": "Meantimetoresolveseconds"
+         }
+       },
+       "required": [
+         "departmentName",
+         "closed"
+       ],
+       "title": "DepartmentBucket",
+       "type": "object"
+     },
++    "DepartmentIn": {
++      "additionalProperties": false,
++      "properties": {
++        "active": {
++          "default": true,
++          "title": "Active",
++          "type": "boolean"
++        },
++        "escalationMinutes": {
++          "default": 15,
++          "exclusiveMinimum": 0,
++          "title": "Escalationminutes",
++          "type": "integer"
++        },
++        "name": {
++          "maxLength": 100,
++          "minLength": 1,
++          "title": "Name",
++          "type": "string"
++        },
++        "type": {
++          "$ref": "#/$defs/DepartmentType"
++        }
++      },
++      "required": [
++        "name",
++        "type"
++      ],
++      "title": "DepartmentIn",
++      "type": "object"
++    },
+     "DepartmentOut": {
+       "additionalProperties": false,
+       "properties": {
+         "active": {
+           "title": "Active",
+           "type": "boolean"
+         },
+         "escalationMinutes": {
+           "title": "Escalationminutes",
+           "type": "integer"
+@@ -1275,20 +1306,77 @@
+       "required": [
+         "id",
+         "name",
+         "type",
+         "escalationMinutes",
+         "active"
+       ],
+       "title": "DepartmentOut",
+       "type": "object"
+     },
++    "DepartmentPatch": {
++      "additionalProperties": false,
++      "properties": {
++        "active": {
++          "anyOf": [
++            {
++              "type": "boolean"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Active"
++        },
++        "escalationMinutes": {
++          "anyOf": [
++            {
++              "exclusiveMinimum": 0,
++              "type": "integer"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Escalationminutes"
++        },
++        "name": {
++          "anyOf": [
++            {
++              "maxLength": 100,
++              "minLength": 1,
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Name"
++        },
++        "type": {
++          "anyOf": [
++            {
++              "$ref": "#/$defs/DepartmentType"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null
++        }
++      },
++      "title": "DepartmentPatch",
++      "type": "object"
++    },
+     "DepartmentType": {
+       "enum": [
+         "front_desk",
+         "housekeeping",
+         "engineering",
+         "food_beverage",
+         "spa",
+         "security",
+         "valet",
+         "other"
+@@ -2053,30 +2141,291 @@
+               "type": "null"
+             }
+           ],
+           "default": null,
+           "title": "Theme"
+         }
+       },
+       "title": "PrefsPatch",
+       "type": "object"
+     },
++    "PreviewRequest": {
++      "additionalProperties": false,
++      "description": "Previews arbitrary body text, so the admin editor can render unsaved drafts.",
++      "properties": {
++        "body": {
++          "maxLength": 1600,
++          "minLength": 1,
++          "title": "Body",
++          "type": "string"
++        },
++        "conversationId": {
++          "anyOf": [
++            {
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Conversationid"
++        }
++      },
++      "required": [
++        "body"
++      ],
++      "title": "PreviewRequest",
++      "type": "object"
++    },
+     "Priority": {
+       "enum": [
+         "low",
+         "normal",
+         "high",
+         "urgent"
+       ],
+       "title": "Priority",
+       "type": "string"
+     },
++    "PropertySettingsOut": {
++      "additionalProperties": false,
++      "properties": {
++        "address": {
++          "anyOf": [
++            {
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Address"
++        },
++        "brand": {
++          "anyOf": [
++            {
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Brand"
++        },
++        "code": {
++          "title": "Code",
++          "type": "string"
++        },
++        "currency": {
++          "title": "Currency",
++          "type": "string"
++        },
++        "id": {
++          "title": "Id",
++          "type": "string"
++        },
++        "logoUrl": {
++          "anyOf": [
++            {
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Logourl"
++        },
++        "name": {
++          "title": "Name",
++          "type": "string"
++        },
++        "phone": {
++          "anyOf": [
++            {
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Phone"
++        },
++        "primaryColor": {
++          "anyOf": [
++            {
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Primarycolor"
++        },
++        "smsNumber": {
++          "anyOf": [
++            {
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Smsnumber"
++        },
++        "timezone": {
++          "title": "Timezone",
++          "type": "string"
++        }
++      },
++      "required": [
++        "id",
++        "name",
++        "code",
++        "timezone",
++        "currency"
++      ],
++      "title": "PropertySettingsOut",
++      "type": "object"
++    },
++    "PropertySettingsPatch": {
++      "additionalProperties": false,
++      "description": "`code` is intentionally absent: it is unique across the whole install and identifies the\nproperty, so renaming it is not a settings edit. `Property.settings` (an untyped JSON bag) is\nintentionally absent too \u2014 nothing in the UI needs it. `timezone`, `phone` and `sms_number`\ncarry only their column lengths here; their real validation lives in app/domain/properties.py\nbeside the reason each one is load-bearing.",
++      "properties": {
++        "address": {
++          "anyOf": [
++            {
++              "maxLength": 400,
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Address"
++        },
++        "brand": {
++          "anyOf": [
++            {
++              "maxLength": 100,
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Brand"
++        },
++        "currency": {
++          "anyOf": [
++            {
++              "pattern": "^[A-Za-z]{3}$",
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Currency"
++        },
++        "logoUrl": {
++          "anyOf": [
++            {
++              "maxLength": 500,
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Logourl"
++        },
++        "name": {
++          "anyOf": [
++            {
++              "maxLength": 200,
++              "minLength": 1,
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Name"
++        },
++        "phone": {
++          "anyOf": [
++            {
++              "maxLength": 32,
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Phone"
++        },
++        "primaryColor": {
++          "anyOf": [
++            {
++              "maxLength": 16,
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Primarycolor"
++        },
++        "smsNumber": {
++          "anyOf": [
++            {
++              "maxLength": 32,
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Smsnumber"
++        },
++        "timezone": {
++          "anyOf": [
++            {
++              "maxLength": 64,
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Timezone"
++        }
++      },
++      "title": "PropertySettingsPatch",
++      "type": "object"
++    },
+     "QuickReplyIn": {
+       "additionalProperties": false,
+       "properties": {
+         "active": {
+           "default": true,
+           "title": "Active",
+           "type": "boolean"
+         },
+         "body": {
+           "maxLength": 1600,
+@@ -2103,20 +2452,22 @@
+             },
+             {
+               "type": "null"
+             }
+           ],
+           "default": null,
+           "title": "Departmentid"
+         },
+         "locale": {
+           "default": "en",
++          "maxLength": 8,
++          "minLength": 1,
+           "title": "Locale",
+           "type": "string"
+         },
+         "shortcut": {
+           "maxLength": 40,
+           "minLength": 2,
+           "pattern": "^/[a-z0-9_-]+$",
+           "title": "Shortcut",
+           "type": "string"
+         },
+@@ -2247,20 +2598,34 @@
+             {
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+           "default": null,
+           "title": "Departmentid"
+         },
++        "locale": {
++          "anyOf": [
++            {
++              "maxLength": 8,
++              "minLength": 1,
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Locale"
++        },
+         "shortcut": {
+           "anyOf": [
+             {
+               "pattern": "^/[a-z0-9_-]+$",
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],

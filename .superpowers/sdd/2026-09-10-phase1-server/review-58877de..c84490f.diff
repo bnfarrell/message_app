@@ -1,0 +1,1699 @@
+# Review package: 58877de..c84490f
+
+## Commits
+c84490f test(server): guard the consent gate against a direct Message write
+da840d3 fix(server): write a stay's status and its check-in timestamp together
+7e60a6e fix(server): stop guest identity leaving through unscoped routes
+56342ad fix(server): production hardening must fail closed, not open
+7f323f4 fix(server): scope the pms_event idempotency key by property
+c1f0da4 security(server): scope StaffPatch to per-property fields
+
+## Files changed
+ README.md                                          | 16 ++++
+ server/.env.example                                | 10 +++
+ .../versions/0003_pms_event_property_scope.py      | 52 +++++++++++++
+ server/app/__init__.py                             | 20 ++++-
+ server/app/api/auth.py                             |  5 +-
+ server/app/api/guests.py                           |  6 +-
+ server/app/api/work_orders.py                      |  8 +-
+ server/app/config.py                               | 33 ++++++++
+ server/app/domain/stays.py                         |  5 +-
+ server/app/domain/users.py                         | 45 +++++++----
+ server/app/domain/work_orders.py                   | 24 +++++-
+ server/app/models/infra.py                         |  9 ++-
+ server/app/pms/handle_event.py                     | 32 +++++---
+ server/app/schemas/users.py                        | 16 ++--
+ server/dev_start.py                                |  4 +-
+ server/run.py                                      |  4 +-
+ server/tests/conftest.py                           |  1 +
+ server/tests/test_auth.py                          | 36 +++++++++
+ server/tests/test_dev.py                           | 24 +++++-
+ server/tests/test_guest_data_leakage.py            | 81 ++++++++++++++++++++
+ server/tests/test_isolation.py                     | 74 ++++++++++++++++++
+ server/tests/test_pms.py                           | 54 ++++++++++++++
+ server/tests/test_queue.py                         | 28 ++++---
+ server/tests/test_users_admin.py                   | 87 +++++++++++++++++++++-
+ server/tests/test_work_orders.py                   |  4 +-
+ server/tests/test_work_orders_api.py               |  6 +-
+ web/src/api/schema.json                            | 58 +--------------
+ 27 files changed, 623 insertions(+), 119 deletions(-)
+
+## Diff
+diff --git a/README.md b/README.md
+index ab4fe95..7f4354a 100644
+--- a/README.md
++++ b/README.md
+@@ -54,14 +54,30 @@ From=+1555…` literally, and a raw `+` in an `application/x-www-form-urlencoded
+ server-side to a space, so the leading `+` is silently lost and the phone number fails validation.)
+ Numbers ending in `0000` fail delivery with error `30007` so you can exercise the retry path. `STOP`, `START`
+ and `HELP` behave per TCPA. The React phone simulator (web plan) wraps this in a UI.
+ 
+ ## API in one minute
+ `POST /api/auth/login` → cookie `sid`. Everything staff-facing lives under `/api/p/<propertyId>/…`:
+ `conversations`, `work-orders`, `quick-replies`, `assets`, `resolution-categories`, `users`, `departments`,
+ `notifications`, `analytics`, `guests`. WebSocket at `/ws` (send `{"type":"subscribe","propertyId":…}`).
+ Dev only: `/api/dev/sim/*`, `/api/dev/pms/*`. Models: `web/src/api/schema.json`.
+ 
++## Configuration switches that matter
++`server/.env.example` documents every variable; three of them are safety-relevant.
++- **`ENABLE_DEV_ENDPOINTS`** — `/api/dev/*` is unauthenticated and lists every guest at every
++  property (names, phone numbers, rooms, consent status). It registers only when this is
++  explicitly `1`, and never when `FLASK_ENV=production`. `run.py` and `dev_start.py` set it for
++  you locally; a deployment that sets nothing gets no dev routes.
++- **`SESSION_COOKIE_SECURE`** — unset means the session cookie is `Secure` in production and not
++  in development. Set it to `1`/`0` to force either way (HTTPS tunnel in dev, plain-HTTP staging).
++- **`USE_RELOADER`** — set only by the dev entrypoints, which run Flask's auto-reloader. It tells
++  `create_app` that a parent monitor process exists so the job worker starts in the reloader child
++  only. Under gunicorn leave it unset and the worker starts whenever `START_WORKER=1`, regardless
++  of `FLASK_ENV`.
++
++In production (`FLASK_ENV=production`) the app refuses to start while `SESSION_SECRET` is still a
++placeholder.
++
+ ## Moving to PostgreSQL
+ `pip install "psycopg[binary]"`, set `DATABASE_URL=postgresql+psycopg://…`, run `cd server && alembic upgrade head`.
+ Migrations use portable types; nothing else changes. Run one web process (`gunicorn -w 1 --threads 16`) because
+ presence and the realtime registry are in-memory.
+diff --git a/server/.env.example b/server/.env.example
+index b5afc5b..6a7026d 100644
+--- a/server/.env.example
++++ b/server/.env.example
+@@ -1,9 +1,19 @@
+ FLASK_ENV=development
+ PORT=5000
+ DATABASE_URL=sqlite:///data/app.db
+ SESSION_SECRET=change-me-in-production
+ MOCK_SMS_SECRET=dev
+ SMS_ADAPTER=mock
+ PMS_TICK_SECONDS=90
+ START_WORKER=1
+ CORS_ORIGIN=http://localhost:5173
++# Unauthenticated simulator routes (/api/dev/*): local development only. They list
++# every guest at every property, so they stay off unless this is explicitly 1, and
++# never register at all when FLASK_ENV=production.
++ENABLE_DEV_ENDPOINTS=1
++# Set to 1 only for an entrypoint that runs Flask's auto-reloader (run.py / dev_start.py set it
++# for you). It tells create_app that a parent monitor process exists, so the job worker starts in
++# the reloader child only. Leave unset under gunicorn.
++USE_RELOADER=0
++# Session cookie `Secure` flag. Unset = secure in production, not in development.
++# SESSION_COOKIE_SECURE=1
+diff --git a/server/alembic/versions/0003_pms_event_property_scope.py b/server/alembic/versions/0003_pms_event_property_scope.py
+new file mode 100644
+index 0000000..fce7e1e
+--- /dev/null
++++ b/server/alembic/versions/0003_pms_event_property_scope.py
+@@ -0,0 +1,52 @@
++"""scope the pms_event idempotency key by property
++
++Stay is unique on (property_id, pms_reservation_id) because most PMSs number reservations per
++property, so two properties legitimately send the same external_id. With a global
++(integration_key, external_id, event_type) key the second property's event was swallowed as a
++duplicate of the first's and never processed.
++
++pms_event is a pure idempotency ledger with no rows anything else references, and existing rows
++carry no property to backfill from, so the upgrade clears it before adding the NOT NULL column:
++the only consequence is that a PMS replaying a pre-migration event would be processed once more.
++
++Revision ID: 0003
++Revises: 0002
++Create Date: 2026-09-10
++
++"""
++
++import sqlalchemy as sa
++
++from alembic import op
++
++revision = "0003"
++down_revision = "0002"
++branch_labels = None
++depends_on = None
++
++
++def upgrade() -> None:
++    op.execute("DELETE FROM pms_event")
++    with op.batch_alter_table("pms_event", schema=None) as batch_op:
++        batch_op.add_column(sa.Column("property_id", sa.String(length=36), nullable=False))
++        batch_op.drop_constraint("uq_pms_event_idem", type_="unique")
++        batch_op.create_unique_constraint(
++            "uq_pms_event_idem",
++            ["property_id", "integration_key", "external_id", "event_type"],
++        )
++        batch_op.create_index("ix_pms_event_property_id", ["property_id"], unique=False)
++        batch_op.create_foreign_key(
++            "fk_pms_event_property_id", "property", ["property_id"], ["id"]
++        )
++
++
++def downgrade() -> None:
++    op.execute("DELETE FROM pms_event")
++    with op.batch_alter_table("pms_event", schema=None) as batch_op:
++        batch_op.drop_constraint("fk_pms_event_property_id", type_="foreignkey")
++        batch_op.drop_index("ix_pms_event_property_id")
++        batch_op.drop_constraint("uq_pms_event_idem", type_="unique")
++        batch_op.create_unique_constraint(
++            "uq_pms_event_idem", ["integration_key", "external_id", "event_type"]
++        )
++        batch_op.drop_column("property_id")
+diff --git a/server/app/__init__.py b/server/app/__init__.py
+index 809493c..3ccad3e 100644
+--- a/server/app/__init__.py
++++ b/server/app/__init__.py
+@@ -1,20 +1,25 @@
+ from __future__ import annotations
+ 
+ from flask import Flask, request
+ 
+-from app.config import Config
++from app.config import INSECURE_SESSION_SECRETS, Config
+ from app.errors import register_error_handlers
+ 
+ 
+ def create_app(config: Config | None = None) -> Flask:
+     config = config or Config.from_env()
++    if config.is_production and config.SESSION_SECRET in INSECURE_SESSION_SECRETS:
++        # Refuse to boot rather than sign every session cookie with a secret that is published in
++        # this repository.
++        raise RuntimeError("SESSION_SECRET is still the placeholder value; set a real secret "
++                           "before running with FLASK_ENV=production")
+     app = Flask(__name__)
+     app.config["APP"] = config
+     app.config["TESTING"] = config.TESTING
+     app.config["SECRET_KEY"] = config.SESSION_SECRET
+ 
+     if not config.is_production:
+         import email_validator
+ 
+         # RFC 2606 reserved test domains (e.g. "hvh.test") back every seeded demo account;
+         # email-validator otherwise rejects them as "special-use", which would make a freshly
+@@ -71,42 +76,49 @@ def create_app(config: Config | None = None) -> Flask:
+     @app.after_request
+     def _cors(resp):
+         origin = request.headers.get("Origin")
+         if origin and origin == config.CORS_ORIGIN:
+             resp.headers["Access-Control-Allow-Origin"] = origin
+             resp.headers["Access-Control-Allow-Credentials"] = "true"
+             resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Mock-Secret"
+             resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
+         return resp
+ 
+-    if not config.is_production:
++    if config.dev_endpoints_enabled:
+         from app.api import dev
+ 
+         dev.install_event_recorder()
+         app.register_blueprint(dev.bp)
+ 
+     import os
+ 
+     from app.queue import jobs as _jobs
+     from app.queue.worker import Worker
+ 
+     _jobs.RECURRING["pms.tick"] = config.PMS_TICK_SECONDS or 0
+     if not config.PMS_TICK_SECONDS:
+         _jobs.RECURRING.pop("pms.tick", None)
+     app.extensions["worker"] = Worker(app)
+ 
+     from app.queue.handlers import pms as pms_handler
+ 
+     app.extensions["pms_adapter"] = pms_handler.adapter
++    # Start the worker exactly once per deployment. Under the Werkzeug reloader create_app runs
++    # in both the parent monitor process and the child, and only the child should start it; with
++    # no reloader there is only one process and it must. This asks USE_RELOADER (set by the dev
++    # entrypoints that actually pass debug=True) rather than is_production, so that forgetting
++    # FLASK_ENV cannot silently mean "nothing is being delivered" — and so that the switch
++    # controlling job delivery is not also the switch controlling guest-data exposure
++    # (config.dev_endpoints_enabled).
+     under_reloader = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+-    if config.START_WORKER and (under_reloader or config.is_production):
++    if config.START_WORKER and (under_reloader or not config.USE_RELOADER):
+         with app.extensions["db"].session() as db:
+             for job_type in _jobs.RECURRING:
+                 _jobs.ensure_recurring(db, job_type)
+         app.extensions["worker"].start()
+ 
+     from app.realtime.ws import sock, start_sweeper
+ 
+     sock.init_app(app)
+-    if config.START_WORKER and (under_reloader or config.is_production):
++    if config.START_WORKER and (under_reloader or not config.USE_RELOADER):
+         start_sweeper(app)
+     return app
+diff --git a/server/app/api/auth.py b/server/app/api/auth.py
+index 549ac29..0ca30b8 100644
+--- a/server/app/api/auth.py
++++ b/server/app/api/auth.py
+@@ -1,13 +1,13 @@
+ from __future__ import annotations
+ 
+-from flask import Blueprint, g, make_response
++from flask import Blueprint, current_app, g, make_response
+ from sqlalchemy import select
+ 
+ from app.api._util import client_meta, db_session, no_content, ok, parse_body
+ from app.auth.decorators import require_auth
+ from app.auth.passwords import verify_password
+ from app.auth.sessions import COOKIE_NAME, SESSION_HOURS, create_session, revoke_session
+ from app.domain import audit
+ from app.errors import Unauthorized
+ from app.models import Property, PropertyMembership, UserAccount
+ from app.ratelimit import login_limiter, rate_limited
+@@ -50,21 +50,22 @@ def login():
+             payload = _session_out(db, user)
+     if not valid:
+         # Written in its own session: raising inside the block above would roll the audit row back.
+         with db_session() as db:
+             audit.record(db, None, None, "auth.login_failed", "user_account",
+                          user.id if user else None, after={"email": body.email}, ip=ip,
+                          user_agent=ua)
+         raise Unauthorized("Email or password is incorrect")
+     resp = make_response(ok(payload)[0], 200)
+     resp.set_cookie(COOKIE_NAME, token, max_age=SESSION_HOURS * 3600, httponly=True,
+-                    samesite="Lax", path="/", secure=False)
++                    samesite="Lax", path="/",
++                    secure=current_app.config["APP"].cookie_secure)
+     return resp
+ 
+ 
+ @bp.post("/logout")
+ @require_auth
+ def logout():
+     ip, ua = client_meta()
+     with db_session() as db:
+         revoke_session(db, g.session_token)
+         audit.record(db, None, g.user.id, "auth.logout", "user_account", g.user.id, ip=ip,
+diff --git a/server/app/api/guests.py b/server/app/api/guests.py
+index a784ee6..4455be0 100644
+--- a/server/app/api/guests.py
++++ b/server/app/api/guests.py
+@@ -1,28 +1,32 @@
+ from flask import Blueprint, g
+ from sqlalchemy import select
+ 
+ from app.api._util import db_session, ok
+-from app.auth.decorators import require_auth, require_property
++from app.auth.decorators import require_auth, require_capability, require_property
+ from app.domain import guests
+ from app.errors import NotFound
+ from app.models import Conversation, Stay
+ from app.schemas.conversations import GuestOut, StayOut
+ from app.schemas.users import GuestDetail
+ 
+ bp = Blueprint("guests", __name__, url_prefix="/api/p/<property_id>/guests")
+ 
+ 
+ @bp.get("/<guest_id>")
+ @require_auth
+ @require_property
++@require_capability("view_all_conversations")
+ def get_guest(property_id: str, guest_id: str):
++    """Returns the guest's phone number, consent status, stay history and conversation ids, which
++    is strictly more than a dept_staff member can read through the conversation routes — and
++    `view_all_conversations` is the capability dept_staff correctly lacks."""
+     with db_session() as db:
+         guest = guests.get(db, g.property_id, guest_id)
+         if guest is None:
+             raise NotFound("Guest not found")
+         stays = db.scalars(select(Stay).where(Stay.guest_id == guest.id)
+                           .order_by(Stay.arrival_date.desc())).all()
+         conv_ids = [*db.scalars(
+             select(Conversation.id).where(Conversation.guest_id == guest.id)).all()]
+         return ok(GuestDetail(guest=GuestOut.model_validate(guest),
+                               stays=[StayOut.model_validate(s) for s in stays],
+diff --git a/server/app/api/work_orders.py b/server/app/api/work_orders.py
+index b8d0f5e..7cfc5f9 100644
+--- a/server/app/api/work_orders.py
++++ b/server/app/api/work_orders.py
+@@ -54,21 +54,23 @@ def create_work_order(property_id: str):
+                                          g.membership.role, g.user.id, g.membership.department_id)
+         wo = work_orders.create(db, g.property_id, g.user.id, data)
+         return ok(WorkOrderOut.model_validate(wo), 201)
+ 
+ 
+ @bp.get("/<work_order_id>")
+ @require_auth
+ @require_property
+ def get_work_order(property_id: str, work_order_id: str):
+     with db_session() as db:
+-        return ok(work_orders.detail(db, g.property_id, work_order_id))
++        return ok(work_orders.detail(db, g.property_id, work_order_id,
++                                     viewer_role=g.membership.role, viewer_user_id=g.user.id,
++                                     viewer_department_id=g.membership.department_id))
+ 
+ 
+ @bp.patch("/<work_order_id>")
+ @require_auth
+ @require_property
+ def patch_work_order(property_id: str, work_order_id: str):
+     p = parse_body(WorkOrderPatch)
+     with db_session() as db:
+         if p.assigned_user_id or p.department_id or p.clear_assignee:
+             work_orders.assign(db, g.property_id, work_order_id, g.user.id,
+@@ -76,11 +78,13 @@ def patch_work_order(property_id: str, work_order_id: str):
+                                department_id=p.department_id, clear=p.clear_assignee)
+         if p.priority is not None:
+             work_orders.set_priority(db, g.property_id, work_order_id, g.user.id, p.priority)
+         if p.status is not None:
+             if p.status in CLOSING and not has_capability(g.membership.role, "close_work_order"):
+                 raise Forbidden("Your role cannot close work orders")
+             work_orders.transition(db, g.property_id, work_order_id, g.user.id, p.status,
+                                    comment=p.comment)
+         elif p.comment:
+             work_orders.comment(db, g.property_id, work_order_id, g.user.id, p.comment)
+-        return ok(work_orders.detail(db, g.property_id, work_order_id))
++        return ok(work_orders.detail(db, g.property_id, work_order_id,
++                                     viewer_role=g.membership.role, viewer_user_id=g.user.id,
++                                     viewer_department_id=g.membership.department_id))
+diff --git a/server/app/config.py b/server/app/config.py
+index ed7edf5..496cd63 100644
+--- a/server/app/config.py
++++ b/server/app/config.py
+@@ -1,37 +1,70 @@
+ from __future__ import annotations
+ 
+ import os
+ from dataclasses import dataclass
+ 
+ from dotenv import load_dotenv
+ 
++# Placeholder secrets that must never reach production: the dataclass default and the value
++# shipped in .env.example, which is what a copied-and-forgotten .env contains.
++INSECURE_SESSION_SECRETS = frozenset({"dev-secret-change-me", "change-me-in-production"})
++
++
++def _optional_bool(raw: str | None) -> bool | None:
++    return None if raw is None else raw == "1"
++
+ 
+ @dataclass
+ class Config:
+     DATABASE_URL: str = "sqlite:///data/app.db"
+     SESSION_SECRET: str = "dev-secret-change-me"
+     MOCK_SMS_SECRET: str = "dev"
+     SMS_ADAPTER: str = "mock"
+     PMS_TICK_SECONDS: int = 90
+     START_WORKER: bool = False
+     CORS_ORIGIN: str = "http://localhost:5173"
+     ENV: str = "development"
++    ENABLE_DEV_ENDPOINTS: bool = False
++    USE_RELOADER: bool = False
++    SESSION_COOKIE_SECURE: bool | None = None
+     TESTING: bool = False
+ 
+     @property
+     def is_production(self) -> bool:
+         return self.ENV == "production"
+ 
++    @property
++    def dev_endpoints_enabled(self) -> bool:
++        """Positive opt-in, never in production.
++
++        /api/dev/sim/* is unauthenticated and returns every guest at every property (names,
++        E.164 phones, rooms, consent), so the unsafe state must not be reachable by forgetting an
++        env var: it used to register whenever FLASK_ENV != "production", and ENV defaults to
++        "development".
++        """
++        return self.ENABLE_DEV_ENDPOINTS and not self.is_production
++
++    @property
++    def cookie_secure(self) -> bool:
++        """Secure by default in production; SESSION_COOKIE_SECURE overrides in either direction
++        (a staging deployment behind plain HTTP, or local dev over an HTTPS tunnel)."""
++        if self.SESSION_COOKIE_SECURE is None:
++            return self.is_production
++        return self.SESSION_COOKIE_SECURE
++
+     @classmethod
+     def from_env(cls) -> Config:
+         load_dotenv()
+         return cls(
+             DATABASE_URL=os.getenv("DATABASE_URL", cls.DATABASE_URL),
+             SESSION_SECRET=os.getenv("SESSION_SECRET", cls.SESSION_SECRET),
+             MOCK_SMS_SECRET=os.getenv("MOCK_SMS_SECRET", cls.MOCK_SMS_SECRET),
+             SMS_ADAPTER=os.getenv("SMS_ADAPTER", cls.SMS_ADAPTER),
+             PMS_TICK_SECONDS=int(os.getenv("PMS_TICK_SECONDS", cls.PMS_TICK_SECONDS)),
+             START_WORKER=os.getenv("START_WORKER", "0") == "1",
+             CORS_ORIGIN=os.getenv("CORS_ORIGIN", cls.CORS_ORIGIN),
+             ENV=os.getenv("FLASK_ENV", cls.ENV),
++            ENABLE_DEV_ENDPOINTS=os.getenv("ENABLE_DEV_ENDPOINTS", "0") == "1",
++            USE_RELOADER=os.getenv("USE_RELOADER", "0") == "1",
++            SESSION_COOKIE_SECURE=_optional_bool(os.getenv("SESSION_COOKIE_SECURE")),
+         )
+diff --git a/server/app/domain/stays.py b/server/app/domain/stays.py
+index 74dbb80..648dc55 100644
+--- a/server/app/domain/stays.py
++++ b/server/app/domain/stays.py
+@@ -5,21 +5,24 @@ from sqlalchemy.orm import Session
+ 
+ from app.domain.guests import find_by_phone
+ from app.models import Guest, Stay
+ from app.schemas.enums import StayStatus
+ 
+ 
+ def find_in_house_for_guest(db: Session, property_id: str, guest_id: str) -> Stay | None:
+     return db.scalar(
+         select(Stay).where(Stay.property_id == property_id, Stay.guest_id == guest_id,
+                            Stay.status == StayStatus.checked_in)
+-        .order_by(Stay.actual_checkin_at.desc())
++        # nulls_last + an id tiebreak: a NULL actual_checkin_at sorts FIRST under DESC on
++        # PostgreSQL, so without this a stay whose check-in timestamp never got written would
++        # become "the" in-house stay and attach the wrong room number to an inbound SMS.
++        .order_by(Stay.actual_checkin_at.desc().nulls_last(), Stay.id.desc())
+     )
+ 
+ 
+ def find_in_house_by_phone(db: Session, property_id: str, phone: str) -> tuple[Guest, Stay] | None:
+     guest = find_by_phone(db, property_id, phone)
+     if guest is None:
+         return None
+     stay = find_in_house_for_guest(db, property_id, guest.id)
+     return (guest, stay) if stay else None
+ 
+diff --git a/server/app/domain/users.py b/server/app/domain/users.py
+index 12b5b5a..3c16cd5 100644
+--- a/server/app/domain/users.py
++++ b/server/app/domain/users.py
+@@ -1,21 +1,28 @@
+ from __future__ import annotations
+ 
+ from sqlalchemy import select
+ from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
+ 
+ from app.auth.passwords import hash_password
++from app.auth.permissions import has_capability
+ from app.domain import audit
+ from app.errors import Conflict, NotFound, ValidationFailed
+ from app.models import Department, PropertyMembership, UserAccount
+-from app.schemas.users import CreateStaffRequest, DepartmentOut, StaffPatch, StaffUserOut
++from app.schemas.enums import Role
++from app.schemas.users import (
++    CreateStaffRequest,
++    DepartmentOut,
++    StaffPatch,
++    StaffUserOut,
++)
+ 
+ 
+ def list_departments(db: Session, property_id: str) -> list[DepartmentOut]:
+     rows = db.scalars(
+         select(Department).where(Department.property_id == property_id).order_by(Department.name)
+     ).all()
+     return [DepartmentOut.model_validate(d) for d in rows]
+ 
+ 
+ def list_staff(db: Session, property_id: str) -> list[StaffUserOut]:
+@@ -84,47 +91,59 @@ def create_staff(db: Session, property_id: str, actor_user_id: str,
+             PropertyMembership.property_id == property_id)):
+         raise Conflict("Already a member of this property")
+     db.add(PropertyMembership(user_id=user.id, property_id=property_id, role=data.role,
+                               department_id=data.department_id))
+     db.flush()
+     audit.record(db, property_id, actor_user_id, "membership.created", "user_account", user.id,
+                  after={"role": data.role.value, "department_id": data.department_id})
+     return _staff_out(db, property_id, user.id)
+ 
+ 
++ADMIN_ROLES = [r for r in Role if has_capability(r, "manage_admin")]
++
++
++def _assert_not_last_admin(db: Session, property_id: str, m: PropertyMembership,
++                           new_role: Role | None = None) -> None:
++    """A property must keep at least one membership that can `manage_admin`.
++
++    `corporate` is a per-property role like any other, not a cross-property escape hatch, so
++    dropping the last one leaves the property with nobody who can add staff back — an in-app
++    lockout with no in-app remedy.
++    """
++    if m.role not in ADMIN_ROLES or (new_role is not None and new_role in ADMIN_ROLES):
++        return
++    if not db.scalar(select(PropertyMembership.id).where(
++            PropertyMembership.property_id == property_id,
++            PropertyMembership.role.in_(ADMIN_ROLES),
++            PropertyMembership.id != m.id)):
++        raise Conflict("This property would be left with no administrator")
++
++
+ def update_staff(db: Session, property_id: str, actor_user_id: str, user_id: str,
+                 data: StaffPatch) -> StaffUserOut:
+     m = db.scalar(select(PropertyMembership).where(PropertyMembership.user_id == user_id,
+                                                    PropertyMembership.property_id == property_id))
+     if m is None:
+         raise NotFound("User is not a member of this property")
+-    u = db.get(UserAccount, user_id)
+-    before = {"role": m.role.value, "department_id": m.department_id, "status": u.status.value}
++    before = {"role": m.role.value, "department_id": m.department_id}
+     changes = data.model_dump(exclude_unset=True)
+     if "department_id" in changes:
+         _check_department(db, property_id, changes["department_id"])
+         m.department_id = changes["department_id"]
+     if data.role is not None:
++        _assert_not_last_admin(db, property_id, m, new_role=data.role)
+         m.role = data.role
+-    if data.status is not None:
+-        u.status = data.status
+-    if data.password:
+-        u.password_hash = hash_password(data.password)
+-    if data.first_name:
+-        u.first_name = data.first_name
+-    if data.last_name:
+-        u.last_name = data.last_name
+     db.flush()
+     audit.record(db, property_id, actor_user_id, "membership.updated", "user_account", user_id,
+                  before=before,
+-                 after={"role": m.role.value, "department_id": m.department_id,
+-                        "status": u.status.value, "password_reset": bool(data.password)})
++                 after={"role": m.role.value, "department_id": m.department_id})
+     return _staff_out(db, property_id, user_id)
+ 
+ 
+ def remove_membership(db: Session, property_id: str, actor_user_id: str, user_id: str) -> None:
+     m = db.scalar(select(PropertyMembership).where(PropertyMembership.user_id == user_id,
+                                                    PropertyMembership.property_id == property_id))
+     if m is None:
+         raise NotFound("User is not a member of this property")
++    _assert_not_last_admin(db, property_id, m)
+     db.delete(m)
+     audit.record(db, property_id, actor_user_id, "membership.removed", "user_account", user_id)
+diff --git a/server/app/domain/work_orders.py b/server/app/domain/work_orders.py
+index d7f938a..e14fcf2 100644
+--- a/server/app/domain/work_orders.py
++++ b/server/app/domain/work_orders.py
+@@ -1,36 +1,37 @@
+ from __future__ import annotations
+ 
+ from sqlalchemy import select
+ from sqlalchemy.orm import Session
+ 
+ from app import clock
+ from app.domain import audit, draft_prompts, notifications
+ from app.domain import conversations as conv_domain
+-from app.errors import NotFound, TransitionError, ValidationFailed
++from app.errors import Forbidden, NotFound, TransitionError, ValidationFailed
+ from app.models import (
+     Conversation,
+     Department,
+     Guest,
+     Message,
+     PropertyMembership,
+     Stay,
+     UserAccount,
+     WorkOrder,
+     WorkOrderEvent,
+ )
+ from app.realtime.broadcast import queue_event
+ from app.schemas.enums import (
+     DepartmentType,
+     Direction,
+     LocationType,
+     Priority,
++    Role,
+     WorkOrderEventType,
+     WorkOrderStatus,
+     WorkOrderType,
+ )
+ from app.schemas.work_orders import (
+     CreateWorkOrder,
+     WorkOrderDetail,
+     WorkOrderEventOut,
+     WorkOrderOut,
+     WorkOrderPrefill,
+@@ -268,30 +269,47 @@ def list(db: Session, property_id: str, *, status: str | None = None,
+     if dept:
+         q = q.where(WorkOrder.department_id == dept)
+     if assignee:
+         q = q.where(WorkOrder.assigned_user_id == assignee)
+     if mine_user_id:
+         q = q.where(WorkOrder.assigned_user_id == mine_user_id)
+     rows = db.scalars(q.order_by(WorkOrder.created_at.desc(), WorkOrder.id.desc())).all()
+     return [WorkOrderOut.model_validate(w) for w in rows]
+ 
+ 
+-def detail(db: Session, property_id: str, work_order_id: str) -> WorkOrderDetail:
++def _can_see_conversation(conv: Conversation, viewer_role: Role, viewer_user_id: str,
++                          viewer_department_id: str | None) -> bool:
++    try:
++        conv_domain.assert_viewer_can_see(conv, viewer_role, viewer_user_id, viewer_department_id)
++    except Forbidden:
++        return False
++    return True
++
++
++def detail(db: Session, property_id: str, work_order_id: str, *, viewer_role: Role,
++           viewer_user_id: str, viewer_department_id: str | None) -> WorkOrderDetail:
++    """Work orders are property-wide by design (design.md §3.2 has no work-order-viewing
++    capability), but `guest_name` and `room_number` here are read *through*
++    `source_conversation_id` — so a dept_staff viewer who is 403'd from that conversation must
++    not receive them back from this route instead. The viewer arguments are required, not
++    optional, so a new caller cannot fail open by forgetting them.
++    """
+     wo = get(db, property_id, work_order_id)
+     rows = db.execute(select(WorkOrderEvent, UserAccount)
+                       .outerjoin(UserAccount, UserAccount.id == WorkOrderEvent.user_id)
+                       .where(WorkOrderEvent.work_order_id == wo.id)
+                       .order_by(WorkOrderEvent.created_at)).all()
+     guest_name = room = None
+     if wo.source_conversation_id:
+         conv = db.get(Conversation, wo.source_conversation_id)
+-        if conv:
++        if conv and _can_see_conversation(conv, viewer_role, viewer_user_id,
++                                          viewer_department_id):
+             g = db.get(Guest, conv.guest_id)
+             guest_name = f"{g.first_name or ''} {g.last_name or ''}".strip() or g.phone_e164
+             st = db.get(Stay, conv.stay_id) if conv.stay_id else None
+             room = st.room_number if st else None
+     base = WorkOrderOut.model_validate(wo).model_dump()
+     return WorkOrderDetail(**base, guest_name=guest_name, room_number=room or wo.location_ref,
+                            events=[WorkOrderEventOut(
+                                id=e.id, user_id=e.user_id,
+                                user_name=f"{u.first_name} {u.last_name}" if u else None,
+                                type=e.type, from_value=e.from_value, to_value=e.to_value,
+diff --git a/server/app/models/infra.py b/server/app/models/infra.py
+index cd5ade5..0f19f19 100644
+--- a/server/app/models/infra.py
++++ b/server/app/models/infra.py
+@@ -58,20 +58,27 @@ class AuditLog(TimestampMixin, Base):
+     action: Mapped[str] = mapped_column(String(80), nullable=False)
+     entity_type: Mapped[str] = mapped_column(String(40), nullable=False)
+     entity_id: Mapped[str | None] = mapped_column(String(36))
+     before: Mapped[dict | None] = mapped_column(JSON)
+     after: Mapped[dict | None] = mapped_column(JSON)
+     ip: Mapped[str | None] = mapped_column(String(64))
+     user_agent: Mapped[str | None] = mapped_column(String(300))
+ 
+ 
+ class PmsEvent(TimestampMixin, Base):
++    """The PMS idempotency ledger. Keyed by property: `Stay` is unique on
++    (property_id, pms_reservation_id) because most PMSs number reservations per property, so
++    two properties legitimately hold the same external_id and a globally unique key would
++    silently swallow the second property's event as a duplicate of the first's."""
++
+     __tablename__ = "pms_event"
+     __table_args__ = (
+-        UniqueConstraint("integration_key", "external_id", "event_type", name="uq_pms_event_idem"),
++        UniqueConstraint("property_id", "integration_key", "external_id", "event_type",
++                         name="uq_pms_event_idem"),
+     )
++    property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
+     integration_key: Mapped[str] = mapped_column(String(60), nullable=False)
+     external_id: Mapped[str] = mapped_column(String(100), nullable=False)
+     event_type: Mapped[str] = mapped_column(String(60), nullable=False)
+     payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+     processed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+     error: Mapped[str | None] = mapped_column(Text)
+diff --git a/server/app/pms/handle_event.py b/server/app/pms/handle_event.py
+index f4aea22..5dfe396 100644
+--- a/server/app/pms/handle_event.py
++++ b/server/app/pms/handle_event.py
+@@ -12,36 +12,42 @@ from app.pms.base import PmsEvent
+ from app.realtime.broadcast import queue_event
+ from app.schemas.enums import StayStatus
+ 
+ 
+ def _find_stay(db: Session, property_id: str, pms_reservation_id: str) -> Stay | None:
+     return db.scalar(select(Stay).where(Stay.property_id == property_id,
+                                         Stay.pms_reservation_id == pms_reservation_id))
+ 
+ 
+ def handle_event(db: Session, event: PmsEvent, integration_key: str = "mock") -> bool:
+-    """Idempotent on (integration_key, external_id, event_type). Returns False for a duplicate.
++    """Idempotent on (property_id, integration_key, external_id, event_type). False for a dup.
++
++    The key is per-property because `Stay` is unique on (property_id, pms_reservation_id): most
++    PMSs number reservations per property, so two properties may legitimately send the same
++    external_id and a global key would swallow the second one as a duplicate of the first.
+ 
+     Duplicate suppression is enforced at the DB level via
+-    UniqueConstraint(integration_key, external_id, event_type) on pms_event, not just the SELECT
+-    below — a concurrent replay races the SELECT, so the insert is retried inside a nested
+-    transaction and an IntegrityError is treated as "already handled" (same pattern as
++    UniqueConstraint(property_id, integration_key, external_id, event_type) on pms_event, not just
++    the SELECT below — a concurrent replay races the SELECT, so the insert is retried inside a
++    nested transaction and an IntegrityError is treated as "already handled" (same pattern as
+     guests.find_or_create_by_phone).
+     """
+-    dup = db.scalar(select(PmsEventRow.id).where(PmsEventRow.integration_key == integration_key,
++    dup = db.scalar(select(PmsEventRow.id).where(PmsEventRow.property_id == event.property_id,
++                                                 PmsEventRow.integration_key == integration_key,
+                                                  PmsEventRow.external_id == event.external_id,
+                                                  PmsEventRow.event_type == event.type))
+     if dup:
+         return False
+     try:
+         with db.begin_nested():
+-            row = PmsEventRow(integration_key=integration_key, external_id=event.external_id,
++            row = PmsEventRow(property_id=event.property_id, integration_key=integration_key,
++                              external_id=event.external_id,
+                               event_type=event.type, payload=event.raw)
+             db.add(row)
+             db.flush()
+     except IntegrityError:
+         return False
+ 
+     guest, created = guests.find_or_create_by_phone(db, event.property_id, event.guest.phone_e164)
+     for attr in ("first_name", "last_name", "email", "loyalty_tier", "vip", "pms_profile_id"):
+         value = getattr(event.guest, attr)
+         if value is not None:
+@@ -62,22 +68,30 @@ def handle_event(db: Session, event: PmsEvent, integration_key: str = "mock") ->
+                            departure_date=event.stay.departure_date)
+                 db.add(stay)
+                 db.flush()
+         except IntegrityError:
+             stay = _find_stay(db, event.property_id, event.stay.pms_reservation_id)
+     for attr in ("room_number", "room_type", "rate_code", "status", "arrival_date",
+                  "departure_date", "adults", "children", "is_return_guest", "stay_count"):
+         setattr(stay, attr, getattr(event.stay, attr))
+     stay.raw_pms = event.raw
+     now = clock.now()
+-    if event.type == "stay.checked_in" and stay.actual_checkin_at is None:
+-        stay.actual_checkin_at = now
+     if event.type == "stay.checked_out":
+         stay.status = StayStatus.checked_out
+-        stay.actual_checkout_at = stay.actual_checkout_at or now
++    # The attribute loop above copies `status` straight off the event, so keying the timestamp
++    # off event.type alone left a stay with status=checked_in and actual_checkin_at NULL whenever
++    # the status arrived on some other event type (e.g. a room_changed carrying the current
++    # status). stays.find_in_house_for_guest orders on actual_checkin_at, where NULL sorts first
++    # on PostgreSQL — so that row became "the" in-house stay and attached the wrong room number
++    # to an inbound SMS. Write status and its timestamp together instead.
++    if (stay.status in (StayStatus.checked_in, StayStatus.checked_out)
++            and stay.actual_checkin_at is None):
++        stay.actual_checkin_at = now
++    if stay.status == StayStatus.checked_out and stay.actual_checkout_at is None:
++        stay.actual_checkout_at = now
+     db.flush()
+     row.processed_at = now
+     audit.record(db, event.property_id, None, f"pms.{event.type}", "stay", stay.id,
+                  after={"external_id": event.external_id, "room": stay.room_number})
+     queue_event(db, event.property_id, "stay.updated",
+                 {"stayId": stay.id, "guestId": guest.id, "status": stay.status.value})
+     return True
+diff --git a/server/app/schemas/users.py b/server/app/schemas/users.py
+index 60d9720..6bf4be8 100644
+--- a/server/app/schemas/users.py
++++ b/server/app/schemas/users.py
+@@ -1,15 +1,15 @@
+ from pydantic import EmailStr, Field
+ 
+ from app.schemas.common import CamelModel
+ from app.schemas.conversations import GuestOut, StayOut
+-from app.schemas.enums import DepartmentType, Role, UserStatus
++from app.schemas.enums import DepartmentType, Role
+ 
+ 
+ class DepartmentOut(CamelModel):
+     id: str
+     name: str
+     type: DepartmentType
+     escalation_minutes: int
+     active: bool
+ 
+ 
+@@ -28,22 +28,28 @@ class CreateStaffRequest(CamelModel):
+     email: EmailStr
+     first_name: str = Field(min_length=1, max_length=100)
+     last_name: str = Field(min_length=1, max_length=100)
+     password: str | None = Field(default=None, min_length=8, max_length=200)
+     role: Role
+     department_id: str | None = None
+     phone: str | None = None
+ 
+ 
+ class StaffPatch(CamelModel):
++    """Per-property membership fields only.
++
++    `UserAccount` is global and one account may hold memberships at several properties, so an
++    endpoint authorised by a membership at the property in the URL must never write global
++    columns (password, status, name): an admin at one property could otherwise reset the password
++    of an account that is also an admin somewhere else and inherit its access everywhere. Revoking
++    a person's access to *this* property is DELETE /users/<id> (the membership), not a global
++    account disable.
++    """
++
+     role: Role | None = None
+     department_id: str | None = None
+-    status: UserStatus | None = None
+-    password: str | None = Field(default=None, min_length=8, max_length=200)
+-    first_name: str | None = None
+-    last_name: str | None = None
+ 
+ 
+ class GuestDetail(CamelModel):
+     guest: GuestOut
+     stays: list[StayOut]
+     conversation_ids: list[str]
+diff --git a/server/dev_start.py b/server/dev_start.py
+index a4788a2..d43ad70 100644
+--- a/server/dev_start.py
++++ b/server/dev_start.py
+@@ -70,20 +70,22 @@ def prepare(database_url: str):
+     if not is_db_empty(database_url):
+         return False, None
+     from seed.seed import run as seed_run
+ 
+     summary = seed_run(database_url, reset=False)
+     return True, summary
+ 
+ 
+ def main() -> int:
+     os.environ["START_WORKER"] = "1"
++    os.environ.setdefault("ENABLE_DEV_ENDPOINTS", "1")
++    os.environ.setdefault("USE_RELOADER", "1")
+ 
+     from app.config import Config
+ 
+     cfg = Config.from_env()
+     cfg = dataclasses.replace(cfg, DATABASE_URL=resolve_database_url(cfg.DATABASE_URL))
+ 
+     print(f"Preparing {cfg.DATABASE_URL} ...")
+     seeded, summary = prepare(cfg.DATABASE_URL)
+     if seeded:
+         print(f"Seeded {summary.properties} properties, {summary.users} users, "
+@@ -94,16 +96,16 @@ def main() -> int:
+     else:
+         print("Database already has data, skipping seed.")
+ 
+     port = int(os.getenv("PORT", "5000"))
+     print(f"\nStarting server at http://127.0.0.1:{port}")
+     print(f"Log in as {SEEDED_EMAIL} / {SEEDED_PASSWORD}\n")
+ 
+     from app import create_app
+ 
+     app = create_app(cfg)
+-    app.run(host="127.0.0.1", port=port, debug=not cfg.is_production, threaded=True)
++    app.run(host="127.0.0.1", port=port, debug=cfg.USE_RELOADER, threaded=True)
+     return 0
+ 
+ 
+ if __name__ == "__main__":
+     sys.exit(main())
+diff --git a/server/run.py b/server/run.py
+index be77ddd..98c8768 100644
+--- a/server/run.py
++++ b/server/run.py
+@@ -1,12 +1,14 @@
+ """Development entrypoint. Production: gunicorn -k gthread -w 1 --threads 16 'app:create_app()'"""
+ import os
+ 
+ from app import create_app
+ from app.config import Config
+ 
+ if __name__ == "__main__":
+     os.environ.setdefault("START_WORKER", "1")
++    os.environ.setdefault("ENABLE_DEV_ENDPOINTS", "1")
++    os.environ.setdefault("USE_RELOADER", "1")
+     cfg = Config.from_env()
+     app = create_app(cfg)
+-    app.run(host="127.0.0.1", port=int(os.getenv("PORT", "5000")), debug=not cfg.is_production,
++    app.run(host="127.0.0.1", port=int(os.getenv("PORT", "5000")), debug=cfg.USE_RELOADER,
+             threaded=True)
+diff --git a/server/tests/conftest.py b/server/tests/conftest.py
+index b822ef8..69cb0e5 100644
+--- a/server/tests/conftest.py
++++ b/server/tests/conftest.py
+@@ -28,20 +28,21 @@ def template_db_path(tmp_path_factory):
+ @pytest.fixture()
+ def app(template_db_path, tmp_path):
+     db_path = tmp_path / "test.db"
+     shutil.copy(template_db_path, db_path)
+     clock.freeze(FROZEN)
+     cfg = Config(
+         DATABASE_URL=f"sqlite:///{db_path.as_posix()}",
+         TESTING=True,
+         START_WORKER=False,
+         ENV="testing",
++        ENABLE_DEV_ENDPOINTS=True,  # /api/dev/* is opt-in; tests/test_dev.py exercises it
+         PMS_TICK_SECONDS=0,
+     )
+     from app.ratelimit import login_limiter, webhook_limiter
+ 
+     login_limiter.reset()
+     webhook_limiter.reset()
+ 
+     application = create_app(cfg)
+     yield application
+     application.extensions["db"].engine.dispose()
+diff --git a/server/tests/test_auth.py b/server/tests/test_auth.py
+index c6af86b..0f3d0d1 100644
+--- a/server/tests/test_auth.py
++++ b/server/tests/test_auth.py
+@@ -69,10 +69,46 @@ def test_login_and_logout_are_audited(app, fx, login, database):
+ def test_disabled_user_cannot_login(app, fx, client, database):
+     from app.models import UserAccount
+     from app.schemas.enums import UserStatus
+ 
+     with database.session() as db:
+         u = db.get(UserAccount, fx.agent_a.id)
+         u.status = UserStatus.disabled
+     res = client.post("/api/auth/login",
+                       json={"email": "agent@hvh.test", "password": "Password123!"})
+     assert res.status_code == 401
++
++
++def test_session_cookie_is_secure_in_production_and_configurable(app, fx, client):
++    """`secure=False` used to be hardcoded, so the session cookie could be sent over plain HTTP
++    with no way to turn that off."""
++    from app.config import Config
++
++    dev, prod = Config(), Config(ENV="production", SESSION_SECRET="a-real-secret")
++    assert dev.cookie_secure is False and prod.cookie_secure is True
++    assert Config(SESSION_COOKIE_SECURE=True).cookie_secure is True
++    assert Config(ENV="production", SESSION_SECRET="s",
++                  SESSION_COOKIE_SECURE=False).cookie_secure is False
++
++    # The login route reads it rather than hardcoding a value.
++    app.config["APP"].SESSION_COOKIE_SECURE = True
++    res = client.post("/api/auth/login", json={"email": "agent@hvh.test",
++                                               "password": "Password123!"})
++    assert res.status_code == 200
++    assert "Secure" in res.headers["Set-Cookie"]
++
++
++def test_production_refuses_to_boot_with_the_placeholder_session_secret(template_db_path, tmp_path):
++    import shutil
++
++    import pytest
++
++    from app import create_app
++    from app.config import INSECURE_SESSION_SECRETS, Config
++
++    for secret in INSECURE_SESSION_SECRETS:
++        p = tmp_path / f"boot-{abs(hash(secret))}.db"
++        shutil.copy(template_db_path, p)
++        cfg = Config(DATABASE_URL=f"sqlite:///{p.as_posix()}", TESTING=True, ENV="production",
++                     SESSION_SECRET=secret)
++        with pytest.raises(RuntimeError, match="SESSION_SECRET"):
++            create_app(cfg)
+diff --git a/server/tests/test_dev.py b/server/tests/test_dev.py
+index cddc3a5..183334f 100644
+--- a/server/tests/test_dev.py
++++ b/server/tests/test_dev.py
+@@ -1,22 +1,38 @@
+ from app import create_app
+ from app.config import Config
+ from tests.factories import inbound
+ 
+ 
+-def test_dev_routes_absent_in_production(template_db_path, tmp_path):
++def _build(template_db_path, tmp_path, name: str, **cfg):
+     import shutil
+ 
+-    p = tmp_path / "prod.db"
++    p = tmp_path / f"{name}.db"
+     shutil.copy(template_db_path, p)
+-    app = create_app(Config(DATABASE_URL=f"sqlite:///{p.as_posix()}", ENV="production",
+-                            TESTING=True))
++    return create_app(Config(DATABASE_URL=f"sqlite:///{p.as_posix()}", TESTING=True, **cfg))
++
++
++def test_dev_routes_absent_in_production(template_db_path, tmp_path):
++    app = _build(template_db_path, tmp_path, "prod", ENV="production",
++                 SESSION_SECRET="a-real-secret", ENABLE_DEV_ENDPOINTS=True)
++    assert app.test_client().get("/api/dev/sim/guests").status_code == 404
++    app.extensions["db"].engine.dispose()
++
++
++def test_dev_routes_absent_unless_explicitly_enabled(template_db_path, tmp_path):
++    """/api/dev/sim/guests is unauthenticated and returns every guest at every property, with
++    names, E.164 phones, rooms and consent status. It used to register whenever
++    FLASK_ENV != "production" while Config.ENV *defaulted* to "development", so a deployment that
++    forgot one env var published the whole guest database. The unsafe state must now require a
++    positive action, not the absence of one."""
++    app = _build(template_db_path, tmp_path, "default")  # ENV defaults to "development"
++    assert app.config["APP"].ENV == "development"
+     assert app.test_client().get("/api/dev/sim/guests").status_code == 404
+     app.extensions["db"].engine.dispose()
+ 
+ 
+ def test_sim_guests_and_thread(app, fx, client):
+     guests = client.get("/api/dev/sim/guests").get_json()
+     sarah = [g for g in guests if g["phone"] == fx.guest_inhouse_a.phone_e164][0]
+     assert (sarah["roomNumber"] == "412" and sarah["propertyId"] == fx.property_a.id
+            and sarah["willFail"] is False)
+     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hello")
+diff --git a/server/tests/test_guest_data_leakage.py b/server/tests/test_guest_data_leakage.py
+new file mode 100644
+index 0000000..f9053aa
+--- /dev/null
++++ b/server/tests/test_guest_data_leakage.py
+@@ -0,0 +1,81 @@
++"""Guest identity must not leave through a route that skips the conversation viewer check.
++
++Probed against the running server during the whole-branch review: an engineer (dept_staff,
++Engineering) who is 403'd from a housekeeping conversation could still read that conversation's
++guest name and room number back out of the work order raised from it, and could read the guest's
++phone number, loyalty tier, consent status, stay history and conversation ids from
++GET /guests/<id>.
++
++The ruling that shapes these tests: property-wide work-order *visibility* and *mutation* stand —
++design.md §3.2 has no work-order-viewing capability and that is the documented design. What does
++not stand is reaching *through* `source_conversation_id` to surface conversation-derived guest
++fields to a viewer who was just refused that conversation.
++"""
++from sqlalchemy import select
++
++from app.models import Conversation
++from tests.factories import inbound
++
++
++def _housekeeping_case(fx, client, database, login):
++    """An inbound conversation assigned to Housekeeping, plus a work order raised from it."""
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "Please send more towels to 412")
++    with database.session() as db:
++        cid = db.scalar(select(Conversation.id).where(
++            Conversation.guest_id == fx.guest_inhouse_a.id))
++    agent = login("agent@hvh.test")
++    base = f"/api/p/{fx.property_a.id}"
++    assert agent.patch(f"{base}/conversations/{cid}",
++                       json={"assignedDepartmentId": fx.dept_housekeeping.id}).status_code == 200
++    wo = agent.post(f"{base}/work-orders", json={
++        "title": "Towels", "type": "housekeeping", "locationRef": "412",
++        "departmentId": fx.dept_housekeeping.id, "sourceConversationId": cid}).get_json()
++    return base, cid, wo, agent
++
++
++def test_work_order_detail_hides_conversation_derived_guest_fields(app, fx, client, database,
++                                                                   login):
++    base, cid, wo, agent = _housekeeping_case(fx, client, database, login)
++    eng = login("engineer@hvh.test")  # dept_staff, Engineering
++
++    assert eng.get(f"{base}/conversations/{cid}").status_code == 403
++
++    d = eng.get(f"{base}/work-orders/{wo['id']}")
++    assert d.status_code == 200, "property-wide work-order visibility must still stand"
++    body = d.get_json()
++    assert body["guestName"] is None
++    assert body["roomNumber"] == "412"  # the work order's own locationRef, not the stay's room
++    assert body["title"] == "Towels"
++
++    # Mutation stands too (the ruling is deliberately narrow), and the response to the mutation
++    # must not leak the fields either.
++    patched = eng.patch(f"{base}/work-orders/{wo['id']}", json={"priority": "urgent"})
++    assert patched.status_code == 200 and patched.get_json()["guestName"] is None
++
++    # A viewer who can see the conversation still gets them.
++    assert agent.get(f"{base}/work-orders/{wo['id']}").get_json()["guestName"] == "Sarah Chen"
++
++
++def test_work_order_detail_shows_guest_fields_to_the_assigned_department(app, fx, client,
++                                                                         database, login):
++    """Guards the previous test against over-correction: housekeeping staff are allowed to see
++    the conversation, so they must still get the guest name and the stay's room number."""
++    base, cid, wo, _ = _housekeeping_case(fx, client, database, login)
++    hk = login("housekeeper@hvh.test")
++    assert hk.get(f"{base}/conversations/{cid}").status_code == 200
++    body = hk.get(f"{base}/work-orders/{wo['id']}").get_json()
++    assert body["guestName"] == "Sarah Chen" and body["roomNumber"] == "412"
++
++
++def test_guest_detail_requires_view_all_conversations(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
++    path = f"/api/p/{fx.property_a.id}/guests/{fx.guest_inhouse_a.id}"
++
++    eng = login("engineer@hvh.test")  # dept_staff: the one staff role without the capability
++    assert eng.get(path).status_code == 403
++
++    for email in ("agent@hvh.test", "supervisor@hvh.test", "manager@hvh.test", "admin@hvh.test",
++                  "corporate@hvh.test"):
++        res = login(email).get(path)
++        assert res.status_code == 200, email
++        assert res.get_json()["guest"]["phoneE164"] == fx.guest_inhouse_a.phone_e164
+diff --git a/server/tests/test_isolation.py b/server/tests/test_isolation.py
+index 652ce98..462d15c 100644
+--- a/server/tests/test_isolation.py
++++ b/server/tests/test_isolation.py
+@@ -1,14 +1,15 @@
+ """design.md §11.1 #9: a member of Property A gets 403 on every Property B resource.
+ 
+ Enumerates every rule under /api/p/<property_id> so new routes are covered automatically.
+ """
++import ast
+ import re
+ from pathlib import Path
+ 
+ SKIP_METHODS = {"HEAD", "OPTIONS"}
+ DUMMY_ID = "00000000-0000-0000-0000-000000000000"
+ 
+ 
+ def property_rules(app):
+     for rule in app.url_map.iter_rules():
+         if rule.rule.startswith("/api/p/<property_id>"):
+@@ -68,10 +69,83 @@ def test_no_route_resolves_a_conversation_without_a_viewer_check():
+     `conversations.get_for_viewer(db, property_id, conversation_id, role, user_id, department_id)`
+     instead, so the viewer check cannot be forgotten again.
+     """
+     api_dir = Path(__file__).resolve().parent.parent / "app" / "api"
+     offenders = []
+     for path in sorted(api_dir.glob("*.py")):
+         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+             if re.search(r"\bconversations\.get\(", line):
+                 offenders.append(f"{path.name}:{lineno}")
+     assert not offenders, f"call conversations.get_for_viewer(...) instead: {offenders}"
++
++
++MESSAGES_MODULE = Path("app") / "domain" / "messages.py"
++
++
++def _message_constructors(path: Path) -> list[int]:
++    """Line numbers in `path` that construct the `Message` ORM model.
++
++    Resolves the local names bound to the model in this module (`from app.models import Message`,
++    `... import Message as M`, `from app.models.conversations import Message`) and flags calls to
++    any of them, plus any attribute call spelled `<anything>.Message(...)` so
++    `from app import models; models.Message(...)` is caught too.
++    """
++    tree = ast.parse(path.read_text(encoding="utf-8"))
++    local_names = {
++        alias.asname or alias.name
++        for node in ast.walk(tree)
++        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("app.models")
++        for alias in node.names
++        if alias.name == "Message"
++    }
++    hits = []
++    for node in ast.walk(tree):
++        if not isinstance(node, ast.Call):
++            continue
++        fn = node.func
++        if (isinstance(fn, ast.Name) and fn.id in local_names) or (
++            isinstance(fn, ast.Attribute) and fn.attr == "Message"
++        ):
++            hits.append(node.lineno)
++    return hits
++
++
++def test_only_the_messages_domain_constructs_a_message():
++    """`messages.send()` is the only TCPA consent gate in the system.
++
++    Every outbound SMS must pass consent.assert_can_send() before a `Message` row exists, and
++    that call lives in exactly one place: app/domain/messages.py. Nothing structurally prevented a
++    new route, queue handler or PMS hook from writing `Message(direction=Direction.outbound, ...)`
++    itself and shipping a text to a guest who pressed STOP — a regulatory violation, not just a
++    bug, and one no existing test would notice because the bypass creates a perfectly valid row.
++
++    So: no module under `app/` except app/domain/messages.py may construct a `Message` at all.
++    The blanket rule is deliberate. A rule phrased as "no *outbound* Message" would only match a
++    spelling of the direction argument (the weakness of the `conversations.get(` guard above,
++    which matches a name rather than the invariant), and any new call site can be argued into
++    looking inbound. If you are hitting this test, call `messages.send()` (or, for a genuinely
++    guest-authored message, `messages.record_inbound()`) instead of building the row yourself.
++
++    Limits, stated plainly: this is a source-level AST check over `app/` only. It catches a direct
++    construction under any import alias, including `models.Message(...)`. It does NOT catch
++    construction through indirection (`cls = Message; cls(...)`, `getattr(...)`), a Core `insert()`
++    or raw SQL, or code outside `app/` — `seed/` and `tests/` build Message rows directly on
++    purpose, since neither ships messages to a real guest.
++    """
++    app_dir = Path(__file__).resolve().parent.parent / "app"
++    offenders = [
++        f"{path.relative_to(app_dir.parent).as_posix()}:{lineno}"
++        for path in sorted(app_dir.rglob("*.py"))
++        if path.relative_to(app_dir.parent) != MESSAGES_MODULE
++        for lineno in _message_constructors(path)
++    ]
++    assert not offenders, (
++        "only app/domain/messages.py may construct a Message: it is the sole consent gate; "
++        f"call messages.send()/record_inbound() instead: {offenders}"
++    )
++
++
++def test_the_message_constructor_guard_is_not_vacuous():
++    """The guard is worthless if it cannot see a construction, so point it at the one module
++    that is allowed to have them and require that it finds them."""
++    messages_py = Path(__file__).resolve().parent.parent / MESSAGES_MODULE
++    assert len(_message_constructors(messages_py)) >= 2
+diff --git a/server/tests/test_pms.py b/server/tests/test_pms.py
+index c861ee9..142f458 100644
+--- a/server/tests/test_pms.py
++++ b/server/tests/test_pms.py
+@@ -138,10 +138,64 @@ def test_stay_upsert_survives_concurrent_insert_race(app, fx, database, monkeypa
+                 return None  # pretend the row isn't visible yet (the race window)
+             return real_find_stay(db_, property_id, pms_reservation_id)
+ 
+         monkeypatch.setattr(handle_event_module, "_find_stay", flaky_find_stay)
+ 
+         assert handle_event(db, _event(fx)) is True
+         stays = db.scalars(select(Stay).where(Stay.property_id == fx.property_a.id,
+                                               Stay.pms_reservation_id == "R-1")).all()
+         assert len(stays) == 1
+         assert stays[0].id == winner_id
++
++
++def test_same_external_id_in_two_properties_is_processed_twice(app, fx, database):
++    """Most PMSs number reservations per property, which is why Stay is unique on
++    (property_id, pms_reservation_id). With a globally unique idempotency key, Property B's
++    stay.checked_in for reservation R-1001 was silently swallowed as a duplicate of Property A's
++    and handle_event returned False — the guest never got a conversation or a room number.
++    """
++    ev_a = _event(fx, eid="R-1001", phone="+15551110001", room="301")
++    ev_b = _event(fx, eid="R-1001", phone="+15552220002", room="302")
++    ev_b.property_id = fx.property_b.id
++
++    with database.session() as db:
++        assert handle_event(db, ev_a) is True
++        assert handle_event(db, ev_b) is True, "Property B's event was swallowed as a duplicate"
++        stays = db.scalars(select(Stay).where(Stay.pms_reservation_id == "R-1001")).all()
++        assert {(s.property_id, s.room_number) for s in stays} == {
++            (fx.property_a.id, "301"), (fx.property_b.id, "302")}
++        rows = db.scalars(select(PmsEvent).where(PmsEvent.external_id == "R-1001")).all()
++        assert {r.property_id for r in rows} == {fx.property_a.id, fx.property_b.id}
++        # ...and the key is still idempotent within each property.
++        assert handle_event(db, _event(fx, eid="R-1001", phone="+15551110001",
++                                       room="301")) is False
++
++
++def test_status_and_check_in_timestamp_are_written_together(app, fx, database):
++    """The attribute loop copies `status` straight off the event, so an event that merely
++    *carries* status=checked_in (here a room change) used to set the status without ever setting
++    actual_checkin_at. stays.find_in_house_for_guest orders on that column, where NULL sorts
++    FIRST under DESC on PostgreSQL — the NULL row becomes "the" in-house stay and attaches the
++    wrong room number to an inbound SMS."""
++    ev = _event(fx, eid="R-77", type="stay.room_changed", phone="+15554440000", room="600")
++    with database.session() as db:
++        assert handle_event(db, ev) is True
++        s = db.scalar(select(Stay).where(Stay.pms_reservation_id == "R-77"))
++        assert s.status == StayStatus.checked_in
++        assert s.actual_checkin_at is not None, "checked_in stay left with a NULL check-in time"
++
++
++def test_in_house_lookup_prefers_a_stay_with_a_real_check_in_time(app, fx, database):
++    """Belt and braces for the ordering itself: even if a NULL slips in, the stay that actually
++    recorded a check-in must win."""
++    from app.domain import stays as stays_domain
++
++    with database.session() as db:
++        guest = fx.guest_inhouse_a
++        ghost = Stay(guest_id=guest.id, property_id=fx.property_a.id,
++                     pms_reservation_id="RES-GHOST", room_number="999",
++                     status=StayStatus.checked_in, arrival_date=clock.now().date(),
++                     departure_date=clock.now().date(), actual_checkin_at=None)
++        db.add(ghost)
++        db.flush()
++        found = stays_domain.find_in_house_for_guest(db, fx.property_a.id, guest.id)
++        assert found.room_number == "412"
+diff --git a/server/tests/test_queue.py b/server/tests/test_queue.py
+index d74fd6c..4ea8578 100644
+--- a/server/tests/test_queue.py
++++ b/server/tests/test_queue.py
+@@ -102,47 +102,57 @@ def test_stale_running_jobs_are_reclaimed(app, database, worker, fake_handlers):
+     with database.session() as db:
+         assert jobs.reclaim_stale(db) == 1
+     assert worker.tick() == 1
+ 
+ 
+ def test_start_worker_guard_avoids_duplicate_start_under_reloader(
+     template_db_path, tmp_path, monkeypatch
+ ):
+     """Regression: create_app must start the worker exactly once per real process.
+ 
+-    In dev (non-production) under the Werkzeug reloader, create_app() runs once in the
+-    parent monitor process (no WERKZEUG_RUN_MAIN) and once in the child (WERKZEUG_RUN_MAIN
+-    "true"). Only the child should start the worker. In production there is no reloader, so
+-    the single run must start it.
++    Under the Werkzeug reloader (USE_RELOADER=1, set by the dev entrypoints that pass
++    debug=True), create_app() runs once in the parent monitor process (no WERKZEUG_RUN_MAIN)
++    and once in the child (WERKZEUG_RUN_MAIN "true"). Only the child should start the worker.
++    With no reloader there is a single process and it must start it.
++
++    The guard deliberately does NOT ask is_production: that made forgetting FLASK_ENV on a
++    gunicorn deployment mean "nothing is ever delivered", silently, and put job delivery on the
++    same switch as dev-endpoint data exposure.
+     """
+     started = []
+     monkeypatch.setattr(Worker, "start", lambda self: started.append(True))
+ 
+-    def build_app(env: str, werkzeug_run_main: str | None) -> list:
++    def build_app(use_reloader: bool, werkzeug_run_main: str | None, env: str = "development"
++                  ) -> list:
+         started.clear()
+         if werkzeug_run_main is None:
+             monkeypatch.delenv("WERKZEUG_RUN_MAIN", raising=False)
+         else:
+             monkeypatch.setenv("WERKZEUG_RUN_MAIN", werkzeug_run_main)
+-        db_path = tmp_path / f"guard-{env}-{werkzeug_run_main}.db"
++        db_path = tmp_path / f"guard-{env}-{use_reloader}-{werkzeug_run_main}.db"
+         shutil.copy(template_db_path, db_path)
+         clock.freeze(clock.now())
+         cfg = Config(
+             DATABASE_URL=f"sqlite:///{db_path.as_posix()}",
+             TESTING=True,
+             START_WORKER=True,
+             ENV=env,
++            SESSION_SECRET="a-real-secret",
++            USE_RELOADER=use_reloader,
+             PMS_TICK_SECONDS=0,
+         )
+         application = create_app(cfg)
+         application.extensions["db"].engine.dispose()
+         return started[:]
+ 
+     try:
+         # 1. production, no reloader at all -> the single run starts it.
+-        assert build_app("production", None) == [True]
++        assert build_app(False, None, env="production") == [True]
+         # 2. dev, parent monitor process (no WERKZEUG_RUN_MAIN yet) -> must NOT start.
+-        assert build_app("development", None) == []
++        assert build_app(True, None) == []
+         # 3. dev, reloader child (WERKZEUG_RUN_MAIN=true) -> starts it.
+-        assert build_app("development", "true") == [True]
++        assert build_app(True, "true") == [True]
++        # 4. a deployment that forgot FLASK_ENV but runs under gunicorn (no reloader) still
++        #    starts it: job delivery must not depend on the production flag.
++        assert build_app(False, None) == [True]
+     finally:
+         clock.reset()
+diff --git a/server/tests/test_users_admin.py b/server/tests/test_users_admin.py
+index edc53bb..3580ed6 100644
+--- a/server/tests/test_users_admin.py
++++ b/server/tests/test_users_admin.py
+@@ -3,26 +3,27 @@ def test_admin_creates_updates_and_removes_staff(app, fx, client, login):
+     admin = login("admin@hvh.test")
+     r = admin.post(base, json={"email": "new@hvh.test", "firstName": "Nora", "lastName": "New",
+                                "password": "Password123!", "role": "dept_staff",
+                                "departmentId": fx.dept_housekeeping.id})
+     assert r.status_code == 201
+     u = r.get_json()
+     assert u["role"] == "dept_staff" and u["departmentId"] == fx.dept_housekeeping.id
+     assert login("new@hvh.test").get("/api/auth/me").status_code == 200
+     role_change = admin.patch(f"{base}/{u['id']}", json={"role": "supervisor"})
+     assert role_change.get_json()["role"] == "supervisor"
+-    disable = admin.patch(f"{base}/{u['id']}", json={"status": "disabled"})
+-    assert disable.get_json()["status"] == "disabled"
++    # Revoking access to THIS property is deleting the membership; disabling the global account
++    # is not this endpoint's business (see test_property_admin_cannot_take_over_an_account).
++    assert admin.delete(f"{base}/{u['id']}").status_code == 204
+     relogin = client.post("/api/auth/login",
+                           json={"email": "new@hvh.test", "password": "Password123!"})
+-    assert relogin.status_code == 401
+-    assert admin.delete(f"{base}/{u['id']}").status_code == 204
++    assert relogin.status_code == 200
++    assert relogin.get_json()["memberships"] == []
+     assert "new@hvh.test" not in {x["email"] for x in admin.get(base).get_json()}
+ 
+ 
+ def test_existing_account_gets_membership_not_duplicate(app, fx, login):
+     base = f"/api/p/{fx.property_b.id}/users"
+     admin_b = login("admin@lsi.test")
+     r = admin_b.post(base, json={"email": "agent@hvh.test", "firstName": "Ava", "lastName": "Agent",
+                                  "role": "agent"})
+     assert r.status_code == 201
+     memberships = login("agent@hvh.test").get("/api/auth/me").get_json()["memberships"]
+@@ -130,10 +131,88 @@ def test_create_staff_survives_concurrent_account_insert_race(app, fx, database,
+         monkeypatch.setattr(db, "scalar", flaky_scalar)
+ 
+         data = CreateStaffRequest(email=email, first_name="Ignored", last_name="Ignored",
+                                   password="Password123!", role=Role.agent)
+         out = users_domain.create_staff(db, fx.property_a.id, fx.admin_a.id, data)
+         dupes = db.scalars(select(UserAccount).where(UserAccount.email == email)).all()
+ 
+     assert calls["n"] >= 2, "the except IntegrityError branch never ran"
+     assert out.id == winner_id
+     assert len(dupes) == 1
++
++
++def test_property_admin_cannot_take_over_an_account(app, fx, client, login):
++    """The cross-tenant escalation axis, which the "request Property B's URL, expect 403" shape of
++    tests/test_isolation.py structurally cannot reach: every request below is to Property A's own
++    URL, authorised by a real membership at Property A.
++
++    `UserAccount` is global, and `create_staff` deliberately attaches an *existing* account to
++    your property by email (an intended feature — see
++    test_existing_account_gets_membership_not_duplicate). If the property-scoped PATCH could also
++    write global account columns, an admin at A could add a stranger's account to A, reset its
++    password, and then sign in as them at every *other* property that account belongs to. Three
++    requests, none of them to a Property B URL.
++    """
++    base = f"/api/p/{fx.property_a.id}/users"
++    admin = login("admin@hvh.test")  # admin at A only
++
++    # Step 1 stands: attaching the existing regional account (a manager at B) to A is allowed.
++    added = admin.post(base, json={"email": "regional@group.test", "firstName": "Riley",
++                                   "lastName": "Regional", "role": "agent"})
++    assert added.status_code == 201
++    victim_id = added.get_json()["id"]
++
++    # Step 2 must not: password and status are global UserAccount columns.
++    pwned = admin.patch(f"{base}/{victim_id}", json={"password": "Pwned123!"})
++    assert pwned.status_code == 400, "a property-scoped PATCH reset a global password"
++    assert pwned.get_json()["error"]["code"] == "VALIDATION_FAILED"
++    disabled = admin.patch(f"{base}/{victim_id}", json={"status": "disabled"})
++    assert disabled.status_code == 400, "a property-scoped PATCH disabled a global account"
++
++    # Step 3 therefore cannot happen: the attacker's password does not work...
++    assert client.post("/api/auth/login", json={"email": "regional@group.test",
++                                                "password": "Pwned123!"}).status_code == 401
++    # ...and the victim still has their own account and their Property B access.
++    me = login("regional@group.test").get("/api/auth/me").get_json()
++    assert {m["propertyCode"] for m in me["memberships"]} == {"HVH", "LSI"}
++
++    # The membership fields the endpoint does own still work, and are all it can reach.
++    assert admin.patch(f"{base}/{victim_id}",
++                       json={"role": "supervisor"}).get_json()["role"] == "supervisor"
++
++
++def test_staff_patch_rejects_every_global_account_field(app, fx, login):
++    admin = login("admin@hvh.test")
++    base = f"/api/p/{fx.property_a.id}/users/{fx.agent_a.id}"
++    for field, value in (("password", "Pwned123!"), ("status", "disabled"),
++                         ("firstName", "Mallory"), ("lastName", "Malory")):
++        r = admin.patch(base, json={field: value})
++        assert r.status_code == 400, f"{field} is still writable through a property-scoped URL"
++
++
++def test_last_admin_cannot_be_demoted_or_removed(app, fx, login):
++    """A property must keep someone who can `manage_admin`, or it is locked out of its own
++    administration with no in-app remedy."""
++    base = f"/api/p/{fx.property_b.id}/users"
++    admin_b = login("admin@lsi.test")  # the only manage_admin membership at B
++    demote = admin_b.patch(f"{base}/{fx.admin_b.id}", json={"role": "manager"})
++    assert demote.status_code == 409 and demote.get_json()["error"]["code"] == "CONFLICT"
++    assert admin_b.delete(f"{base}/{fx.admin_b.id}").status_code == 409
++
++    # With a second admin in place, both are allowed again.
++    assert admin_b.post(base, json={"email": "admin2@lsi.test", "firstName": "Bo",
++                                    "lastName": "Second", "password": "Password123!",
++                                    "role": "admin"}).status_code == 201
++    assert admin_b.delete(f"{base}/{fx.admin_b.id}").status_code == 204
++
++
++def test_last_admin_guard_counts_corporate_and_allows_admin_to_admin_moves(app, fx, login):
++    """Property A has an admin and a corporate member, both of which hold `manage_admin`; the
++    guard must count both, and must not block a change that keeps the capability."""
++    base = f"/api/p/{fx.property_a.id}/users"
++    admin = login("admin@hvh.test")
++    assert admin.patch(f"{base}/{fx.admin_a.id}",
++                       json={"role": "corporate"}).status_code == 200
++    # corporate_a is now the other manage_admin holder; removing it is still allowed.
++    assert admin.delete(f"{base}/{fx.corporate_a.id}").status_code == 204
++    # ...but the last one standing is not.
++    assert admin.delete(f"{base}/{fx.admin_a.id}").status_code == 409
+diff --git a/server/tests/test_work_orders.py b/server/tests/test_work_orders.py
+index 602ab8d..9a14839 100644
+--- a/server/tests/test_work_orders.py
++++ b/server/tests/test_work_orders.py
+@@ -2,20 +2,21 @@ import pytest
+ from sqlalchemy import select
+ 
+ from app import clock
+ from app.domain import draft_prompts, work_orders
+ from app.errors import TransitionError, ValidationFailed
+ from app.models import Conversation, DraftPrompt, Message, Notification, WorkOrderEvent
+ from app.schemas.enums import (
+     Direction,
+     DraftPromptStatus,
+     Priority,
++    Role,
+     WorkOrderEventType,
+     WorkOrderStatus,
+     WorkOrderType,
+ )
+ from app.schemas.work_orders import CreateWorkOrder
+ from tests.factories import inbound, make_conversation, make_message
+ 
+ 
+ def _cid(database, guest_id):
+     with database.session() as db:
+@@ -240,21 +241,22 @@ def test_detail_renders_event_timeline(app, fx, client, database):
+     with database.session() as db:
+         wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
+             title="AC not cooling", type=WorkOrderType.maintenance, location_ref="412",
+             department_id=fx.dept_engineering.id, source_conversation_id=cid))
+         wo_id = wo.id
+     clock.advance(minutes=1)
+     with database.session() as db:
+         work_orders.transition(db, fx.property_a.id, wo_id, fx.engineer_a.id,
+                                WorkOrderStatus.in_progress, comment="On it")
+     with database.session() as db:
+-        d = work_orders.detail(db, fx.property_a.id, wo_id)
++        d = work_orders.detail(db, fx.property_a.id, wo_id, viewer_role=Role.agent,
++                               viewer_user_id=fx.agent_a.id, viewer_department_id=None)
+         assert d.id == wo_id and d.guest_name == "Sarah Chen" and d.room_number == "412"
+         assert [e.type.value for e in d.events] == ["created", "status_changed"]
+         assert d.events[1].comment == "On it" and d.events[1].user_name == "Eli Engineer"
+ 
+ 
+ def test_invalid_transition_is_409_and_audited(app, fx, database):
+     with database.session() as db:
+         wo = work_orders.create(db, fx.property_a.id, fx.supervisor_a.id, CreateWorkOrder(
+             title="x", type=WorkOrderType.other, location_ref="lobby"))
+         with pytest.raises(TransitionError):
+diff --git a/server/tests/test_work_orders_api.py b/server/tests/test_work_orders_api.py
+index 2652f1c..a1b2ffd 100644
+--- a/server/tests/test_work_orders_api.py
++++ b/server/tests/test_work_orders_api.py
+@@ -28,22 +28,26 @@ def test_prefill_create_transition_and_detail_via_api(app, fx, client, database,
+     in_progress = eng.patch(f"{base}/{wo['id']}", json={"status": "in_progress"})
+     assert in_progress.get_json()["status"] == "in_progress"
+     bad = eng.patch(f"{base}/{wo['id']}", json={"status": "verified"})
+     assert bad.status_code == 409 and bad.get_json()["error"]["code"] == "INVALID_TRANSITION"
+     done = eng.patch(f"{base}/{wo['id']}",
+                      json={"status": "complete", "comment": "Cleared drain line"})
+     assert done.status_code == 200
+     d = eng.get(f"{base}/{wo['id']}").get_json()
+     assert [e["type"] for e in d["events"]] == ["created", "assigned", "status_changed",
+                                                 "status_changed"]
+-    assert d["events"][-1]["comment"] == "Cleared drain line" and d["guestName"] == "Sarah Chen"
++    assert d["events"][-1]["comment"] == "Cleared drain line"
+     assert d["events"][1]["userName"] == "Eli Engineer"
++    # The engineer is dept_staff and this conversation is assigned to nobody, so the conversation
++    # routes 403 them; the work order must not hand the same guest identity back instead.
++    assert d["guestName"] is None
++    assert agent.get(f"{base}/{wo['id']}").get_json()["guestName"] == "Sarah Chen"
+ 
+ 
+ def test_close_requires_capability_but_create_does_not(app, fx, client, database, login):
+     base = f"/api/p/{fx.property_a.id}/work-orders"
+     agent = login("agent@hvh.test")
+     wo = agent.post(base,
+                     json={"title": "Lamp", "type": "maintenance", "locationRef": "330"}).get_json()
+     agent.patch(f"{base}/{wo['id']}", json={"status": "in_progress"})
+     assert agent.patch(f"{base}/{wo['id']}", json={"status": "complete"}).status_code == 403
+     sup = login("supervisor@hvh.test")
+diff --git a/web/src/api/schema.json b/web/src/api/schema.json
+index fa18d5e..7f4cf52 100644
+--- a/web/src/api/schema.json
++++ b/web/src/api/schema.json
+@@ -2500,92 +2500,44 @@
+       "enum": [
+         "unknown",
+         "opted_in",
+         "opted_out"
+       ],
+       "title": "SmsConsentStatus",
+       "type": "string"
+     },
+     "StaffPatch": {
+       "additionalProperties": false,
++      "description": "Per-property membership fields only.\n\n`UserAccount` is global and one account may hold memberships at several properties, so an\nendpoint authorised by a membership at the property in the URL must never write global\ncolumns (password, status, name): an admin at one property could otherwise reset the password\nof an account that is also an admin somewhere else and inherit its access everywhere. Revoking\na person's access to *this* property is DELETE /users/<id> (the membership), not a global\naccount disable.",
+       "properties": {
+         "departmentId": {
+           "anyOf": [
+             {
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+           "default": null,
+           "title": "Departmentid"
+         },
+-        "firstName": {
+-          "anyOf": [
+-            {
+-              "type": "string"
+-            },
+-            {
+-              "type": "null"
+-            }
+-          ],
+-          "default": null,
+-          "title": "Firstname"
+-        },
+-        "lastName": {
+-          "anyOf": [
+-            {
+-              "type": "string"
+-            },
+-            {
+-              "type": "null"
+-            }
+-          ],
+-          "default": null,
+-          "title": "Lastname"
+-        },
+-        "password": {
+-          "anyOf": [
+-            {
+-              "maxLength": 200,
+-              "minLength": 8,
+-              "type": "string"
+-            },
+-            {
+-              "type": "null"
+-            }
+-          ],
+-          "default": null,
+-          "title": "Password"
+-        },
+         "role": {
+           "anyOf": [
+             {
+               "$ref": "#/$defs/Role"
+             },
+             {
+               "type": "null"
+             }
+           ],
+           "default": null
+-        },
+-        "status": {
+-          "anyOf": [
+-            {
+-              "$ref": "#/$defs/UserStatus"
+-            },
+-            {
+-              "type": "null"
+-            }
+-          ],
+-          "default": null
+         }
+       },
+       "title": "StaffPatch",
+       "type": "object"
+     },
+     "StaffUserOut": {
+       "additionalProperties": false,
+       "properties": {
+         "avatarUrl": {
+           "anyOf": [
+@@ -2784,28 +2736,20 @@
+       "required": [
+         "id",
+         "email",
+         "firstName",
+         "lastName",
+         "locale"
+       ],
+       "title": "UserOut",
+       "type": "object"
+     },
+-    "UserStatus": {
+-      "enum": [
+-        "active",
+-        "disabled"
+-      ],
+-      "title": "UserStatus",
+-      "type": "string"
+-    },
+     "WorkOrderBrief": {
+       "additionalProperties": false,
+       "properties": {
+         "assignedUserId": {
+           "anyOf": [
+             {
+               "type": "string"
+             },
+             {
+               "type": "null"

@@ -1,0 +1,209 @@
+# Review package: f77e72e..ad89f5d
+
+## Commits
+ad89f5d fix(web): add sign-out control and fix unreadable light-theme done chip
+
+## Files changed
+ web/src/components/AppShell.test.tsx | 55 +++++++++++++++++++++++++++++++++++-
+ web/src/components/AppShell.tsx      | 11 +++++++-
+ web/src/components/NavIcon.tsx       |  3 +-
+ web/src/index.css                    |  2 +-
+ 4 files changed, 67 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/web/src/components/AppShell.test.tsx b/web/src/components/AppShell.test.tsx
+index 95bc380..8619188 100644
+--- a/web/src/components/AppShell.test.tsx
++++ b/web/src/components/AppShell.test.tsx
+@@ -1,15 +1,16 @@
+ import { screen } from '@testing-library/react'
+ import userEvent from '@testing-library/user-event'
+-import { useLocation } from 'react-router-dom'
++import { Route, Routes, useLocation } from 'react-router-dom'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import type { Role } from '../api/types'
++import { RequireAuth } from '../auth/RequireAuth'
+ import { SessionProvider } from '../auth/SessionContext'
+ import { ThemeProvider } from '../theme/ThemeContext'
+ import { renderWithProviders, sessionFixture } from '../test/harness'
+ import { AppShell } from './AppShell'
+ 
+ // Reports where the router actually landed after a property switch — the thing at risk
+ // is the navigation target, not just that setPropertyId was called.
+ function LocationDisplay() {
+   const location = useLocation()
+   return <div data-testid="location">{location.pathname}</div>
+@@ -138,11 +139,63 @@ describe('AppShell', () => {
+ 
+   it('switching to a property where the role differs lands on that role landing screen', async () => {
+     // Agent at Harbourview, admin at Lakeside — the switch must route by the *target*
+     // membership's role, not the current session's role.
+     mountWithLocation({ role: 'agent', withSecondProperty: true, secondRole: 'admin' })
+     await userEvent.click(await screen.findByRole('button', { name: /switch property/i }))
+     await userEvent.click(screen.getByRole('menuitem', { name: /Lakeside Inn/ }))
+     expect(await screen.findByTestId('location')).toHaveTextContent('/app/analytics')
+     expect(screen.getByTestId('location')).not.toHaveTextContent('/app/inbox')
+   })
++
++  it('signs out through RequireAuth and lands on /login, without looping /api/auth/me', async () => {
++    let logoutCalls = 0
++    let meCalls = 0
++    vi.stubGlobal(
++      'fetch',
++      vi.fn(async (input: RequestInfo | URL) => {
++        const url = String(input)
++        if (url.includes('/api/auth/logout')) {
++          logoutCalls += 1
++          return new Response(null, { status: 204 })
++        }
++        if (url.includes('/api/auth/me')) {
++          meCalls += 1
++          return new Response(
++            JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Signed out' } }),
++            { status: 401, headers: { 'Content-Type': 'application/json' } },
++          )
++        }
++        return new Response(null, { status: 204 })
++      }),
++    )
++
++    renderWithProviders(
++      <Routes>
++        <Route path="/app" element={<RequireAuth />}>
++          <Route
++            index
++            element={
++              <ThemeProvider>
++                <AppShell>
++                  <p>screen body</p>
++                </AppShell>
++              </ThemeProvider>
++            }
++          />
++        </Route>
++        <Route path="/login" element={<div>Login Screen</div>} />
++      </Routes>,
++      { route: '/app', session: sessionFixture({ role: 'agent' }) },
++    )
++
++    await userEvent.click(await screen.findByRole('button', { name: /sign out/i }))
++
++    expect(await screen.findByText('Login Screen')).toBeInTheDocument()
++    expect(logoutCalls).toBe(1)
++    // A refetch loop would keep calling /api/auth/me indefinitely; RequireAuth's in-flight
++    // guard should coalesce the post-logout refetch(es) into at most one extra call.
++    // Clearing the query cache re-triggers the session query once (data is gone, so the
++    // active observer refetches); that single 401 redirects without looping.
++    expect(meCalls).toBe(1)
++  })
+ })
+diff --git a/web/src/components/AppShell.tsx b/web/src/components/AppShell.tsx
+index f832dde..c80e127 100644
+--- a/web/src/components/AppShell.tsx
++++ b/web/src/components/AppShell.tsx
+@@ -30,21 +30,21 @@ const NAV: NavItem[] = [
+   { label: 'Admin', to: '/app/admin/users', icon: 'admin', needs: ['manage_admin'] },
+ ]
+ 
+ export function AppShell({
+   children,
+   unreadCount,
+ }: {
+   children: ReactNode
+   unreadCount?: number
+ }) {
+-  const { user, membership, memberships, role, can, setPropertyId } = useSession()
++  const { user, membership, memberships, role, can, setPropertyId, logout } = useSession()
+   const { resolved, setTheme } = useTheme()
+   const navigate = useNavigate()
+ 
+   const visible = NAV.filter((item) => item.needs.length === 0 || item.needs.some(can))
+ 
+   return (
+     <div className="flex h-full bg-bg">
+       <nav className="flex w-[184px] flex-none flex-col border-r border-border bg-nav p-3">
+         <div className="mb-5 flex items-center gap-2.5 px-1">
+           <span className="grid h-8 w-8 flex-none place-items-center rounded-md bg-accent font-mono text-xs font-bold text-accentText">
+@@ -108,20 +108,29 @@ export function AppShell({
+ 
+           <button
+             type="button"
+             onClick={() => setTheme(resolved === 'dark' ? 'light' : 'dark')}
+             className="flex h-11 items-center gap-3 rounded px-3.5 text-sm font-semibold text-text3 hover:text-text"
+           >
+             <NavIcon name="theme" />
+             Theme
+           </button>
+ 
++          <button
++            type="button"
++            onClick={() => logout()}
++            className="flex h-11 items-center gap-3 rounded px-3.5 text-sm font-semibold text-text3 hover:text-text"
++          >
++            <NavIcon name="signout" />
++            Sign out
++          </button>
++
+           <div className="flex items-center gap-2.5 px-1 py-2">
+             <Avatar name={`${user.firstName} ${user.lastName}`} tone="accent" />
+             <div className="min-w-0">
+               <p className="truncate text-[13px] font-semibold">{user.firstName}</p>
+               <p className="truncate text-[11px] text-text3">{ROLE_LABELS[role] ?? role}</p>
+             </div>
+           </div>
+         </div>
+       </nav>
+ 
+diff --git a/web/src/components/NavIcon.tsx b/web/src/components/NavIcon.tsx
+index 434d947..0d61f86 100644
+--- a/web/src/components/NavIcon.tsx
++++ b/web/src/components/NavIcon.tsx
+@@ -1,19 +1,20 @@
+-export type IconName = 'inbox' | 'board' | 'analytics' | 'alerts' | 'admin' | 'theme'
++export type IconName = 'inbox' | 'board' | 'analytics' | 'alerts' | 'admin' | 'theme' | 'signout'
+ 
+ const PATHS: Record<IconName, string> = {
+   inbox: 'M3 12h5l2 3h4l2-3h5M3 12l2.5-7h13L21 12v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7Z',
+   board: 'M4 4h5v16H4zM10 4h5v11h-5zM16 4h4v7h-4z',
+   analytics: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+   alerts: 'M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6M10.5 20a2 2 0 0 0 3 0',
+   admin: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7.5 7.5 0 0 0-2-1.2L14.6 3H9.4L9 5.7a7.5 7.5 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5a7.4 7.4 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-1a7.5 7.5 0 0 0 2 1.2l.4 2.7h5.2l.4-2.7a7.5 7.5 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.06-.4.1-.8.1-1.2Z',
+   theme: 'M12 3v2M12 19v2M5 12H3M21 12h-2M6.3 6.3 4.9 4.9M19.1 19.1l-1.4-1.4M6.3 17.7 4.9 19.1M19.1 4.9l-1.4 1.4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
++  signout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
+ }
+ 
+ export function NavIcon({ name }: { name: IconName }) {
+   return (
+     <svg
+       aria-hidden="true"
+       viewBox="0 0 24 24"
+       className="h-[18px] w-[18px] flex-none"
+       fill="none"
+       stroke="currentColor"
+diff --git a/web/src/index.css b/web/src/index.css
+index 2d7aebb..c62cdad 100644
+--- a/web/src/index.css
++++ b/web/src/index.css
+@@ -28,21 +28,21 @@
+   --outBg: #1e3a5f; --outText: #ffffff;
+   --autoBg: #eef2f7; --autoText: #3c4757; --autoBorder: #d2d9e4;
+   --noteBg: #fff8e1; --noteBorder: #e6c96a; --noteText: #5c4300; --noteIcon: #9a6b00;
+   --okBg: #e3f7ea; --okText: #15803d; --okBorder: #a7e3bd; --okBtn: #15803d;
+   --okBtnText: #ffffff; --okBanner: #064e3b;
+   --warnBg: #fff1cf; --warnText: #8a5a10;
+   --dangerBg: #fde4e4; --dangerText: #b91c1c; --danger: #dc2626;
+   --presenceBg: #ede9fe; --presenceText: #5b21b6; --presenceAv: #7c3aed;
+   --avMuted: #667286; --avText: #ffffff;
+   --tagBg: #eef2f7; --tagText: #667286;
+-  --timerDoneBg: #eef2f7; --timerDoneText: #97a1b0;
++  --timerDoneBg: #eef2f7; --timerDoneText: #606c7f;
+ }
+ 
+ @layer base {
+   html, body, #root { height: 100%; }
+   body {
+     margin: 0;
+     background: var(--bg);
+     color: var(--text);
+     font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+     -webkit-font-smoothing: antialiased;

@@ -1,0 +1,1217 @@
+# Review package: 336d9ad..e6fbfb8
+
+## Commits
+e6fbfb8 build(web): add the missing ESLint config so npm run lint works
+46ff413 fix: the seven parked must-fix items, plus M7
+12dec16 feat(web): read-only Departments admin screen, per ruling D51
+ef64265 fix(web): give the simulator phone fixed iOS chrome, per ruling D52
+6be8006 fix(web): drop the stored active property on sign-out
+9a0564d build(web): type-check the e2e specs and stop emitting .d.ts into the tree
+cb4c2ff fix(server): stop recurring jobs multiplying when two workers race
+0f53d2c fix(web): send the presence clear frame when leaving the inbox
+
+## Files changed
+ server/app/queue/jobs.py                         | 38 ++++++++++-----
+ server/tests/test_auth_prefs.py                  | 16 ++++++-
+ server/tests/test_queue.py                       | 59 ++++++++++++++++++++++-
+ web/.eslintrc.cjs                                | 15 ++++++
+ web/.gitignore                                   |  1 +
+ web/src/api/client.ts                            |  2 +-
+ web/src/api/hooks/auth.ts                        |  8 ++++
+ web/src/api/ws.ts                                |  5 +-
+ web/src/auth/RequireAuth.test.tsx                |  4 +-
+ web/src/auth/SessionContext.test.tsx             | 32 ++++++++++++-
+ web/src/features/admin/AdminPage.test.tsx        | 40 ++++++++++++++--
+ web/src/features/admin/AdminPage.tsx             |  5 +-
+ web/src/features/admin/DepartmentsAdmin.tsx      | 60 ++++++++++++++++++++++++
+ web/src/features/analytics/AnalyticsPage.tsx     |  2 +
+ web/src/features/board/BoardPage.test.tsx        | 13 +++++
+ web/src/features/board/BoardPage.tsx             | 10 +++-
+ web/src/features/inbox/ConversationHeader.tsx    |  3 +-
+ web/src/features/inbox/ConversationView.test.tsx |  2 +
+ web/src/features/inbox/GuestPanel.tsx            |  3 +-
+ web/src/features/login/LoginPage.test.tsx        | 16 +++++++
+ web/src/features/sim/PhoneFrame.tsx              | 45 ++++++++++++++----
+ web/src/lib/ordinal.test.ts                      | 28 +++++++++++
+ web/src/lib/ordinal.ts                           | 19 ++++++++
+ web/tests/e2e/presence.spec.ts                   | 10 ++--
+ web/tsconfig.e2e.json                            | 15 ++++++
+ web/tsconfig.json                                |  2 +-
+ web/tsconfig.node.json                           |  1 +
+ 27 files changed, 413 insertions(+), 41 deletions(-)
+
+## Diff
+diff --git a/server/app/queue/jobs.py b/server/app/queue/jobs.py
+index f8333a3..dffa6e8 100644
+--- a/server/app/queue/jobs.py
++++ b/server/app/queue/jobs.py
+@@ -1,45 +1,53 @@
+ from __future__ import annotations
+ 
+ from datetime import datetime, timedelta
+ 
+-from sqlalchemy import select
++from sqlalchemy import select, update
+ from sqlalchemy.orm import Session
+ 
+ from app import clock
+ from app.models import Job
+ from app.schemas.enums import JobStatus
+ 
+ RECURRING: dict[str, int] = {"sla.sweep": 30, "snooze.wake": 60}
+ STALE_SECONDS = 60
+ 
+ 
+ def enqueue(db: Session, type: str, payload: dict | None = None, run_at: datetime | None = None,
+             max_attempts: int = 5) -> Job:
+     job = Job(type=type, payload=payload or {}, run_at=run_at or clock.now(),
+               max_attempts=max_attempts, status=JobStatus.queued)
+     db.add(job)
+     db.flush()
+     return job
+ 
+ 
+ def claim_due(db: Session, limit: int = 20) -> list[Job]:
++    """Claim due jobs with a compare-and-swap, not a row lock.
++
++    SQLite compiles `.with_for_update(skip_locked=True)` away to a bare SELECT — no clause,
++    no warning — so the lock this used to rely on never existed and two workers claimed the
++    same row. The `status = 'queued'` predicate on the UPDATE is what `skip_locked` was meant
++    to buy: a row another worker already took simply does not match, and is not claimed.
++    Correct on PostgreSQL too.
++    """
+     now = clock.now()
+-    due = db.scalars(
+-        select(Job).where(Job.status == JobStatus.queued, Job.run_at <= now)
+-        .order_by(Job.run_at).limit(limit).with_for_update(skip_locked=True)
+-    ).all()
+-    for job in due:
+-        job.status = JobStatus.running
+-        job.locked_at = now
++    ids = db.scalars(select(Job.id)
++                     .where(Job.status == JobStatus.queued, Job.run_at <= now)
++                     .order_by(Job.run_at).limit(limit)).all()
++    claimed = [jid for jid in ids
++               if db.execute(update(Job)
++                             .where(Job.id == jid, Job.status == JobStatus.queued)
++                             .values(status=JobStatus.running, locked_at=now)).rowcount]
+     db.flush()
+-    return due
++    return list(db.scalars(select(Job).where(Job.id.in_(claimed))).all()) if claimed else []
+ 
+ 
+ def complete(db: Session, job: Job) -> None:
+     job.status = JobStatus.done
+     job.finished_at = clock.now()
+     job.locked_at = None
+ 
+ 
+ def fail(db: Session, job: Job, exc: BaseException, *, retry: bool = True) -> None:
+     job.attempts += 1
+@@ -66,13 +74,19 @@ def reclaim_stale(db: Session, older_than_seconds: int = STALE_SECONDS) -> int:
+ def ensure_recurring(db: Session, type: str, payload: dict | None = None) -> Job | None:
+     exists = db.scalar(select(Job.id).where(Job.type == type,
+                                             Job.status.in_([JobStatus.queued, JobStatus.running])))
+     if exists:
+         return None
+     return enqueue(db, type, payload or {}, max_attempts=1)
+ 
+ 
+ def schedule_next_recurrence(db: Session, job: Job) -> None:
+     interval = RECURRING.get(job.type)
+-    if interval:
+-        enqueue(db, job.type, job.payload, run_at=clock.now() + timedelta(seconds=interval),
+-                max_attempts=1)
++    if not interval:
++        return
++    # The same existence guard `ensure_recurring` has. Without it, two workers that both
++    # completed one sweep each enqueue a successor and the chain doubles every interval.
++    if db.scalar(select(Job.id).where(Job.type == job.type,
++                                      Job.status.in_([JobStatus.queued, JobStatus.running]))):
++        return
++    enqueue(db, job.type, job.payload, run_at=clock.now() + timedelta(seconds=interval),
++            max_attempts=1)
+diff --git a/server/tests/test_auth_prefs.py b/server/tests/test_auth_prefs.py
+index 61a3e10..67cebad 100644
+--- a/server/tests/test_auth_prefs.py
++++ b/server/tests/test_auth_prefs.py
+@@ -1,10 +1,11 @@
++from app.models import UserAccount
+ from tests.fixtures import PASSWORD
+ 
+ 
+ def test_me_exposes_notification_prefs(client, fx, login):
+     c = login(fx.agent_a.email)
+     body = c.get("/api/auth/me").get_json()
+     assert body["user"]["notificationPrefs"] == {}
+ 
+ 
+ def test_login_exposes_notification_prefs(client, fx):
+@@ -23,26 +24,37 @@ def test_patch_prefs_persists_the_theme_and_returns_the_session(fx, login):
+     assert c.get("/api/auth/me").get_json()["user"]["notificationPrefs"]["theme"] == "light"
+ 
+ 
+ def test_patch_prefs_survives_a_new_session(fx, login):
+     """The value must be on the row, not in the session — this is the whole point of R1."""
+     login(fx.agent_a.email).patch("/api/auth/prefs", json={"theme": "light"})
+     fresh = login(fx.agent_a.email)
+     assert fresh.get("/api/auth/me").get_json()["user"]["notificationPrefs"]["theme"] == "light"
+ 
+ 
+-def test_patch_prefs_merges_rather_than_replacing(fx, login):
++def test_patch_prefs_merges_rather_than_replacing(fx, database, login):
++    """A PATCH of one key must leave the rest of the blob alone.
++
++    Two PATCHes of `theme` cannot show this: replacing the whole dict each time still ends
++    with the last theme. The unrelated key seeded directly below is the only thing that can
++    tell a merge from a replace, and Phase 1 has no second writable pref to set over HTTP.
++    """
++    with database.session() as db:
++        user = db.get(UserAccount, fx.agent_a.id)
++        user.notification_prefs = {"digestHour": 7}
++
+     c = login(fx.agent_a.email)
+-    c.patch("/api/auth/prefs", json={"theme": "light"})
+     c.patch("/api/auth/prefs", json={"theme": "dark"})
++
+     prefs = c.get("/api/auth/me").get_json()["user"]["notificationPrefs"]
+     assert prefs["theme"] == "dark"
++    assert prefs["digestHour"] == 7
+ 
+ 
+ def test_patch_prefs_rejects_an_unknown_theme(fx, login):
+     c = login(fx.agent_a.email)
+     res = c.patch("/api/auth/prefs", json={"theme": "sepia"})
+     assert res.status_code == 400
+     assert res.get_json()["error"]["code"] == "VALIDATION_FAILED"
+ 
+ 
+ def test_patch_prefs_rejects_unknown_keys(fx, login):
+diff --git a/server/tests/test_queue.py b/server/tests/test_queue.py
+index 4ea8578..6119221 100644
+--- a/server/tests/test_queue.py
++++ b/server/tests/test_queue.py
+@@ -1,14 +1,14 @@
+ import shutil
+ 
+ import pytest
+-from sqlalchemy import select
++from sqlalchemy import Select, event, select, update
+ 
+ from app import clock, create_app
+ from app.config import Config
+ from app.models import Job
+ from app.queue import jobs
+ from app.queue.handlers import HANDLERS, handler
+ from app.queue.worker import Worker
+ from app.schemas.enums import JobStatus
+ 
+ 
+@@ -149,10 +149,67 @@ def test_start_worker_guard_avoids_duplicate_start_under_reloader(
+         assert build_app(False, None, env="production") == [True]
+         # 2. dev, parent monitor process (no WERKZEUG_RUN_MAIN yet) -> must NOT start.
+         assert build_app(True, None) == []
+         # 3. dev, reloader child (WERKZEUG_RUN_MAIN=true) -> starts it.
+         assert build_app(True, "true") == [True]
+         # 4. a deployment that forgot FLASK_ENV but runs under gunicorn (no reloader) still
+         #    starts it: job delivery must not depend on the production flag.
+         assert build_app(False, None) == [True]
+     finally:
+         clock.reset()
++
++
++def test_claim_due_does_not_take_a_row_another_worker_claimed_mid_select(app, database):
++    """Two workers must never both claim one job.
++
++    SQLite silently drops `.with_for_update(skip_locked=True)` — it compiles to a bare
++    `SELECT job.id FROM job`, with no warning — so the claim has to be a compare-and-swap:
++    the UPDATE's own `status = 'queued'` predicate is what makes a contended row simply not
++    claimed. The listener below fires between claim_due's SELECT and its UPDATE, which is
++    exactly the window the real race lives in, so the contention is deterministic rather
++    than timing-dependent.
++    """
++    with database.session() as db:
++        job = jobs.enqueue(db, "test.ok", {})
++
++    stolen: list[str] = []
++
++    def steal(conn, clauseelement, multiparams, params, execution_options, result):
++        if stolen or not isinstance(clauseelement, Select):
++            return
++        stolen.append(job.id)
++        with database.session() as other:
++            other.execute(
++                update(Job).where(Job.id == job.id)
++                .values(status=JobStatus.running, locked_at=clock.now())
++            )
++
++    event.listen(database.engine, "after_execute", steal)
++    try:
++        with database.session() as db:
++            assert jobs.claim_due(db) == []
++    finally:
++        event.remove(database.engine, "after_execute", steal)
++
++    assert stolen == [job.id], "the contending claim never ran; the test proves nothing"
++
++
++def test_schedule_next_recurrence_leaves_exactly_one_successor(app, database):
++    """Called twice for the same type it must enqueue once.
++
++    worker.tick() calls this on every completed recurring job. Without the existence guard
++    two workers that both completed the same sweep each enqueue a successor, and the chain
++    doubles every interval — 1, 2, 4, 8 — which is how a 30-second sweep reached 2.7M rows.
++    """
++    jobs.RECURRING["test.ok"] = 30
++    try:
++        with database.session() as db:
++            job = jobs.enqueue(db, "test.ok", {})
++            jobs.complete(db, job)
++            jobs.schedule_next_recurrence(db, job)
++            jobs.schedule_next_recurrence(db, job)
++            pending = db.scalars(select(Job).where(Job.type == "test.ok",
++                                                   Job.status == JobStatus.queued)).all()
++            assert len(pending) == 1
++            assert (pending[0].run_at - clock.now()).total_seconds() == pytest.approx(30, abs=1)
++    finally:
++        jobs.RECURRING.pop("test.ok", None)
+diff --git a/web/.eslintrc.cjs b/web/.eslintrc.cjs
+new file mode 100644
+index 0000000..7fba2d3
+--- /dev/null
++++ b/web/.eslintrc.cjs
+@@ -0,0 +1,15 @@
++/* Minimal config so `npm run lint` actually runs: the recommended presets plus the
++   react-hooks rules. Nothing opinionated about style — Prettier is not in this project
++   and formatting is not what a linter is here for. */
++module.exports = {
++  root: true,
++  env: { browser: true, es2022: true },
++  parser: '@typescript-eslint/parser',
++  parserOptions: { ecmaVersion: 2022, sourceType: 'module', ecmaFeatures: { jsx: true } },
++  plugins: ['@typescript-eslint', 'react-hooks'],
++  extends: ['eslint:recommended', 'plugin:@typescript-eslint/recommended'],
++  rules: {
++    'react-hooks/rules-of-hooks': 'error',
++    'react-hooks/exhaustive-deps': 'warn',
++  },
++}
+diff --git a/web/.gitignore b/web/.gitignore
+index dc9d4a2..da508ff 100644
+--- a/web/.gitignore
++++ b/web/.gitignore
+@@ -1,8 +1,9 @@
+ node_modules/
+ dist/
+ playwright-report/
+ test-results/
+ .env
+ .env.local
+ *.tsbuildinfo
++.tsbuild/
+ /*.config.d.ts
+diff --git a/web/src/api/client.ts b/web/src/api/client.ts
+index 979bbca..0e50b44 100644
+--- a/web/src/api/client.ts
++++ b/web/src/api/client.ts
+@@ -9,21 +9,21 @@ export class ApiError extends Error {
+     super(message)
+     this.name = 'ApiError'
+     this.status = status
+     this.code = code
+     this.details = details
+   }
+ }
+ 
+ let unauthorizedHandler: (() => void) | null = null
+ 
+-/** One global hook, installed by SessionProvider, so an expired session lands on /login once. */
++/** One global hook, installed by RequireAuth, so an expired session lands on /login once. */
+ export function onUnauthorized(fn: (() => void) | null): void {
+   unauthorizedHandler = fn
+ }
+ 
+ export function propertyPath(propertyId: string, rest: string): string {
+   return `/api/p/${propertyId}/${rest}`
+ }
+ 
+ function errorFrom(status: number, body: unknown, fallback: string): ApiError {
+   const envelope = (body as { error?: { code?: string; message?: string; details?: unknown } })
+diff --git a/web/src/api/hooks/auth.ts b/web/src/api/hooks/auth.ts
+index 2e869ee..582811d 100644
+--- a/web/src/api/hooks/auth.ts
++++ b/web/src/api/hooks/auth.ts
+@@ -23,20 +23,28 @@ export function useLogin() {
+   })
+ }
+ 
+ export function useLogout() {
+   const client = useQueryClient()
+   return useMutation<void, ApiError, void>({
+     mutationFn: () => api<void>('/api/auth/logout', { method: 'POST' }),
+     // Clear unconditionally: a failed logout must not leave another user's cache on screen.
+     onSettled: () => {
+       client.clear()
++      try {
++        // The stored active property is this user's choice, not the machine's. On a shared
++        // front-desk terminal the next person to sign in would otherwise land on it if they
++        // happen to hold a membership there too.
++        localStorage.removeItem('activePropertyId')
++      } catch {
++        /* private mode / blocked storage: there was nothing stored to clear */
++      }
+     },
+   })
+ }
+ 
+ export function useSetPrefs() {
+   const client = useQueryClient()
+   return useMutation<SessionOut, ApiError, { theme: 'dark' | 'light' | 'system' }>({
+     mutationFn: (body) => api<SessionOut>('/api/auth/prefs', { method: 'PATCH', json: body }),
+     onSuccess: (session) => {
+       client.setQueryData(qk.session, session)
+diff --git a/web/src/api/ws.ts b/web/src/api/ws.ts
+index dd42203..48b87b3 100644
+--- a/web/src/api/ws.ts
++++ b/web/src/api/ws.ts
+@@ -121,21 +121,24 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
+ 
+   const send = useCallback((frame: unknown) => {
+     if (socket.current?.readyState === WebSocket.OPEN) {
+       socket.current.send(JSON.stringify(frame))
+     }
+   }, [])
+ 
+   const setPresence = useCallback(
+     (conversationId: string | null, state: 'viewing' | 'composing') => {
+       lastPresence.current = { conversationId, state }
+-      if (conversationId) send({ type: 'presence', conversationId, state })
++      // A null conversationId is the CLEAR, and it has to go on the wire like any other:
++      // the server pops the entry and broadcasts the previous conversation's new list.
++      // Guarding this on a truthy id left the entry alive until the socket died.
++      send({ type: 'presence', conversationId, state })
+     },
+     [send],
+   )
+ 
+   useEffect(() => {
+     let disposed = false
+     setPresenceMap({})
+     attempt.current = 0
+ 
+     function connect() {
+diff --git a/web/src/auth/RequireAuth.test.tsx b/web/src/auth/RequireAuth.test.tsx
+index 83ba91e..f8585fa 100644
+--- a/web/src/auth/RequireAuth.test.tsx
++++ b/web/src/auth/RequireAuth.test.tsx
+@@ -52,16 +52,18 @@ describe('RequireAuth — mid-session expiry', () => {
+       'fetch',
+       vi.fn(async (input: RequestInfo | URL) => {
+         const url = String(input)
+         if (url.includes('/api/auth/me')) meCalls += 1
+         return unauthorizedResponse()
+       }),
+     )
+ 
+     mount()
+ 
+-    expect(await screen.findByText('Login Screen')).toBeInTheDocument()
++    // Bounded on purpose: if the redirect never happens this must fail legibly rather than
++    // hang the run out to the suite-level timeout.
++    expect(await screen.findByText('Login Screen', undefined, { timeout: 2000 })).toBeInTheDocument()
+     // Two 401s fired close together must coalesce into a single refetch of /api/auth/me,
+     // not one per 401 — that's the loop the useRef guard in RequireAuth prevents.
+     expect(meCalls).toBe(1)
+   })
+ })
+diff --git a/web/src/auth/SessionContext.test.tsx b/web/src/auth/SessionContext.test.tsx
+index 5f7ff08..809c1e5 100644
+--- a/web/src/auth/SessionContext.test.tsx
++++ b/web/src/auth/SessionContext.test.tsx
+@@ -1,24 +1,26 @@
+ import { screen, waitFor } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import { renderWithProviders, sessionFixture } from '../test/harness'
+ import { SessionProvider, useSession } from './SessionContext'
+ 
+ function Probe() {
+-  const { user, role, propertyId, can, setPropertyId } = useSession()
++  const { user, role, propertyId, can, setPropertyId, logout } = useSession()
+   return (
+     <div>
+       <span data-testid="who">{user.firstName}</span>
+       <span data-testid="role">{role}</span>
+       <span data-testid="property">{propertyId}</span>
+       <span data-testid="can-archive">{String(can('archive'))}</span>
+       <button onClick={() => setPropertyId('prop-b')}>switch</button>
++      <button onClick={logout}>sign out</button>
+     </div>
+   )
+ }
+ 
+ describe('SessionProvider', () => {
+   beforeEach(() => {
+     localStorage.clear()
+   })
+   afterEach(() => {
+     vi.unstubAllGlobals()
+@@ -73,16 +75,44 @@ describe('SessionProvider', () => {
+     localStorage.setItem('activePropertyId', 'prop-b')
+     renderWithProviders(
+       <SessionProvider>
+         <Probe />
+       </SessionProvider>,
+       { session: sessionFixture({ role: 'agent', withSecondProperty: true, secondRole: 'admin' }) },
+     )
+     await waitFor(() => expect(screen.getByTestId('role')).toHaveTextContent('admin'))
+   })
+ 
++  it('clears the stored active property on sign-out so it cannot follow the next user', async () => {
++    localStorage.setItem('activePropertyId', 'prop-b')
++    vi.stubGlobal(
++      'fetch',
++      vi.fn(async (input: RequestInfo | URL) =>
++        String(input).includes('/api/auth/logout')
++          ? new Response(null, { status: 204 })
++          : new Response(
++              JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Signed out' } }),
++              { status: 401, headers: { 'Content-Type': 'application/json' } },
++            ),
++      ),
++    )
++    renderWithProviders(
++      <SessionProvider>
++        <Probe />
++      </SessionProvider>,
++      { session: sessionFixture({ role: 'agent', withSecondProperty: true }) },
++    )
++    await waitFor(() => expect(screen.getByTestId('property')).toHaveTextContent('prop-b'))
++
++    await userEvent.click(screen.getByRole('button', { name: 'sign out' }))
++
++    // A shared front-desk machine: user B must start on B's own first membership, not on
++    // whichever property A last looked at.
++    await waitFor(() => expect(localStorage.getItem('activePropertyId')).toBeNull())
++  })
++
+   it('throws when used outside the provider, so a missing provider fails loudly', () => {
+     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+     expect(() => renderWithProviders(<Probe />)).toThrow(/SessionProvider/)
+     quiet.mockRestore()
+   })
+ })
+diff --git a/web/src/features/admin/AdminPage.test.tsx b/web/src/features/admin/AdminPage.test.tsx
+index af91699..dc033f8 100644
+--- a/web/src/features/admin/AdminPage.test.tsx
++++ b/web/src/features/admin/AdminPage.test.tsx
+@@ -19,31 +19,41 @@ function mount(route = '/app/admin/quick-replies') {
+ describe('AdminPage', () => {
+   beforeEach(() => {
+     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+       new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+     ))
+   })
+   afterEach(() => {
+     vi.unstubAllGlobals()
+   })
+ 
+-  it('lists the four live sections as links', async () => {
++  it('lists the five live sections as links, in the order the mockup uses', async () => {
+     mount()
+-    for (const name of ['Users & roles', 'Quick replies', 'Digital assets', 'Resolution categories']) {
++    const labels = [
++      'Users & roles',
++      'Departments',
++      'Quick replies',
++      'Digital assets',
++      'Resolution categories',
++    ]
++    for (const name of labels) {
+       expect(await screen.findByRole('link', { name })).toBeInTheDocument()
+     }
++    // Admin.dc.html puts Departments second, directly under Users & roles.
++    const rendered = screen.getAllByRole('link').map((link) => link.textContent)
++    expect(rendered.slice(0, labels.length)).toEqual(labels)
+   })
+ 
+   it('lists the Phase 2 sections as disabled, not as links', async () => {
+     mount()
+     await screen.findByRole('link', { name: 'Quick replies' })
+-    for (const name of ['Departments', 'Property settings', 'Automations', 'Blocked numbers', 'Integrations']) {
++    for (const name of ['Property settings', 'Automations', 'Blocked numbers', 'Integrations']) {
+       expect(screen.getByText(name)).toBeInTheDocument()
+       expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
+     }
+     expect(screen.getByText(/arrive in Phase 2/i)).toBeInTheDocument()
+   })
+ 
+   it('marks the current section', async () => {
+     mount('/app/admin/users')
+     expect(await screen.findByRole('link', { name: 'Users & roles' })).toHaveAttribute(
+       'aria-current',
+@@ -51,11 +61,35 @@ describe('AdminPage', () => {
+     )
+   })
+ 
+   it('redirects a bare /app/admin to users', async () => {
+     mount('/app/admin')
+     expect(await screen.findByRole('link', { name: 'Users & roles' })).toHaveAttribute(
+       'aria-current',
+       'page',
+     )
+   })
++
++  it('shows departments read-only: the rows are there and there is no create button', async () => {
++    vi.mocked(fetch).mockResolvedValue(
++      new Response(
++        JSON.stringify([
++          {
++            id: 'd-1',
++            name: 'Housekeeping',
++            type: 'housekeeping',
++            escalationMinutes: 20,
++            active: true,
++          },
++        ]),
++        { status: 200, headers: { 'Content-Type': 'application/json' } },
++      ),
++    )
++    mount('/app/admin/departments')
++
++    expect(await screen.findByText('Housekeeping')).toBeInTheDocument()
++    expect(screen.getByText('20 min')).toBeInTheDocument()
++    // Phase 1 exposes only the GET, so the screen must offer no way to write.
++    expect(screen.queryByRole('button', { name: /new department/i })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument()
++  })
+ })
+diff --git a/web/src/features/admin/AdminPage.tsx b/web/src/features/admin/AdminPage.tsx
+index 9de4de8..a5f88a1 100644
+--- a/web/src/features/admin/AdminPage.tsx
++++ b/web/src/features/admin/AdminPage.tsx
+@@ -1,30 +1,32 @@
+ import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+ import { cn } from '../../lib/cn'
+ import { AssetsAdmin } from './AssetsAdmin'
+ import { CategoriesAdmin } from './CategoriesAdmin'
++import { DepartmentsAdmin } from './DepartmentsAdmin'
+ import { QuickRepliesAdmin } from './QuickRepliesAdmin'
+ import { UsersAdmin } from './UsersAdmin'
+ 
+ // Absolute targets: AdminPage is mounted at the "admin/*" splat, and this project's router
+ // future flags (v7_relativeSplatPath) resolve a plain relative `to` against the full current
+ // splat path rather than the section's own directory, so a relative "users" link from
+ // "/app/admin/quick-replies" resolves to ".../quick-replies/users" instead of ".../users".
+ const LIVE = [
+   { to: '/app/admin/users', label: 'Users & roles' },
++  { to: '/app/admin/departments', label: 'Departments' },
+   { to: '/app/admin/quick-replies', label: 'Quick replies' },
+   { to: '/app/admin/assets', label: 'Digital assets' },
+   { to: '/app/admin/categories', label: 'Resolution categories' },
+ ]
+ 
+ // Shown deliberately (mockup Admin.dc.html): an admin should see the product's shape.
+-const PHASE_2 = ['Departments', 'Property settings', 'Automations', 'Blocked numbers', 'Integrations']
++const PHASE_2 = ['Property settings', 'Automations', 'Blocked numbers', 'Integrations']
+ 
+ export function AdminPage() {
+   return (
+     <div className="flex h-full">
+       <nav className="w-[220px] flex-none border-r border-border p-3">
+         <h1 className="mb-3 px-2 text-base font-bold">Admin</h1>
+         <ul className="flex flex-col gap-0.5">
+           {LIVE.map((item) => (
+             <li key={item.to}>
+               <NavLink
+@@ -51,17 +53,18 @@ export function AdminPage() {
+               {label}
+             </li>
+           ))}
+         </ul>
+         <p className="mt-3 px-3 text-xs text-text4">Greyed items arrive in Phase 2</p>
+       </nav>
+ 
+       <Routes>
+         <Route index element={<Navigate to="users" replace />} />
+         <Route path="users" element={<UsersAdmin />} />
++        <Route path="departments" element={<DepartmentsAdmin />} />
+         <Route path="quick-replies" element={<QuickRepliesAdmin />} />
+         <Route path="assets" element={<AssetsAdmin />} />
+         <Route path="categories" element={<CategoriesAdmin />} />
+       </Routes>
+     </div>
+   )
+ }
+diff --git a/web/src/features/admin/DepartmentsAdmin.tsx b/web/src/features/admin/DepartmentsAdmin.tsx
+new file mode 100644
+index 0000000..b25a1e4
+--- /dev/null
++++ b/web/src/features/admin/DepartmentsAdmin.tsx
+@@ -0,0 +1,60 @@
++import { useState } from 'react'
++import { useDepartments } from '../../api/hooks/users'
++import type { DepartmentOut } from '../../api/types'
++import { Badge, EmptyState, Spinner } from '../../components/ui'
++import { AdminTable, type Column } from './AdminTable'
++
++// Read-only by design: Phase 1 exposes only GET /api/p/<id>/departments (spec §385), so there
++// is no create/edit affordance here and no EditPanel — which is also how Admin.dc.html draws it.
++export function DepartmentsAdmin() {
++  const { data, isPending, error } = useDepartments()
++  const [selected, setSelected] = useState<string | null>(null)
++
++  const rows = data ?? []
++
++  const columns: Column<DepartmentOut>[] = [
++    { key: 'name', head: 'Name', render: (r) => r.name },
++    { key: 'type', head: 'Type', render: (r) => r.type.replace(/_/g, ' ') },
++    {
++      key: 'escalation',
++      head: 'Escalation',
++      mono: true,
++      render: (r) => `${r.escalationMinutes} min`,
++    },
++    {
++      key: 'active',
++      head: 'Active',
++      render: (r) => (r.active ? <Badge tone="ok">on</Badge> : <Badge>off</Badge>),
++    },
++  ]
++
++  return (
++    <div className="flex min-h-0 flex-1">
++      <div className="flex min-w-0 flex-1 flex-col">
++        <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
++          <h1 className="text-base font-bold">Departments</h1>
++          <p className="text-xs text-text3">Read-only in Phase 1</p>
++        </header>
++
++        <div className="min-h-0 flex-1 overflow-y-auto p-4">
++          {isPending ? (
++            <Spinner />
++          ) : error ? (
++            <EmptyState title="Could not load departments" hint={error.message} />
++          ) : rows.length === 0 ? (
++            <EmptyState title="No departments" hint="This property has none configured." />
++          ) : (
++            <div className="rounded-card border border-border2 bg-surface">
++              <AdminTable
++                columns={columns}
++                rows={rows}
++                selectedId={selected}
++                onSelect={(row) => setSelected(row.id)}
++              />
++            </div>
++          )}
++        </div>
++      </div>
++    </div>
++  )
++}
+diff --git a/web/src/features/analytics/AnalyticsPage.tsx b/web/src/features/analytics/AnalyticsPage.tsx
+index 0a77df1..c86e0b5 100644
+--- a/web/src/features/analytics/AnalyticsPage.tsx
++++ b/web/src/features/analytics/AnalyticsPage.tsx
+@@ -141,20 +141,22 @@ export function AnalyticsPage() {
+             }))}
+           />
+           <p className="mt-3 text-[12.5px] text-text3">Red is past the 15-minute SLA.</p>
+         </section>
+       </div>
+ 
+       <section className={`${CARD} mb-4`}>
+         <h2 className={H}>Agents</h2>
+         {agents.isPending ? (
+           <Spinner />
++        ) : agents.error ? (
++          <EmptyState title="Could not load agent activity" hint={agents.error.message} />
+         ) : (agents.data ?? []).length === 0 ? (
+           <p className="text-xs text-text3">No agent activity in this range.</p>
+         ) : (
+           <table className="w-full">
+             <thead>
+               <tr>
+                 {['Agent', 'Handled', 'p50', 'p90', 'Breaches', 'Quick replies', 'WOs raised'].map(
+                   (head) => (
+                     <th
+                       key={head}
+diff --git a/web/src/features/board/BoardPage.test.tsx b/web/src/features/board/BoardPage.test.tsx
+index 8128d7c..a8b7952 100644
+--- a/web/src/features/board/BoardPage.test.tsx
++++ b/web/src/features/board/BoardPage.test.tsx
+@@ -84,20 +84,33 @@ describe('BoardPage', () => {
+     expect(screen.getByText('Ice machine')).toBeInTheDocument()
+   })
+ 
+   it('switches to a list view', async () => {
+     mount()
+     await userEvent.click(await screen.findByRole('button', { name: 'List' }))
+     expect(await screen.findByRole('button', { name: 'Board' })).toBeInTheDocument()
+     expect(screen.queryByRole('heading', { name: /In progress/ })).not.toBeInTheDocument()
+   })
+ 
++  it('keeps the list view when All clears the filters', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: 'List' }))
++    await userEvent.click(screen.getByRole('tab', { name: /Urgent/ }))
++    await userEvent.click(screen.getByRole('tab', { name: /All/ }))
++
++    // All resets the filters, not the whole query string: view=list is not a filter, and
++    // dropping it threw the user back to the board they had deliberately switched away from.
++    expect(screen.getByRole('button', { name: 'Board' })).toBeInTheDocument()
++    expect(screen.queryByRole('heading', { name: /In progress/ })).not.toBeInTheDocument()
++    expect(screen.getByRole('tab', { name: /Urgent/ })).toHaveAttribute('aria-selected', 'false')
++  })
++
+   it('links each card to its detail screen', async () => {
+     mount()
+     expect(await screen.findByRole('link', { name: /Faucet dripping/ })).toHaveAttribute(
+       'href',
+       '/app/work-orders/w-1',
+     )
+   })
+ 
+   it('shows an empty state when nothing matches', async () => {
+     serve([])
+diff --git a/web/src/features/board/BoardPage.tsx b/web/src/features/board/BoardPage.tsx
+index 945d1dc..154fecb 100644
+--- a/web/src/features/board/BoardPage.tsx
++++ b/web/src/features/board/BoardPage.tsx
+@@ -26,20 +26,28 @@ export function BoardPage() {
+   )
+   const urgentCount = (data ?? []).filter((w) => w.priority === 'urgent').length
+ 
+   function setParam(key: string, value: string | null) {
+     const next = new URLSearchParams(params)
+     if (value === null) next.delete(key)
+     else next.set(key, value)
+     setParams(next, { replace: true })
+   }
+ 
++  // "All" clears the filters only. Resetting the whole query string also dropped view=list,
++  // silently throwing the user back to the board they had switched away from.
++  function clearFilters() {
++    const next = new URLSearchParams(params)
++    for (const key of ['mine', 'dept', 'urgent']) next.delete(key)
++    setParams(next, { replace: true })
++  }
++
+   const nameFor = (id: string | null | undefined) => {
+     const person = staff?.find((s) => s.id === id)
+     return person ? `${person.firstName} ${person.lastName}` : null
+   }
+   const deptFor = (id: string | null | undefined) =>
+     departments?.find((d) => d.id === id)?.name ?? null
+ 
+   const tab = (label: string, active: boolean, onClick: () => void, count?: number) => (
+     <button
+       key={label}
+@@ -68,21 +76,21 @@ export function BoardPage() {
+   return (
+     <div className="flex h-full flex-col">
+       <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+         <div>
+           <h1 className="text-base font-bold">Work orders</h1>
+           <p className="text-xs text-text3">
+             {rows.length} active · {urgentCount} urgent
+           </p>
+         </div>
+         <div role="tablist" className="ml-4 flex flex-wrap gap-1.5">
+-          {tab('All', !mine && !dept && !urgentOnly, () => setParams(new URLSearchParams(), { replace: true }), data?.length)}
++          {tab('All', !mine && !dept && !urgentOnly, clearFilters, data?.length)}
+           {tab('Mine', mine, () => setParam('mine', mine ? null : '1'))}
+           {(departments ?? []).map((department) =>
+             tab(department.name, dept === department.id, () =>
+               setParam('dept', dept === department.id ? null : department.id),
+             ),
+           )}
+           {tab('Urgent', urgentOnly, () => setParam('urgent', urgentOnly ? null : '1'), urgentCount)}
+         </div>
+         <div className="ml-auto flex items-center gap-2">
+           <Button onClick={() => setParam('view', view === 'board' ? 'list' : 'board')}>
+diff --git a/web/src/features/inbox/ConversationHeader.tsx b/web/src/features/inbox/ConversationHeader.tsx
+index 40482bf..2744639 100644
+--- a/web/src/features/inbox/ConversationHeader.tsx
++++ b/web/src/features/inbox/ConversationHeader.tsx
+@@ -1,16 +1,17 @@
+ import { Link } from 'react-router-dom'
+ import type { ConversationDetail } from '../../api/types'
+ import { useRealtime } from '../../api/ws'
+ import { useSession } from '../../auth/SessionContext'
+ import { SlaChip } from '../../components/SlaChip'
+ import { Badge } from '../../components/ui'
++import { ordinal } from '../../lib/ordinal'
+ import { ConversationActions } from './ConversationActions'
+ 
+ /** Exported for its own unit test — the copy is the spec (§5.3), not an implementation detail. */
+ export function presenceLine(names: string[], composing: boolean): string {
+   const verb = composing ? 'replying' : 'viewing'
+   if (names.length === 0) return ''
+   if (names.length === 1) return `${names[0]} is ${verb}`
+   return `${names[0]} and ${names.length - 1} other${names.length > 2 ? 's' : ''} are ${verb}`
+ }
+ 
+@@ -33,21 +34,21 @@ export function ConversationHeader({ conversation }: { conversation: Conversatio
+       >
+         ← Back
+       </Link>
+       <span className="font-mono text-xl font-bold text-roomNum">{stay?.roomNumber ?? '—'}</span>
+       <div className="min-w-0">
+         <p className="truncate text-sm font-bold">{name}</p>
+         <p className="text-xs uppercase tracking-wide text-text3">
+           {[
+             conversation.channelPrimary.toUpperCase(),
+             guest.loyaltyTier?.toUpperCase(),
+-            stay ? `${stay.stayCount}TH STAY` : null,
++            stay ? `${ordinal(stay.stayCount).toUpperCase()} STAY` : null,
+           ]
+             .filter(Boolean)
+             .join(' · ')}
+         </p>
+       </div>
+       <div className="ml-auto flex items-center gap-2">
+         {others.length > 0 ? (
+           <Badge tone="presence">{presenceLine(others.map((u) => u.firstName), composing)}</Badge>
+         ) : null}
+         {guest.smsConsentStatus === 'opted_out' ? <Badge tone="danger">Opted out</Badge> : null}
+diff --git a/web/src/features/inbox/ConversationView.test.tsx b/web/src/features/inbox/ConversationView.test.tsx
+index 42f1391..4cae6e2 100644
+--- a/web/src/features/inbox/ConversationView.test.tsx
++++ b/web/src/features/inbox/ConversationView.test.tsx
+@@ -91,20 +91,22 @@ describe('ConversationView', () => {
+     expect(note.className).toContain('bg-noteBg')
+     expect(screen.getByText('Internal')).toBeInTheDocument()
+   })
+ 
+   it('warns but does not disable the thread for an opted-out guest (§5.3)', async () => {
+     serve(aConversationDetail({ guest: aGuest({ smsConsentStatus: 'opted_out' }) }))
+     mount()
+     // Both the header chip and the guest panel's consent section show it (§5.2/§5.3) — any is proof of the warning.
+     const warnings = await screen.findAllByText(/opted out/i)
+     expect(warnings.length).toBeGreaterThan(0)
++    // "does not disable the thread" is half the title and was never asserted.
++    expect(screen.getByRole('textbox')).toBeEnabled()
+   })
+ 
+   it('shows an error state when the conversation cannot be loaded', async () => {
+     vi.mocked(fetch).mockResolvedValue(
+       new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Conversation not found' } }), {
+         status: 404,
+         headers: { 'Content-Type': 'application/json' },
+       }),
+     )
+     mount()
+diff --git a/web/src/features/inbox/GuestPanel.tsx b/web/src/features/inbox/GuestPanel.tsx
+index f451493..9145d26 100644
+--- a/web/src/features/inbox/GuestPanel.tsx
++++ b/web/src/features/inbox/GuestPanel.tsx
+@@ -1,14 +1,15 @@
+ import type { ReactNode } from 'react'
+ import { Link } from 'react-router-dom'
+ import type { ConversationDetail } from '../../api/types'
+ import { Badge } from '../../components/ui'
++import { ordinal } from '../../lib/ordinal'
+ 
+ const CONSENT: Record<string, { tone: 'ok' | 'danger' | 'neutral'; label: string }> = {
+   opted_in: { tone: 'ok', label: 'Opted in' },
+   opted_out: { tone: 'danger', label: 'Opted out' },
+   unknown: { tone: 'neutral', label: 'Consent unknown' },
+ }
+ 
+ function Section({ title, children }: { title: string; children: ReactNode }) {
+   return (
+     <section className="border-b border-border px-4 py-4">
+@@ -46,21 +47,21 @@ export function GuestPanel({ conversation }: { conversation: ConversationDetail
+           {guest.vip ? <Badge tone="warn">VIP</Badge> : null}
+         </div>
+       </Section>
+ 
+       <Section title="Stay">
+         {stay ? (
+           <>
+             <Field label="Room" value={[stay.roomNumber, stay.roomType].filter(Boolean).join(' · ')} />
+             <Field label="Dates" value={`${stay.arrivalDate} → ${stay.departureDate}`} />
+             <Field label="Party" value={`${stay.adults} adults · ${stay.children} children`} />
+-            <Field label="History" value={`${stay.stayCount}th stay`} />
++            <Field label="History" value={`${ordinal(stay.stayCount)} stay`} />
+             <Field label="Status" value={stay.status.replace('_', ' ')} />
+           </>
+         ) : (
+           <p className="text-xs text-text3">No stay on file</p>
+         )}
+       </Section>
+ 
+       <Section title="Consent">
+         <Badge tone={consent.tone}>{consent.label}</Badge>
+       </Section>
+diff --git a/web/src/features/login/LoginPage.test.tsx b/web/src/features/login/LoginPage.test.tsx
+index 7c43603..318bb96 100644
+--- a/web/src/features/login/LoginPage.test.tsx
++++ b/web/src/features/login/LoginPage.test.tsx
+@@ -1,12 +1,13 @@
+ import { screen, waitFor } from '@testing-library/react'
+ import userEvent from '@testing-library/user-event'
++import { Route, Routes } from 'react-router-dom'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import { renderWithProviders, sessionFixture } from '../../test/harness'
+ import { LoginPage } from './LoginPage'
+ 
+ // LoginPage calls useSessionQuery() on mount (to redirect an already-authenticated visitor),
+ // so /api/auth/me is always fetched before any login POST. A single mockResolvedValue would
+ // (a) hand that mount-time check the same "successful login" body, redirecting away from the
+ // form before the test can submit it, and (b) reuse one Response object across both calls --
+ // a Response body can only be read once, so the second .json() throws and the real error
+ // message is lost to the generic fallback. Answer /api/auth/login with the given response and
+@@ -83,15 +84,30 @@ describe('LoginPage', () => {
+ 
+   it('does not submit an empty form', async () => {
+     renderWithProviders(<LoginPage />)
+     await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
+     // Not "fetch was never called": mounting always fires the /api/auth/me session check.
+     expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === '/api/auth/login')).toBe(
+       false,
+     )
+   })
+ 
++  it('sends an already-authenticated visitor to their landing screen, not to the form', async () => {
++    // The session is already in the cache with staleTime: Infinity, so nothing is fetched and
++    // the redirect branch (the only untested one on this screen) runs on the first render.
++    renderWithProviders(
++      <Routes>
++        <Route path="/login" element={<LoginPage />} />
++        <Route path="/app/analytics" element={<div>Analytics Screen</div>} />
++      </Routes>,
++      { route: '/login', session: sessionFixture({ role: 'manager' }) },
++    )
++
++    expect(await screen.findByText('Analytics Screen')).toBeInTheDocument()
++    expect(screen.queryByLabelText('Email')).not.toBeInTheDocument()
++  })
++
+   it('marks the password field as a password so browsers do not autofill it as text', () => {
+     renderWithProviders(<LoginPage />)
+     expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'password')
+   })
+ })
+diff --git a/web/src/features/sim/PhoneFrame.tsx b/web/src/features/sim/PhoneFrame.tsx
+index 1d6a4be..a10731d 100644
+--- a/web/src/features/sim/PhoneFrame.tsx
++++ b/web/src/features/sim/PhoneFrame.tsx
+@@ -1,35 +1,60 @@
+ import type { GuestThread } from '../../api/types'
+ import { formatClock } from '../../lib/time'
+ 
+ /**
+- * These two bubble colours are hard-coded on purpose — they imitate iOS Messages,
+- * not this product, so they must not follow the app theme. They are the only
+- * hard-coded colours on this page; everything else uses the 45 design tokens.
++ * Every colour inside the frame is hard-coded on purpose — it imitates iOS Messages, not
++ * this product, so it must not follow the app theme. A guest's phone does not restyle
++ * itself when the staff app toggles to dark; themed chrome around fixed iOS bubbles is
++ * neither the mockup's phone nor a coherent dark theme, but a third thing that reads as a
++ * rendering bug. docs/mockups/Simulator.dc.html paints the phone in these same fixed
++ * colours for the same reason. The page AROUND the frame stays fully tokenised — this
++ * component is the only hard-coded colour in the app, and /sim is dev-only.
+  */
+ const RECEIVED = { background: '#e9e9eb', color: '#111111' }
+ const SENT = { background: '#34c759', color: '#ffffff' }
++const PHONE = {
++  bezel: '#000000',
++  body: '#ffffff',
++  header: '#f7f7f8',
++  hairline: '#d1d1d6',
++  secondary: '#8e8e93',
++  text: '#111111',
++}
+ 
+ export function PhoneFrame({ thread, smsNumber }: { thread: GuestThread; smsNumber: string | null }) {
+   return (
+-    <div className="mx-auto flex h-full w-full max-w-[380px] flex-col overflow-hidden rounded-[28px] border border-border3 bg-surface">
+-      <header className="flex flex-col items-center gap-0.5 border-b border-border bg-surface2 px-4 py-3">
+-        <span className="grid h-8 w-8 place-items-center rounded-md bg-accent font-mono text-[11px] font-bold text-accentText">
++    <div
++      className="mx-auto flex h-full w-full max-w-[380px] flex-col overflow-hidden rounded-[28px] border"
++      style={{ borderColor: PHONE.bezel, background: PHONE.body, color: PHONE.text }}
++    >
++      <header
++        className="flex flex-col items-center gap-0.5 border-b px-4 py-3"
++        style={{ borderColor: PHONE.hairline, background: PHONE.header }}
++      >
++        <span
++          className="grid h-8 w-8 place-items-center rounded-md font-mono text-[11px] font-bold"
++          style={{ background: PHONE.secondary, color: PHONE.body }}
++        >
+           HV
+         </span>
+-        <p className="text-[13px] font-semibold text-text">{thread.propertyName}</p>
+-        <p className="font-mono text-[11px] text-text3">{smsNumber ?? thread.phone}</p>
++        <p className="text-[13px] font-semibold">{thread.propertyName}</p>
++        <p className="font-mono text-[11px]" style={{ color: PHONE.secondary }}>
++          {smsNumber ?? thread.phone}
++        </p>
+       </header>
+ 
+-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto bg-surface p-3">
++      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-3" style={{ background: PHONE.body }}>
+         {thread.messages.length === 0 ? (
+-          <p className="mt-6 text-center text-xs text-text3">No messages yet.</p>
++          <p className="mt-6 text-center text-xs" style={{ color: PHONE.secondary }}>
++            No messages yet.
++          </p>
+         ) : (
+           thread.messages.map((message) => {
+             // We are the guest here: the hotel's outbound message is what we received.
+             const received = message.direction === 'outbound'
+             return (
+               <div
+                 key={message.id}
+                 data-testid={received ? 'sms-in' : 'sms-out'}
+                 className={`max-w-[78%] px-3 py-2 text-sm leading-snug ${
+                   received
+diff --git a/web/src/lib/ordinal.test.ts b/web/src/lib/ordinal.test.ts
+new file mode 100644
+index 0000000..9a799fb
+--- /dev/null
++++ b/web/src/lib/ordinal.test.ts
+@@ -0,0 +1,28 @@
++import { describe, expect, it } from 'vitest'
++import { ordinal } from './ordinal'
++
++describe('ordinal', () => {
++  it('uses st/nd/rd for 1, 2, 3 and th for the rest', () => {
++    expect([1, 2, 3, 4, 5].map(ordinal)).toEqual(['1st', '2nd', '3rd', '4th', '5th'])
++  })
++
++  it('takes th for 11, 12 and 13, which is the trap', () => {
++    expect([11, 12, 13].map(ordinal)).toEqual(['11th', '12th', '13th'])
++  })
++
++  it('goes back to st/nd/rd at 21, 22, 23 and again at 101', () => {
++    expect([21, 22, 23, 101, 111, 112].map(ordinal)).toEqual([
++      '21st',
++      '22nd',
++      '23rd',
++      '101st',
++      '111th',
++      '112th',
++    ])
++  })
++
++  it('handles a zeroth and a first stay', () => {
++    expect(ordinal(0)).toBe('0th')
++    expect(ordinal(1)).toBe('1st')
++  })
++})
+diff --git a/web/src/lib/ordinal.ts b/web/src/lib/ordinal.ts
+new file mode 100644
+index 0000000..39b1fa7
+--- /dev/null
++++ b/web/src/lib/ordinal.ts
+@@ -0,0 +1,19 @@
++/**
++ * English ordinal: 1st, 2nd, 3rd, 4th. The 11/12/13 exception is the whole point — they
++ * take "th" despite ending in 1/2/3 — but so is the plain `${n}th` this replaces, which
++ * rendered a second-time guest as "2th stay".
++ */
++export function ordinal(n: number): string {
++  const tens = Math.abs(n) % 100
++  if (tens >= 11 && tens <= 13) return `${n}th`
++  switch (Math.abs(n) % 10) {
++    case 1:
++      return `${n}st`
++    case 2:
++      return `${n}nd`
++    case 3:
++      return `${n}rd`
++    default:
++      return `${n}th`
++  }
++}
+diff --git a/web/tests/e2e/presence.spec.ts b/web/tests/e2e/presence.spec.ts
+index e480977..276b103 100644
+--- a/web/tests/e2e/presence.spec.ts
++++ b/web/tests/e2e/presence.spec.ts
+@@ -29,18 +29,20 @@ test('two agents on one conversation each see the other within 2 seconds', async
+ 
+   // §11.1 #3: each sees the other. The expect timeout is 15s, so assert the 2s
+   // requirement explicitly rather than leaning on the default.
+   await expect(ava.getByText(/Marcus is (viewing|replying)/)).toBeVisible({ timeout: 2000 })
+   await expect(marcus.getByText(/Ava is (viewing|replying)/)).toBeVisible({ timeout: 2000 })
+ 
+   // Composing flips the verb for the other viewer.
+   await marcus.getByRole('textbox').click()
+   await expect(ava.getByText('Marcus is replying')).toBeVisible({ timeout: 3000 })
+ 
+-  // Leaving clears it. A hard navigation drops the socket, and the server clears that user on
+-  // disconnect; the 10s sweeper is the backstop for a connection that dies without saying so.
+-  await marcus.goto('/app/board')
+-  await expect(ava.getByText(/Marcus is/)).toHaveCount(0, { timeout: 20_000 })
++  // Leaving clears it. This is an IN-APP click, not a goto: the socket stays open, so the clear
++  // has to come from the app's own `presence` frame with a null conversationId. A hard navigation
++  // would drop the socket and let the server's disconnect handler do the work instead, which is a
++  // different mechanism and would stay green even if the app never sent the frame.
++  await marcus.getByRole('link', { name: 'Board' }).click()
++  await expect(ava.getByText(/Marcus is/)).toHaveCount(0, { timeout: 3000 })
+ 
+   await first.close()
+   await second.close()
+ })
+diff --git a/web/tsconfig.e2e.json b/web/tsconfig.e2e.json
+new file mode 100644
+index 0000000..2920adb
+--- /dev/null
++++ b/web/tsconfig.e2e.json
+@@ -0,0 +1,15 @@
++{
++  "compilerOptions": {
++    "target": "ES2022",
++    "lib": ["ES2022", "DOM"],
++    "module": "ESNext",
++    "moduleResolution": "bundler",
++    "composite": true,
++    "strict": true,
++    "skipLibCheck": true,
++    "emitDeclarationOnly": true,
++    "outDir": "./.tsbuild/e2e",
++    "types": ["node"]
++  },
++  "include": ["tests"]
++}
+diff --git a/web/tsconfig.json b/web/tsconfig.json
+index 89ef8ec..c90d3eb 100644
+--- a/web/tsconfig.json
++++ b/web/tsconfig.json
+@@ -11,12 +11,12 @@
+     "noFallthroughCasesInSwitch": true,
+     "noUncheckedIndexedAccess": true,
+     "resolveJsonModule": true,
+     "isolatedModules": true,
+     "esModuleInterop": true,
+     "skipLibCheck": true,
+     "noEmit": true,
+     "types": ["vitest/globals", "@testing-library/jest-dom"]
+   },
+   "include": ["src", "vitest.setup.ts"],
+-  "references": [{ "path": "./tsconfig.node.json" }]
++  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./tsconfig.e2e.json" }]
+ }
+diff --git a/web/tsconfig.node.json b/web/tsconfig.node.json
+index 44a12db..c95a91a 100644
+--- a/web/tsconfig.node.json
++++ b/web/tsconfig.node.json
+@@ -1,13 +1,14 @@
+ {
+   "compilerOptions": {
+     "target": "ES2022",
+     "module": "ESNext",
+     "moduleResolution": "bundler",
+     "composite": true,
+     "strict": true,
+     "skipLibCheck": true,
+     "emitDeclarationOnly": true,
++    "outDir": "./.tsbuild/node",
+     "types": ["node"]
+   },
+   "include": ["vite.config.ts", "playwright.config.ts"]
+ }

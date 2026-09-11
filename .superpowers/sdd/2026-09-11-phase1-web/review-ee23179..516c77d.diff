@@ -1,0 +1,454 @@
+# Review package: ee23179..516c77d
+
+## Commits
+516c77d fix(web): stop the quick-reply palette eating arrow keys with no matches, guard render failures
+996d77c fix(web): responsive inbox layout, back nav, and a RequireAuth regression test
+
+## Files changed
+ web/src/auth/RequireAuth.test.tsx                 | 67 +++++++++++++++++++++++
+ web/src/features/inbox/Composer.test.tsx          | 56 +++++++++++++++++++
+ web/src/features/inbox/Composer.tsx               | 16 +++++-
+ web/src/features/inbox/ConversationHeader.tsx     | 10 ++++
+ web/src/features/inbox/ConversationList.test.tsx  | 39 +++++++++++--
+ web/src/features/inbox/GuestPanel.tsx             |  5 +-
+ web/src/features/inbox/QuickReplyPalette.test.tsx | 16 ++++++
+ web/src/features/inbox/QuickReplyPalette.tsx      |  4 ++
+ 8 files changed, 207 insertions(+), 6 deletions(-)
+
+## Diff
+diff --git a/web/src/auth/RequireAuth.test.tsx b/web/src/auth/RequireAuth.test.tsx
+new file mode 100644
+index 0000000..83ba91e
+--- /dev/null
++++ b/web/src/auth/RequireAuth.test.tsx
+@@ -0,0 +1,67 @@
++import { screen } from '@testing-library/react'
++import { useEffect } from 'react'
++import { Route, Routes } from 'react-router-dom'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { api } from '../api/client'
++import { renderWithProviders, sessionFixture } from '../test/harness'
++import { RequireAuth } from './RequireAuth'
++
++// Fires two API calls that each independently discover the dead session at roughly the
++// same time — the way two components each awaiting their own query might on a screen
++// with more than one data source.
++function ExpiringScreen() {
++  useEffect(() => {
++    void api('/api/dead-endpoint-a').catch(() => {})
++    void api('/api/dead-endpoint-b').catch(() => {})
++  }, [])
++  return <div>Protected</div>
++}
++
++function unauthorizedResponse() {
++  return new Response(
++    JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Session expired' } }),
++    { status: 401, headers: { 'Content-Type': 'application/json' } },
++  )
++}
++
++function mount() {
++  return renderWithProviders(
++    <Routes>
++      <Route path="/app" element={<RequireAuth />}>
++        <Route index element={<ExpiringScreen />} />
++      </Route>
++      <Route path="/login" element={<div>Login Screen</div>} />
++    </Routes>,
++    { route: '/app', session: sessionFixture({ role: 'agent' }) },
++  )
++}
++
++describe('RequireAuth — mid-session expiry', () => {
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  // Task 12 fixed an unbounded loop here: a 401 fired refetch(), which itself 401s (the
++  // session really is dead), which would re-invoke the same handler and refetch forever.
++  // This pins both halves of that fix: the redirect still fires (not over-corrected to
++  // never redirect) and it fires from a single coalesced refetch, not once per 401 (not
++  // still looping).
++  it('redirects to /login exactly once when the session dies mid-request, coalescing concurrent 401s', async () => {
++    let meCalls = 0
++    vi.stubGlobal(
++      'fetch',
++      vi.fn(async (input: RequestInfo | URL) => {
++        const url = String(input)
++        if (url.includes('/api/auth/me')) meCalls += 1
++        return unauthorizedResponse()
++      }),
++    )
++
++    mount()
++
++    expect(await screen.findByText('Login Screen')).toBeInTheDocument()
++    // Two 401s fired close together must coalesce into a single refetch of /api/auth/me,
++    // not one per 401 — that's the loop the useRef guard in RequireAuth prevents.
++    expect(meCalls).toBe(1)
++  })
++})
+diff --git a/web/src/features/inbox/Composer.test.tsx b/web/src/features/inbox/Composer.test.tsx
+index fdc37b0..f56b0c1 100644
+--- a/web/src/features/inbox/Composer.test.tsx
++++ b/web/src/features/inbox/Composer.test.tsx
+@@ -176,20 +176,76 @@ describe('Composer', () => {
+     mount()
+     const box = await screen.findByRole('textbox')
+     await userEvent.type(box, '/wifi')
+     await userEvent.keyboard('{Enter}')
+     await waitFor(() => expect(box).toHaveValue('Hi Sarah — the network is Harbourview-Guest.'))
+     // jest-dom's toHaveValue in this version does a strict equality check and does not
+     // evaluate asymmetric matchers, so the substring check is made directly on .value.
+     expect((box as HTMLTextAreaElement).value).not.toContain('{{')
+   })
+ 
++  // Fix-round: a failed render call left the raw /shortcut sitting in the box with no
++  // feedback — an agent hitting Ctrl+Enter right after would send that literal text to
++  // the guest. The box must clear and the error must surface instead.
++  it('clears the raw shortcut and surfaces the error when rendering a quick reply fails', async () => {
++    routes()
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.type(box, '/wifi')
++    vi.mocked(fetch).mockResolvedValueOnce(
++      new Response(
++        JSON.stringify({ error: { code: 'SERVER_ERROR', message: 'Could not render the quick reply' } }),
++        { status: 500, headers: { 'Content-Type': 'application/json' } },
++      ),
++    )
++    await userEvent.keyboard('{Enter}')
++    expect(await screen.findByRole('alert')).toHaveTextContent('Could not render the quick reply')
++    await waitFor(() => expect(box).toHaveValue(''))
++    // Nothing raw survives to be sent: an empty box fires no POST on Ctrl+Enter.
++    await userEvent.keyboard('{Control>}{Enter}{/Control}')
++    expect(
++      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/messages') && i?.method === 'POST'),
++    ).toBe(false)
++  })
++
++  // A render still in flight is the other half of the same risk: fast Ctrl+Enter must
++  // not race ahead of it and send the raw shortcut before the interpolated body lands.
++  it('does not send while a quick-reply render is still in flight', async () => {
++    routes()
++    let resolveRender: ((response: Response) => void) | null = null
++    const baseImpl = vi.mocked(fetch).getMockImplementation()!
++    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
++      const url = String(input)
++      if (url.includes('/render') && (init?.method ?? 'GET') === 'POST') {
++        return new Promise<Response>((resolve) => {
++          resolveRender = resolve
++        })
++      }
++      return baseImpl(input, init)
++    })
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.type(box, '/wifi')
++    await userEvent.keyboard('{Enter}')
++    await userEvent.keyboard('{Control>}{Enter}{/Control}')
++    expect(
++      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/messages') && i?.method === 'POST'),
++    ).toBe(false)
++    resolveRender!(
++      new Response(JSON.stringify({ body: 'Hi Sarah — the network is Harbourview-Guest.', characters: 44, segments: 1 }), {
++        status: 200,
++        headers: { 'Content-Type': 'application/json' },
++      }),
++    )
++    await waitFor(() => expect(box).toHaveValue('Hi Sarah — the network is Harbourview-Guest.'))
++  })
++
+   it('appends a short link when an asset is picked', async () => {
+     mount()
+     await userEvent.click(await screen.findByRole('button', { name: /attach/i }))
+     await userEvent.click(await screen.findByRole('menuitem', { name: /WiFi card/ }))
+     await waitFor(() =>
+       expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toContain('/a/wifi1'),
+     )
+   })
+ 
+   it('shows the consent warning but stays enabled for an opted-out guest (§5.3)', async () => {
+diff --git a/web/src/features/inbox/Composer.tsx b/web/src/features/inbox/Composer.tsx
+index d53ac4b..2a3d4b2 100644
+--- a/web/src/features/inbox/Composer.tsx
++++ b/web/src/features/inbox/Composer.tsx
+@@ -48,21 +48,23 @@ export function Composer({
+ 
+   // The palette opens only when '/' starts the draft — 'either/or' must not trigger it.
+   const paletteOpen =
+     body.startsWith('/') && !body.includes(' ') && !body.includes('\n') && !paletteDismissed
+   const segments = segmentCount(body)
+   const characters = charCount(body)
+   const optedOut = conversation.guest.smsConsentStatus === 'opted_out'
+ 
+   function submit() {
+     const trimmed = body.trim()
+-    if (!trimmed || send.isPending) return
++    // A quick reply still resolving (or one that failed) must never let the raw
++    // /shortcut text reach a guest — block the send until it settles.
++    if (!trimmed || send.isPending || render.isPending) return
+     send.mutate(
+       {
+         body: trimmed,
+         digitalAssetId: assetId,
+         draftPromptId,
+       },
+       {
+         onError: () => setBody(trimmed), // give the text back; retyping is the real cost
+       },
+     )
+@@ -83,35 +85,47 @@ export function Composer({
+           This guest has opted out of SMS. A send will be rejected unless they text START.
+         </p>
+       ) : null}
+ 
+       {send.error ? (
+         <p role="alert" className="mb-2 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
+           {send.error.message}
+         </p>
+       ) : null}
+ 
++      {render.error ? (
++        <p role="alert" className="mb-2 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
++          {render.error.message}
++        </p>
++      ) : null}
++
+       <div className="relative">
+         {paletteOpen && replies ? (
+           <QuickReplyPalette
+             replies={replies}
+             term={body}
+             onClose={() => setPaletteDismissed(true)}
+             onPick={(reply) => {
+               // The server interpolates; we never substitute tokens client-side.
+               render.mutate(
+                 { id: reply.id, conversationId },
+                 {
+                   onSuccess: (rendered) => {
+                     setBody(rendered.body)
+                     box.current?.focus()
+                   },
++                  onError: () => {
++                    // Never leave the raw /shortcut sitting in the box — a client that
++                    // did would risk sending it to the guest as literal text.
++                    setBody('')
++                    box.current?.focus()
++                  },
+                 },
+               )
+             }}
+           />
+         ) : null}
+ 
+         <Textarea
+           ref={box}
+           rows={3}
+           value={body}
+diff --git a/web/src/features/inbox/ConversationHeader.tsx b/web/src/features/inbox/ConversationHeader.tsx
+index e548ec8..40482bf 100644
+--- a/web/src/features/inbox/ConversationHeader.tsx
++++ b/web/src/features/inbox/ConversationHeader.tsx
+@@ -1,10 +1,11 @@
++import { Link } from 'react-router-dom'
+ import type { ConversationDetail } from '../../api/types'
+ import { useRealtime } from '../../api/ws'
+ import { useSession } from '../../auth/SessionContext'
+ import { SlaChip } from '../../components/SlaChip'
+ import { Badge } from '../../components/ui'
+ import { ConversationActions } from './ConversationActions'
+ 
+ /** Exported for its own unit test — the copy is the spec (§5.3), not an implementation detail. */
+ export function presenceLine(names: string[], composing: boolean): string {
+   const verb = composing ? 'replying' : 'viewing'
+@@ -16,20 +17,29 @@ export function presenceLine(names: string[], composing: boolean): string {
+ export function ConversationHeader({ conversation }: { conversation: ConversationDetail }) {
+   const { presence } = useRealtime()
+   const { user } = useSession()
+   const { guest, stay } = conversation
+   const others = (presence[conversation.id] ?? []).filter((u) => u.id !== user.id)
+   const composing = others.some((u) => u.state === 'composing')
+   const name = [guest.firstName, guest.lastName].filter(Boolean).join(' ') || guest.phoneE164
+ 
+   return (
+     <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
++      {/* §5.2: below md the list is hidden and this thread is the only pane — the only
++          way back is otherwise the browser button. Hidden at md+, where the list is
++          visible alongside the thread and back navigation is redundant. */}
++      <Link
++        to="/app/inbox"
++        className="flex items-center gap-1 text-sm font-semibold text-text3 hover:text-text md:hidden"
++      >
++        ← Back
++      </Link>
+       <span className="font-mono text-xl font-bold text-roomNum">{stay?.roomNumber ?? '—'}</span>
+       <div className="min-w-0">
+         <p className="truncate text-sm font-bold">{name}</p>
+         <p className="text-xs uppercase tracking-wide text-text3">
+           {[
+             conversation.channelPrimary.toUpperCase(),
+             guest.loyaltyTier?.toUpperCase(),
+             stay ? `${stay.stayCount}TH STAY` : null,
+           ]
+             .filter(Boolean)
+diff --git a/web/src/features/inbox/ConversationList.test.tsx b/web/src/features/inbox/ConversationList.test.tsx
+index d2155c7..73d60b0 100644
+--- a/web/src/features/inbox/ConversationList.test.tsx
++++ b/web/src/features/inbox/ConversationList.test.tsx
+@@ -38,28 +38,59 @@ describe('ConversationList', () => {
+ 
+   it('renders a row per conversation with room, guest and preview', async () => {
+     respondWith([aConversation()])
+     mount()
+     expect(await screen.findByText('412')).toBeInTheDocument()
+     expect(screen.getByText('Sarah Chen')).toBeInTheDocument()
+     expect(screen.getByText(/The AC in our room/)).toBeInTheDocument()
+   })
+ 
+   it('preserves the server order and does not re-sort', async () => {
++    // Fix-round (A4): the previous fixtures put the newer-timestamp row first, so a bug
++    // that added a client-side sort by lastGuestMessageAt descending would reproduce the
++    // same expected order undetected. These three rows are chosen so that no single-key
++    // sort — ascending or descending, on any field ConversationSummary carries — can
++    // reproduce the expected ['205', '412', '118'] order: id, roomNumber,
++    // lastGuestMessageAt, slaDueAt, assignedUserId and guest name were each checked in
++    // both directions and none lines up with this order (see the Task 14 fix report).
+     respondWith([
+-      aConversation({ id: 'c-1', roomNumber: '412', lastGuestMessageAt: '2026-09-10T18:41:00Z' }),
+-      aConversation({ id: 'c-2', roomNumber: '118', lastGuestMessageAt: '2026-09-10T17:00:00Z' }),
++      aConversation({
++        id: 'c-2',
++        roomNumber: '205',
++        guest: aGuest({ firstName: 'Nora', lastName: 'Diaz' }),
++        lastGuestMessageAt: '2026-09-10T17:30:00Z',
++        slaDueAt: '2026-09-10T17:45:00Z',
++        assignedUserId: 'u-b',
++        openWorkOrderCount: 1,
++      }),
++      aConversation({
++        id: 'c-1',
++        roomNumber: '412',
++        lastGuestMessageAt: '2026-09-10T18:41:00Z',
++        slaDueAt: '2026-09-10T18:56:00Z',
++        assignedUserId: null,
++        openWorkOrderCount: 0,
++      }),
++      aConversation({
++        id: 'c-3',
++        roomNumber: '118',
++        guest: aGuest({ firstName: 'Milo', lastName: 'Ahn' }),
++        lastGuestMessageAt: '2026-09-10T17:00:00Z',
++        slaDueAt: '2026-09-10T16:30:00Z',
++        assignedUserId: 'u-a',
++        openWorkOrderCount: 2,
++      }),
+     ])
+     mount()
+-    await screen.findByText('412')
++    await screen.findByText('205')
+     const rooms = screen.getAllByTestId('row-room').map((el) => el.textContent)
+-    expect(rooms).toEqual(['412', '118'])
++    expect(rooms).toEqual(['205', '412', '118'])
+   })
+ 
+   it('prefixes an answered conversation with You:', async () => {
+     respondWith([
+       aConversation({
+         unanswered: false,
+         lastStaffMessageAt: '2026-09-10T18:50:00Z',
+         lastMessagePreview: 'Your car is at the valet stand now.',
+       }),
+     ])
+diff --git a/web/src/features/inbox/GuestPanel.tsx b/web/src/features/inbox/GuestPanel.tsx
+index d6ad1a9..f451493 100644
+--- a/web/src/features/inbox/GuestPanel.tsx
++++ b/web/src/features/inbox/GuestPanel.tsx
+@@ -27,21 +27,24 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
+   )
+ }
+ 
+ export function GuestPanel({ conversation }: { conversation: ConversationDetail }) {
+   const { guest, stay, workOrders, draftPrompts, notes } = conversation
+   const name = [guest.firstName, guest.lastName].filter(Boolean).join(' ') || guest.phoneE164
+   const consent = CONSENT[guest.smsConsentStatus] ?? CONSENT['unknown']!
+   const pending = draftPrompts.filter((p) => p.status === 'pending')
+ 
+   return (
+-    <aside className="w-[300px] flex-none overflow-y-auto border-l border-border bg-bg2">
++    // §5.2: three columns only at ≥1024px. Below that the guest panel must be genuinely
++    // absent, not zero-width — `hidden` (not a width collapse) keeps its border from
++    // still occupying the two-column layout.
++    <aside className="hidden w-[300px] flex-none overflow-y-auto border-l border-border bg-bg2 lg:block">
+       <Section title="Guest">
+         <p className="text-sm font-semibold">{name}</p>
+         <p className="font-mono text-xs text-text3">{guest.phoneE164}</p>
+         <div className="mt-2 flex flex-wrap gap-1.5">
+           {guest.loyaltyTier ? <Badge>{guest.loyaltyTier.toUpperCase()}</Badge> : null}
+           {guest.vip ? <Badge tone="warn">VIP</Badge> : null}
+         </div>
+       </Section>
+ 
+       <Section title="Stay">
+diff --git a/web/src/features/inbox/QuickReplyPalette.test.tsx b/web/src/features/inbox/QuickReplyPalette.test.tsx
+index 96fb941..fe3f68c 100644
+--- a/web/src/features/inbox/QuickReplyPalette.test.tsx
++++ b/web/src/features/inbox/QuickReplyPalette.test.tsx
+@@ -101,11 +101,27 @@ describe('QuickReplyPalette', () => {
+     await screen.findByTestId('qr-q1')
+     await userEvent.keyboard('{ArrowDown}{Enter}')
+     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'q2' }))
+   })
+ 
+   it('picks on click', async () => {
+     const onPick = mount()
+     await userEvent.click(await screen.findByTestId('qr-q3'))
+     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'q3' }))
+   })
++
++  // Fix-round: a term matching nothing renders no visible list, but the component was
++  // still globally intercepting ArrowUp/ArrowDown/Escape — an agent typing a `/`-prefixed
++  // draft with no match would find arrow-key cursor movement silently broken, with nothing
++  // on screen to explain why.
++  it('does not intercept arrow keys when there are no matches', async () => {
++    renderWithProviders(
++      <SessionProvider>
++        <QuickReplyPalette replies={REPLIES} term="helicopter" onPick={vi.fn()} onClose={vi.fn()} />
++      </SessionProvider>,
++      { session: sessionFixture({ role: 'agent' }) },
++    )
++    const event = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })
++    document.dispatchEvent(event)
++    expect(event.defaultPrevented).toBe(false)
++  })
+ })
+diff --git a/web/src/features/inbox/QuickReplyPalette.tsx b/web/src/features/inbox/QuickReplyPalette.tsx
+index c3b2183..22a50d6 100644
+--- a/web/src/features/inbox/QuickReplyPalette.tsx
++++ b/web/src/features/inbox/QuickReplyPalette.tsx
+@@ -34,20 +34,24 @@ export function QuickReplyPalette({
+ }) {
+   const matches = filterQuickReplies(replies, term)
+   const [index, setIndex] = useState(0)
+ 
+   // A new term means a new list; keep the cursor in range rather than off the end.
+   useEffect(() => {
+     setIndex(0)
+   }, [term])
+ 
+   useEffect(() => {
++    // Nothing to navigate: leave the keyboard alone rather than silently eating arrow
++    // keys and Escape while the palette has nothing visible to show for it.
++    if (matches.length === 0) return
++
+     function onKeyDown(event: KeyboardEvent) {
+       if (event.key === 'ArrowDown') {
+         event.preventDefault()
+         setIndex((i) => Math.min(i + 1, matches.length - 1))
+       } else if (event.key === 'ArrowUp') {
+         event.preventDefault()
+         setIndex((i) => Math.max(i - 1, 0))
+       } else if (event.key === 'Enter') {
+         const picked = matches[index]
+         if (picked) {

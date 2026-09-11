@@ -1,0 +1,58 @@
+# Review package: 859b27a..b40401c
+
+## Commits
+b40401c fix(server): apply AppError code override before deriving the default message
+
+## Files changed
+ server/app/errors.py        | 6 +++---
+ server/tests/test_errors.py | 8 ++++++++
+ 2 files changed, 11 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/server/app/errors.py b/server/app/errors.py
+index 9c32b7b..fc78c38 100644
+--- a/server/app/errors.py
++++ b/server/app/errors.py
+@@ -5,25 +5,25 @@ from typing import Any
+ from flask import Flask, jsonify
+ from pydantic import ValidationError
+ from werkzeug.exceptions import HTTPException
+ 
+ 
+ class AppError(Exception):
+     status = 400
+     code = "BAD_REQUEST"
+ 
+     def __init__(self, message: str | None = None, *, details: Any = None, code: str | None = None):
+-        super().__init__(message or self.code)
+-        self.message = message or self.code.replace("_", " ").capitalize()
+-        self.details = details
+         if code:
+             self.code = code
++        self.message = message or self.code.replace("_", " ").capitalize()
++        self.details = details
++        super().__init__(self.message)
+ 
+     def to_body(self) -> dict:
+         err: dict[str, Any] = {"code": self.code, "message": self.message}
+         if self.details is not None:
+             err["details"] = self.details
+         return {"error": err}
+ 
+ 
+ class ValidationFailed(AppError):
+     status = 400
+diff --git a/server/tests/test_errors.py b/server/tests/test_errors.py
+new file mode 100644
+index 0000000..17de40e
+--- /dev/null
++++ b/server/tests/test_errors.py
+@@ -0,0 +1,8 @@
++from app.errors import AppError
++
++
++def test_code_override_derives_matching_default_message():
++    err = AppError(code="CUSTOM_THING")
++    body = err.to_body()
++    assert body["error"]["code"] == "CUSTOM_THING"
++    assert body["error"]["message"] == "Custom thing"

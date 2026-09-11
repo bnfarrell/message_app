@@ -1,0 +1,606 @@
+# Review package: a025359..0992aa8
+
+## Commits
+0992aa8 test: pin the two SMS segment counters to shared golden vectors
+ec4ebc1 fix(server): a field-level 400 names the field that was actually patched
+
+## Files changed
+ fixtures/sms-segments.json             | 205 +++++++++++++++++++++++++++++++++
+ server/app/domain/_patch.py            |  14 ++-
+ server/app/domain/guests.py            |  13 ++-
+ server/app/domain/properties.py        |  11 +-
+ server/tests/test_property_settings.py |  27 ++++-
+ server/tests/test_sms.py               |  37 ++++++
+ web/src/lib/segments.golden.test.ts    |  54 +++++++++
+ 7 files changed, 350 insertions(+), 11 deletions(-)
+
+## Diff
+diff --git a/fixtures/sms-segments.json b/fixtures/sms-segments.json
+new file mode 100644
+index 0000000..c4027a8
+--- /dev/null
++++ b/fixtures/sms-segments.json
+@@ -0,0 +1,205 @@
++{
++  "description": "Golden vectors for SMS segment counting (GSM 03.38), shared by server/app/domain/sms.py and web/src/lib/segments.ts. Ruling D89: the two implementations are a deliberate duplicate - the inbox composer needs per-keystroke feedback with no network round trip - so this file pins them to each other. It lives at the repo root because neither language owns it. Asserted by server/tests/test_sms.py and web/src/lib/segments.golden.test.ts; if the two drift, exactly one suite goes red and names the case. `segments` counts GSM-7 septets (extension characters count twice) or UTF-16 code units; `characters` counts user-visible characters, i.e. code points - these differ, which is the point of the emoji-crosses-* cases. Expected values are hand-computed from the spec, not generated from either implementation.",
++  "cases": [
++    {
++      "name": "empty",
++      "why": "an empty body is zero segments, not one",
++      "body": "",
++      "isGsm7": true,
++      "segments": 0,
++      "characters": 0
++    },
++    {
++      "name": "ascii-short",
++      "why": "the ordinary case",
++      "body": "Hi",
++      "isGsm7": true,
++      "segments": 1,
++      "characters": 2
++    },
++    {
++      "name": "gsm7-160",
++      "why": "160 septets is the single-segment ceiling",
++      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
++      "isGsm7": true,
++      "segments": 1,
++      "characters": 160
++    },
++    {
++      "name": "gsm7-161",
++      "why": "one septet over drops to 153-septet multipart",
++      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
++      "isGsm7": true,
++      "segments": 2,
++      "characters": 161
++    },
++    {
++      "name": "gsm7-306",
++      "why": "exactly 2 x 153",
++      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
++      "isGsm7": true,
++      "segments": 2,
++      "characters": 306
++    },
++    {
++      "name": "gsm7-307",
++      "why": "one septet into the third part",
++      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
++      "isGsm7": true,
++      "segments": 3,
++      "characters": 307
++    },
++    {
++      "name": "gsm7-extension-alone",
++      "why": "a lone extension char is two septets, one character",
++      "body": "\u20ac",
++      "isGsm7": true,
++      "segments": 1,
++      "characters": 1
++    },
++    {
++      "name": "gsm7-extension-fills-160",
++      "why": "158 + 2 septets = exactly 160",
++      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u20ac",
++      "isGsm7": true,
++      "segments": 1,
++      "characters": 159
++    },
++    {
++      "name": "gsm7-extension-crosses-160",
++      "why": "159 characters + an extension char = 161 septets: SAME character count as gsm7-160, one more segment. A counter that measured length instead of septets would say 1.",
++      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u20ac",
++      "isGsm7": true,
++      "segments": 2,
++      "characters": 160
++    },
++    {
++      "name": "gsm7-extension-crosses-153",
++      "why": "same trap at the multipart boundary: 306 characters as in gsm7-306, but 307 septets",
++      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u20ac",
++      "isGsm7": true,
++      "segments": 3,
++      "characters": 306
++    },
++    {
++      "name": "gsm7-formfeed-fills-160",
++      "why": "form feed is an extension char too",
++      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\f",
++      "isGsm7": true,
++      "segments": 1,
++      "characters": 159
++    },
++    {
++      "name": "gsm7-interpolation-braces",
++      "why": "this product's own {{variable}} syntax: four braces at two septets each",
++      "body": "Hi {{guest_first_name}}",
++      "isGsm7": true,
++      "segments": 1,
++      "characters": 23
++    },
++    {
++      "name": "gsm7-newline-and-cr",
++      "why": "LF and CR are both in the GSM-7 basic set",
++      "body": "line1\nline2\r",
++      "isGsm7": true,
++      "segments": 1,
++      "characters": 12
++    },
++    {
++      "name": "ucs2-70",
++      "why": "70 UTF-16 units is the single-segment ceiling",
++      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5",
++      "isGsm7": false,
++      "segments": 1,
++      "characters": 70
++    },
++    {
++      "name": "ucs2-71",
++      "why": "one unit over drops to 67-unit multipart",
++      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5",
++      "isGsm7": false,
++      "segments": 2,
++      "characters": 71
++    },
++    {
++      "name": "ucs2-134",
++      "why": "exactly 2 x 67",
++      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5",
++      "isGsm7": false,
++      "segments": 2,
++      "characters": 134
++    },
++    {
++      "name": "ucs2-135",
++      "why": "one unit into the third part",
++      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5",
++      "isGsm7": false,
++      "segments": 3,
++      "characters": 135
++    },
++    {
++      "name": "emoji-alone",
++      "why": "non-BMP: TWO UTF-16 units for segments, ONE user-visible character",
++      "body": "\ud83d\ude00",
++      "isGsm7": false,
++      "segments": 1,
++      "characters": 1
++    },
++    {
++      "name": "emoji-35",
++      "why": "35 surrogate pairs = 70 units = one segment",
++      "body": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
++      "isGsm7": false,
++      "segments": 1,
++      "characters": 35
++    },
++    {
++      "name": "emoji-36",
++      "why": "72 units spills",
++      "body": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
++      "isGsm7": false,
++      "segments": 2,
++      "characters": 36
++    },
++    {
++      "name": "emoji-crosses-70",
++      "why": "the divergence case: 70 characters but 71 UTF-16 units, so 2 segments. Counting characters instead of units gives 1; counting units instead of characters gives 71 characters.",
++      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\ud83d\ude00",
++      "isGsm7": false,
++      "segments": 2,
++      "characters": 70
++    },
++    {
++      "name": "emoji-crosses-67",
++      "why": "same trap at the multipart boundary: 134 characters as in ucs2-134, but 135 units",
++      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\ud83d\ude00",
++      "isGsm7": false,
++      "segments": 3,
++      "characters": 134
++    },
++    {
++      "name": "mixed-ascii-emoji",
++      "why": "one emoji forces the whole body to UCS-2",
++      "body": "Hello \ud83d\ude00",
++      "isGsm7": false,
++      "segments": 1,
++      "characters": 7
++    },
++    {
++      "name": "em-dash",
++      "why": "a BMP character outside GSM-7 still forces UCS-2",
++      "body": "a \u2014 b",
++      "isGsm7": false,
++      "segments": 1,
++      "characters": 5
++    },
++    {
++      "name": "curly-quote",
++      "why": "the apostrophe a word processor produces is not GSM-7",
++      "body": "don\u2019t",
++      "isGsm7": false,
++      "segments": 1,
++      "characters": 5
++    }
++  ]
++}
+diff --git a/server/app/domain/_patch.py b/server/app/domain/_patch.py
+index 66a9172..65169b4 100644
+--- a/server/app/domain/_patch.py
++++ b/server/app/domain/_patch.py
+@@ -1,18 +1,29 @@
+ from __future__ import annotations
+ 
+ from pydantic import BaseModel
+ from sqlalchemy import inspect
+ 
+ from app.errors import ValidationFailed
+ 
+ 
++def wire_name(data: BaseModel, key: str) -> str:
++    """The camelCase name the caller sent for `key`, derived from the schema's alias generator.
++
++    Field-level 400s name this rather than the snake_case attribute, so a form can map the failure
++    back to the input the admin typed. Derived, never hand-maintained: a renamed field cannot go
++    stale here.
++    """
++    field = type(data).model_fields.get(key)
++    return (field.alias if field and field.alias else key)
++
++
+ def patch_changes(model: type, data: BaseModel, *, required: tuple[str, ...] = ()) -> dict:
+     """`model_dump(exclude_unset=True)`, refusing an explicit `null` on a field that cannot hold
+     one (ruling D82).
+ 
+     Every PATCH schema here declares its fields `T | None = None` so `exclude_unset` can tell
+     "absent" from "present" — which makes an explicit `{"name": null}` indistinguishable from the
+     optional type at the edge. Left alone the `None` reaches `setattr` and the NOT NULL constraint
+     raises `IntegrityError` at flush time; `errors.py` registers no `IntegrityError` handler, so
+     the caller gets a bare 500 (and on quick replies, a 409 blaming the shortcut, because the
+     nested flush's `except IntegrityError` assumed a collision). An admin form that serialises a
+@@ -24,15 +35,14 @@ def patch_changes(model: type, data: BaseModel, *, required: tuple[str, ...] = (
+     `required` names fields that are not columns on `model` but still cannot be null — the typed
+     keys this project stores inside `Property.settings`.
+     """
+     changes = data.model_dump(exclude_unset=True)
+     columns = inspect(model).columns
+     cleared = sorted(k for k, v in changes.items() if v is None
+                      and (k in required or (k in columns and not columns[k].nullable)))
+     if cleared:
+         # Report the camelCase names the caller actually sent, so a form can map the failure back
+         # to the input the admin cleared; `changes` stays snake_case for setattr.
+-        fields = type(data).model_fields
+-        wire = [fields[k].alias or k for k in cleared]
++        wire = [wire_name(data, k) for k in cleared]
+         raise ValidationFailed(f"Cannot be cleared: {', '.join(wire)}",
+                                details={name: "required" for name in wire})
+     return changes
+diff --git a/server/app/domain/guests.py b/server/app/domain/guests.py
+index 73e5209..191ad2d 100644
+--- a/server/app/domain/guests.py
++++ b/server/app/domain/guests.py
+@@ -16,32 +16,39 @@ from app.models import Guest
+ #
+ # The floor is deliberately 2 rather than a full E.164 length. This function also normalises SMS
+ # short codes, which are legitimate senders at 3-6 digits in the shortest national schemes, and
+ # guest numbers arriving from inbound webhooks. A floor tuned to a full subscriber number would
+ # reject that legitimate traffic — the same outage in the other direction. 2 is simultaneously the
+ # smallest floor that rejects both reported typos and comfortably below the shortest short code,
+ # so it cannot reject one.
+ MIN_SENDER_DIGITS = 2
+ 
+ 
+-def normalize_phone(raw: str) -> str:
++def normalize_phone(raw: str, *, field: str = "phone") -> str:
++    """`field` is the camelCase name of the input being validated, so the 400 names the box the
++    admin actually typed in. Without it every caller got `{"phone": ...}` — and the settings form
++    carries both a Phone and an SMS number input, so a mistyped sender number was flagged on
++    Phone. The detail is a reason code rather than the raw input: it is what a form maps to a
++    message, and echoing what the admin typed back at them says nothing they do not know.
++    """
+     raw = raw.strip()
+     digits = re.sub(r"\D", "", raw)
+     if raw.startswith("+"):
+         if len(digits) < MIN_SENDER_DIGITS:
+-            raise ValidationFailed("Invalid phone number", details={"phone": raw})
++            raise ValidationFailed("Invalid phone number",
++                                   details={field: "invalid_phone_number"})
+         return "+" + digits
+     if len(digits) == 10:
+         return "+1" + digits
+     if len(digits) == 11 and digits.startswith("1"):
+         return "+" + digits
+-    raise ValidationFailed("Invalid phone number", details={"phone": raw})
++    raise ValidationFailed("Invalid phone number", details={field: "invalid_phone_number"})
+ 
+ 
+ def find_by_phone(db: Session, property_id: str, phone: str) -> Guest | None:
+     return db.scalar(select(Guest).where(Guest.property_id == property_id,
+                                          Guest.phone_e164 == normalize_phone(phone)))
+ 
+ 
+ def find_or_create_by_phone(db: Session, property_id: str, phone: str) -> tuple[Guest, bool]:
+     existing = find_by_phone(db, property_id, phone)
+     if existing:
+diff --git a/server/app/domain/properties.py b/server/app/domain/properties.py
+index 004e4c3..1a75013 100644
+--- a/server/app/domain/properties.py
++++ b/server/app/domain/properties.py
+@@ -1,43 +1,44 @@
+ from __future__ import annotations
+ 
+ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+ 
+ from sqlalchemy.orm import Session
+ 
+-from app.domain._patch import patch_changes
++from app.domain._patch import patch_changes, wire_name
+ from app.domain.guests import normalize_phone
+ from app.errors import NotFound, ValidationFailed
+ from app.models import Property
+ from app.schemas.properties import PropertySettingsOut, PropertySettingsPatch
+ 
+ # Stored E.164: app/channels/inbound.py routes an inbound SMS by matching
+ # `Property.sms_number == guests.normalize_phone(to_number)`, so a settings edit that saved a
+ # prettified number would silently stop inbound routing for the property.
+ _PHONE_FIELDS = ("phone", "sms_number")
+ 
+ # The three live keys inside the untyped `Property.settings` blob, with the defaults their
+ # readers already apply: domain/conversations.py `_setting` (sla_minutes, auto_resolve_hours) and
+ # channels/inbound.py (help_text, the guest-visible automatic reply to HELP). The blob itself
+ # stays off the API; these are exposed as typed, validated fields instead.
+ _BAG_DEFAULTS: dict[str, object] = {"sla_minutes": 15, "auto_resolve_hours": 4, "help_text": None}
+ _BAG_REQUIRED = ("sla_minutes", "auto_resolve_hours")  # `_setting` does int(...); None would 500
+ 
+ 
+-def normalize_timezone(raw: str) -> str:
++def normalize_timezone(raw: str, *, field: str = "timezone") -> str:
+     """The zone is the intended basis for analytics bucketing, so a typo must be rejected rather
+     than persisted. Validated here rather than in a Pydantic validator to match `normalize_phone`,
+     the codebase's existing field-normalisation precedent."""
+     try:
+         ZoneInfo(raw)
+     except (ZoneInfoNotFoundError, ValueError) as e:
+-        raise ValidationFailed("Invalid time zone", details={"timezone": raw}) from e
++        raise ValidationFailed("Invalid time zone",
++                               details={field: "invalid_timezone"}) from e
+     return raw
+ 
+ 
+ def get(db: Session, property_id: str) -> Property:
+     p = db.get(Property, property_id)
+     if p is None:
+         raise NotFound("Property not found")
+     return p
+ 
+ 
+@@ -64,18 +65,18 @@ def update_settings(db: Session, property_id: str,
+ 
+     # `Property.settings` is a plain JSON column with no MutableDict, so mutating the dict in
+     # place would never be flushed: the whole value has to be reassigned.
+     bag_changes = {k: changes.pop(k) for k in list(changes) if k in _BAG_DEFAULTS}
+     if bag_changes:
+         p.settings = {**(p.settings or {}), **bag_changes}
+ 
+     for k, v in changes.items():
+         if v is not None:
+             if k in _PHONE_FIELDS:
+-                v = normalize_phone(v)
++                v = normalize_phone(v, field=wire_name(data, k))
+             elif k == "timezone":
+-                v = normalize_timezone(v)
++                v = normalize_timezone(v, field=wire_name(data, k))
+             elif k == "currency":
+                 v = v.upper()
+         setattr(p, k, v)
+     db.flush()
+     return _out(p)
+diff --git a/server/tests/test_property_settings.py b/server/tests/test_property_settings.py
+index 3aa8c4a..5b7dce9 100644
+--- a/server/tests/test_property_settings.py
++++ b/server/tests/test_property_settings.py
+@@ -51,20 +51,22 @@ def test_patch_settings_normalises_phone_numbers(app, fx, login):
+     assert body["smsNumber"] == "+15550123456" and body["phone"] == "+15550123457"
+     assert admin.patch(_settings_url(fx.property_a.id),
+                        json={"smsNumber": "not a phone"}).status_code == 400
+ 
+ 
+ def test_patch_settings_rejects_a_bad_timezone(app, fx, database, login):
+     admin = login("admin@hvh.test")
+     for bad in ("America/Nowhere", "EST5EDT7", "../../etc/passwd", ""):
+         res = admin.patch(_settings_url(fx.property_a.id), json={"timezone": bad})
+         assert res.status_code == 400, (bad, res.status_code)
++        if bad:  # "" fails Pydantic's max_length path, which carries the pydantic error list
++            assert res.get_json()["error"]["details"] == {"timezone": "invalid_timezone"}, bad
+     assert admin.patch(_settings_url(fx.property_a.id),
+                        json={"timezone": "Asia/Tokyo"}).status_code == 200
+     with database.session() as db:
+         assert db.scalar(select(Property.timezone)
+                          .where(Property.id == fx.property_a.id)) == "Asia/Tokyo"
+ 
+ 
+ def test_patch_settings_rejects_code_and_out_of_range_values(app, fx, database, login):
+     """`code` is unique across the install and identifies the property: CamelModel forbids extra
+     fields, so sending it is a 400 rather than a silent no-op."""
+@@ -111,21 +113,27 @@ def test_patch_settings_rejects_an_explicit_null_on_a_required_field(app, fx, da
+     with database.session() as db:
+         assert db.get(Property, fx.property_a.id).name  # nothing was nulled by the rejections
+ 
+ 
+ def test_patch_settings_rejects_a_sender_number_that_would_break_inbound(app, fx, database, login):
+     """Ruling D83: normalize_phone used to return "+" + digits for anything starting with "+", so
+     "+" saved with a 200 and silently stopped inbound SMS for the property."""
+     url = _settings_url(fx.property_a.id)
+     admin = login("admin@hvh.test")
+     for junk in ("+", "+1-", "+ "):
+-        assert admin.patch(url, json={"smsNumber": junk}).status_code == 400, junk
++        res = admin.patch(url, json={"smsNumber": junk})
++        assert res.status_code == 400, junk
++        # names the box the admin typed in, not "phone" (the settings form carries both), and
++        # carries a reason code rather than echoing the raw input back
++        err = res.get_json()["error"]
++        assert err["details"] == {"smsNumber": "invalid_phone_number"}, junk
++        assert junk not in str(err["details"]), junk
+     assert admin.patch(url, json={"smsNumber": "+55512"}).get_json()["smsNumber"] == "+55512"
+     with database.session() as db:
+         assert db.get(Property, fx.property_a.id).sms_number == "+55512"  # short codes still work
+ 
+ 
+ def test_patch_sla_minutes_reaches_the_conversation_sla(app, fx, client, database, login):
+     """`Property.settings` is a plain JSON column with no MutableDict, so the value has to be
+     reassigned rather than mutated in place or the write never flushes."""
+     from app.domain import conversations as conv_domain
+     from app.models import Conversation
+@@ -152,10 +160,27 @@ def test_patch_help_text_changes_the_guest_visible_help_reply(app, fx, client, d
+     from app.models import Message
+     from app.schemas.enums import Direction
+ 
+     admin = login("admin@hvh.test")
+     admin.patch(_settings_url(fx.property_a.id),
+                 json={"helpText": "Harbourview: text us, or call +1 555 0199."})
+     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "HELP")
+     with database.session() as db:
+         out = db.scalar(select(Message).where(Message.direction == Direction.outbound))
+         assert out.body == "Harbourview: text us, or call +1 555 0199."
++
++
++def test_a_field_level_400_names_the_field_that_was_patched(app, fx, login):
++    """normalize_phone hardcoded `details={"phone": raw}` for every caller, so a bad smsNumber was
++    reported against Phone — and the settings form has both inputs. The detail is now a reason
++    code keyed by the camelCase field actually being patched."""
++    url = _settings_url(fx.property_a.id)
++    admin = login("admin@hvh.test")
++    for field, value, code in (("phone", "nope", "invalid_phone_number"),
++                               ("smsNumber", "+", "invalid_phone_number"),
++                               ("timezone", "Mars/Olympus", "invalid_timezone")):
++        err = admin.patch(url, json={field: value}).get_json()["error"]
++        assert err["details"] == {field: code}, (field, err)
++    # the guest-facing callers keep the default field name, which is correct for them
++    assert login("agent@hvh.test").get(
++        f"/api/dev/sim/thread?phone=nope&propertyId={fx.property_a.id}"
++    ).get_json()["error"]["details"] == {"phone": "invalid_phone_number"}
+diff --git a/server/tests/test_sms.py b/server/tests/test_sms.py
+index 9dcaaa4..c69708e 100644
+--- a/server/tests/test_sms.py
++++ b/server/tests/test_sms.py
+@@ -1,10 +1,13 @@
++import json
++from pathlib import Path
++
+ import pytest
+ 
+ from app.domain.sms import is_gsm7, segment_count
+ 
+ 
+ @pytest.mark.parametrize("body,expected", [
+     ("", 0),
+     ("Hi", 1),
+     ("a" * 160, 1),
+     ("a" * 161, 2),
+@@ -19,10 +22,44 @@ from app.domain.sms import is_gsm7, segment_count
+     ("你好" * 35, 1),                    # 70 units UCS-2: exactly one segment
+     ("你好" * 36, 2),                    # 72 units UCS-2: multipart, 67 per segment
+ ])
+ def test_segment_count(body, expected):
+     assert segment_count(body) == expected
+ 
+ 
+ def test_is_gsm7():
+     assert is_gsm7("Hello, room 412 is ready @ 3pm!")
+     assert not is_gsm7("Hello — dash")  # em dash is not GSM-7
++
++
++GOLDEN = Path(__file__).resolve().parents[2] / "fixtures" / "sms-segments.json"
++
++
++def _golden_cases():
++    doc = json.loads(GOLDEN.read_text(encoding="utf-8"))
++    return [pytest.param(c, id=c["name"]) for c in doc["cases"]]
++
++
++@pytest.mark.parametrize("case", _golden_cases())
++def test_golden_vectors_match_the_shared_fixture(case):
++    """Ruling D89. web/src/lib/segments.ts is a deliberate line-for-line port of app/domain/sms.py
++    — the inbox composer needs per-keystroke feedback with no network round trip — so nothing but
++    this fixture stops the two drifting. web/src/lib/segments.golden.test.ts asserts the same file;
++    if either side moves, exactly one suite goes red and names the case.
++
++    `characters` is `len(body)` (code points, what the API returns) rather than UTF-16 units: for
++    a non-BMP character the two differ, and that is precisely where a port is most likely to slip.
++    """
++    body = case["body"]
++    assert is_gsm7(body) is case["isGsm7"], case["why"]
++    assert segment_count(body) == case["segments"], case["why"]
++    assert len(body) == case["characters"], case["why"]
++
++
++def test_the_golden_fixture_covers_the_boundaries():
++    """A vector file is worth exactly what it covers, so require the cases that matter to exist:
++    a pared-down fixture would make the guard above silently vacuous."""
++    names = {c["name"] for c in json.loads(GOLDEN.read_text(encoding="utf-8"))["cases"]}
++    assert {"empty", "gsm7-160", "gsm7-161", "gsm7-306", "gsm7-307",
++            "gsm7-extension-crosses-160", "gsm7-extension-crosses-153",
++            "ucs2-70", "ucs2-71", "ucs2-134", "ucs2-135",
++            "emoji-alone", "emoji-crosses-70", "emoji-crosses-67"} <= names
+diff --git a/web/src/lib/segments.golden.test.ts b/web/src/lib/segments.golden.test.ts
+new file mode 100644
+index 0000000..5e451c2
+--- /dev/null
++++ b/web/src/lib/segments.golden.test.ts
+@@ -0,0 +1,54 @@
++import { readFileSync } from 'node:fs'
++import { dirname, join } from 'node:path'
++import { fileURLToPath } from 'node:url'
++import { describe, expect, it } from 'vitest'
++import { charCount, isGsm7, segmentCount } from './segments'
++
++/**
++ * Ruling D89. This module is a deliberate line-for-line port of
++ * server/app/domain/sms.py — the composer needs a per-keystroke count with no
++ * network round trip — so nothing but this fixture stops the two drifting.
++ * server/tests/test_sms.py asserts the same file; if either side moves, exactly
++ * one suite goes red and names the case.
++ *
++ * `characters` is code points (charCount, `[...body].length`), `segments` is
++ * septets or UTF-16 code units (`body.length`). For a non-BMP character those
++ * differ, which is what the emoji-crosses-* cases exist to pin.
++ */
++
++// dirname(fileURLToPath(...)) rather than new URL('.', import.meta.url).pathname:
++// on Windows the latter's pathname ("/C:/Users/...") makes node:path's join()
++// prepend the current drive again. Same reasoning as types.generated.test.ts.
++const here = dirname(fileURLToPath(import.meta.url))
++const fixture = join(here, '..', '..', '..', 'fixtures', 'sms-segments.json')
++
++interface Case {
++  name: string
++  why: string
++  body: string
++  isGsm7: boolean
++  segments: number
++  characters: number
++}
++
++const cases = (JSON.parse(readFileSync(fixture, 'utf8')) as { cases: Case[] }).cases
++
++describe('shared SMS segment vectors', () => {
++  it.each(cases.map((c) => [c.name, c] as const))('%s', (_name, c) => {
++    expect(isGsm7(c.body), c.why).toBe(c.isGsm7)
++    expect(segmentCount(c.body), c.why).toBe(c.segments)
++    expect(charCount(c.body), c.why).toBe(c.characters)
++  })
++
++  it('covers the boundaries, so the guard above cannot go vacuous', () => {
++    const names = new Set(cases.map((c) => c.name))
++    for (const required of [
++      'empty', 'gsm7-160', 'gsm7-161', 'gsm7-306', 'gsm7-307',
++      'gsm7-extension-crosses-160', 'gsm7-extension-crosses-153',
++      'ucs2-70', 'ucs2-71', 'ucs2-134', 'ucs2-135',
++      'emoji-alone', 'emoji-crosses-70', 'emoji-crosses-67',
++    ]) {
++      expect(names, `${required} is missing from the shared fixture`).toContain(required)
++    }
++  })
++})

@@ -1,0 +1,187 @@
+# Review package: 3945025..e6e486f
+
+## Commits
+e6e486f fix(web): stop Dialog re-stealing focus on re-render; clear Toast timers
+
+## Files changed
+ web/src/components/ui/Dialog.test.tsx | 32 ++++++++++++++++++++++++++++++++
+ web/src/components/ui/Dialog.tsx      | 12 ++++++++++--
+ web/src/components/ui/Toast.tsx       | 25 +++++++++++++++++++++++--
+ 3 files changed, 65 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/web/src/components/ui/Dialog.test.tsx b/web/src/components/ui/Dialog.test.tsx
+index c1723aa..b37476a 100644
+--- a/web/src/components/ui/Dialog.test.tsx
++++ b/web/src/components/ui/Dialog.test.tsx
+@@ -1,12 +1,13 @@
+ import { render, screen } from '@testing-library/react'
+ import userEvent from '@testing-library/user-event'
++import { useState } from 'react'
+ import { describe, expect, it, vi } from 'vitest'
+ import { Dialog } from './Dialog'
+ 
+ function open(onClose = vi.fn()) {
+   render(
+     <Dialog open onClose={onClose} title="Create work order">
+       <input aria-label="Title" />
+       <button>Save</button>
+     </Dialog>,
+   )
+@@ -42,11 +43,42 @@ describe('Dialog', () => {
+     expect(onClose).toHaveBeenCalledOnce()
+   })
+ 
+   it('closes on a backdrop click but not on a click inside the panel', async () => {
+     const onClose = open()
+     await userEvent.click(screen.getByTestId('dialog-backdrop'))
+     expect(onClose).toHaveBeenCalledOnce()
+     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+     expect(onClose).toHaveBeenCalledOnce()
+   })
++
++  it('does not steal focus from a field the user is editing when the parent re-renders with a new onClose identity', async () => {
++    function Wrapper() {
++      const [open, setOpen] = useState(true)
++      const [notes, setNotes] = useState('')
++      return (
++        // A new arrow function every render, like a real caller writing onClose={() => setOpen(false)}.
++        <Dialog open={open} onClose={() => setOpen(false)} title="Create work order">
++          <input aria-label="Title" />
++          <textarea aria-label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
++        </Dialog>
++      )
++    }
++    render(<Wrapper />)
++    const notesField = screen.getByLabelText('Notes')
++    notesField.focus()
++    await userEvent.type(notesField, 'hi')
++    expect(notesField).toHaveFocus()
++  })
++
++  it('removes the Escape listener on unmount and does not throw when unmounted while open', async () => {
++    const onClose = vi.fn()
++    const { unmount } = render(
++      <Dialog open onClose={onClose} title="Create work order">
++        <input aria-label="Title" />
++      </Dialog>,
++    )
++    expect(() => unmount()).not.toThrow()
++    await userEvent.keyboard('{Escape}')
++    expect(onClose).not.toHaveBeenCalled()
++  })
+ })
+diff --git a/web/src/components/ui/Dialog.tsx b/web/src/components/ui/Dialog.tsx
+index b5df056..5eb34d2 100644
+--- a/web/src/components/ui/Dialog.tsx
++++ b/web/src/components/ui/Dialog.tsx
+@@ -12,41 +12,49 @@ export function Dialog({
+ }: {
+   open: boolean
+   onClose: () => void
+   title: string
+   children: ReactNode
+   footer?: ReactNode
+   wide?: boolean
+ }) {
+   const panel = useRef<HTMLDivElement>(null)
+   const restoreTo = useRef<Element | null>(null)
++  // Callers typically pass a fresh onClose identity every render (onClose={() => setOpen(false)}).
++  // Keep the latest one in a ref so the focus-management effect below can depend on [open] only —
++  // otherwise every parent re-render would replay the capture-and-focus logic and steal focus back.
++  const onCloseRef = useRef(onClose)
++
++  useEffect(() => {
++    onCloseRef.current = onClose
++  }, [onClose])
+ 
+   useEffect(() => {
+     if (!open) return
+     restoreTo.current = document.activeElement
+     const focusable = panel.current?.querySelector<HTMLElement>(
+       'input, textarea, select, button, [href], [tabindex]:not([tabindex="-1"])',
+     )
+     ;(focusable ?? panel.current)?.focus()
+ 
+     function onKeyDown(event: KeyboardEvent) {
+       if (event.key === 'Escape') {
+         event.stopPropagation()
+-        onClose()
++        onCloseRef.current()
+       }
+     }
+     document.addEventListener('keydown', onKeyDown)
+     return () => {
+       document.removeEventListener('keydown', onKeyDown)
+       ;(restoreTo.current as HTMLElement | null)?.focus?.()
+     }
+-  }, [open, onClose])
++  }, [open])
+ 
+   if (!open) return null
+ 
+   return (
+     <div className="fixed inset-0 z-50 grid place-items-center p-4">
+       <div
+         data-testid="dialog-backdrop"
+         className="absolute inset-0 bg-black/60"
+         onClick={onClose}
+       />
+diff --git a/web/src/components/ui/Toast.tsx b/web/src/components/ui/Toast.tsx
+index 5468030..fe1f252 100644
+--- a/web/src/components/ui/Toast.tsx
++++ b/web/src/components/ui/Toast.tsx
+@@ -1,30 +1,51 @@
+-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
++import {
++  createContext,
++  useCallback,
++  useContext,
++  useEffect,
++  useRef,
++  useState,
++  type ReactNode,
++} from 'react'
+ import { cn } from '../../lib/cn'
+ 
+ type Toast = { id: number; message: string; tone: 'ok' | 'danger' }
+ 
+ const ToastContext = createContext<((message: string, tone?: 'ok' | 'danger') => void) | null>(null)
+ 
+ export function useToast() {
+   const push = useContext(ToastContext)
+   if (!push) throw new Error('useToast must be used inside a ToastProvider')
+   return push
+ }
+ 
+ export function ToastProvider({ children }: { children: ReactNode }) {
+   const [toasts, setToasts] = useState<Toast[]>([])
++  const timers = useRef(new Set<ReturnType<typeof setTimeout>>())
++
++  useEffect(() => {
++    const pending = timers.current
++    return () => {
++      pending.forEach((timer) => clearTimeout(timer))
++      pending.clear()
++    }
++  }, [])
+ 
+   const push = useCallback((message: string, tone: 'ok' | 'danger' = 'ok') => {
+     const id = Date.now() + Math.random()
+     setToasts((current) => [...current, { id, message, tone }])
+-    setTimeout(() => setToasts((current) => current.filter((t) => t.id !== id)), 5000)
++    const timer = setTimeout(() => {
++      timers.current.delete(timer)
++      setToasts((current) => current.filter((t) => t.id !== id))
++    }, 5000)
++    timers.current.add(timer)
+   }, [])
+ 
+   return (
+     <ToastContext.Provider value={push}>
+       {children}
+       <div
+         aria-live="polite"
+         className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2"
+       >
+         {toasts.map((t) => (

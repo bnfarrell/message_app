@@ -1,0 +1,487 @@
+# Review package: 3f94e05..3945025
+
+## Commits
+3945025 feat(web): session context, capability map mirroring the server, and route guard
+30ce459 fix(web): disable Node's native webstorage global so vitest's jsdom localStorage works
+
+## Files changed
+ web/src/api/hooks/auth.ts            | 35 ++++++++++++++
+ web/src/auth/RequireAuth.tsx         | 47 +++++++++++++++++++
+ web/src/auth/SessionContext.test.tsx | 88 ++++++++++++++++++++++++++++++++++++
+ web/src/auth/SessionContext.tsx      | 67 +++++++++++++++++++++++++++
+ web/src/auth/capabilities.test.ts    | 49 ++++++++++++++++++++
+ web/src/auth/capabilities.ts         | 50 ++++++++++++++++++++
+ web/src/test/harness.tsx             | 63 ++++++++++++++++++++++++++
+ web/vite.config.ts                   | 11 +++++
+ 8 files changed, 410 insertions(+)
+
+## Diff
+diff --git a/web/src/api/hooks/auth.ts b/web/src/api/hooks/auth.ts
+new file mode 100644
+index 0000000..89cda1c
+--- /dev/null
++++ b/web/src/api/hooks/auth.ts
+@@ -0,0 +1,35 @@
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
++import { ApiError, api } from '../client'
++import { qk } from '../queryKeys'
++import type { LoginRequest, SessionOut } from '../types'
++
++export function useSessionQuery() {
++  return useQuery<SessionOut, ApiError>({
++    queryKey: qk.session,
++    queryFn: () => api<SessionOut>('/api/auth/me'),
++    // A 401 here is the answer ("not logged in"), not a transient failure worth retrying.
++    retry: false,
++    staleTime: Infinity,
++  })
++}
++
++export function useLogin() {
++  const client = useQueryClient()
++  return useMutation<SessionOut, ApiError, LoginRequest>({
++    mutationFn: (body) => api<SessionOut>('/api/auth/login', { method: 'POST', json: body }),
++    onSuccess: (session) => {
++      client.setQueryData(qk.session, session)
++    },
++  })
++}
++
++export function useLogout() {
++  const client = useQueryClient()
++  return useMutation<void, ApiError, void>({
++    mutationFn: () => api<void>('/api/auth/logout', { method: 'POST' }),
++    // Clear unconditionally: a failed logout must not leave another user's cache on screen.
++    onSettled: () => {
++      client.clear()
++    },
++  })
++}
+diff --git a/web/src/auth/RequireAuth.tsx b/web/src/auth/RequireAuth.tsx
+new file mode 100644
+index 0000000..285e2c3
+--- /dev/null
++++ b/web/src/auth/RequireAuth.tsx
+@@ -0,0 +1,47 @@
++import { useEffect } from 'react'
++import { Navigate, Outlet, useLocation } from 'react-router-dom'
++import { useSessionQuery } from '../api/hooks/auth'
++import { onUnauthorized } from '../api/client'
++import { Spinner } from '../components/ui'
++import { SessionProvider } from './SessionContext'
++
++export function RequireAuth() {
++  const { data, isPending, error, refetch } = useSessionQuery()
++  const location = useLocation()
++
++  // Any 401 from any request means the cookie died mid-session; refetching /api/auth/me
++  // flips this guard to the redirect below instead of leaving a half-dead screen up.
++  useEffect(() => {
++    onUnauthorized(() => void refetch())
++    return () => onUnauthorized(null)
++  }, [refetch])
++
++  if (isPending) {
++    return (
++      <div className="grid h-full place-items-center bg-bg">
++        <Spinner />
++      </div>
++    )
++  }
++
++  if (error || !data) {
++    const from = `${location.pathname}${location.search}`
++    return <Navigate to="/login" replace state={{ from }} />
++  }
++
++  if (data.memberships.length === 0) {
++    return (
++      <div className="grid h-full place-items-center bg-bg p-8 text-center">
++        <p className="max-w-sm text-text2">
++          Your account has no property access yet. Ask an administrator to add you to a property.
++        </p>
++      </div>
++    )
++  }
++
++  return (
++    <SessionProvider>
++      <Outlet />
++    </SessionProvider>
++  )
++}
+diff --git a/web/src/auth/SessionContext.test.tsx b/web/src/auth/SessionContext.test.tsx
+new file mode 100644
+index 0000000..5f7ff08
+--- /dev/null
++++ b/web/src/auth/SessionContext.test.tsx
+@@ -0,0 +1,88 @@
++import { screen, waitFor } from '@testing-library/react'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { renderWithProviders, sessionFixture } from '../test/harness'
++import { SessionProvider, useSession } from './SessionContext'
++
++function Probe() {
++  const { user, role, propertyId, can, setPropertyId } = useSession()
++  return (
++    <div>
++      <span data-testid="who">{user.firstName}</span>
++      <span data-testid="role">{role}</span>
++      <span data-testid="property">{propertyId}</span>
++      <span data-testid="can-archive">{String(can('archive'))}</span>
++      <button onClick={() => setPropertyId('prop-b')}>switch</button>
++    </div>
++  )
++}
++
++describe('SessionProvider', () => {
++  beforeEach(() => {
++    localStorage.clear()
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('exposes the user, the active membership role and its capabilities', async () => {
++    renderWithProviders(
++      <SessionProvider>
++        <Probe />
++      </SessionProvider>,
++      { session: sessionFixture({ role: 'agent' }) },
++    )
++    await waitFor(() => expect(screen.getByTestId('who')).toHaveTextContent('Ava'))
++    expect(screen.getByTestId('role')).toHaveTextContent('agent')
++    expect(screen.getByTestId('property')).toHaveTextContent('prop-a')
++    expect(screen.getByTestId('can-archive')).toHaveTextContent('true')
++  })
++
++  it('defaults to the first membership when nothing is stored', async () => {
++    renderWithProviders(
++      <SessionProvider>
++        <Probe />
++      </SessionProvider>,
++      { session: sessionFixture({ role: 'agent', withSecondProperty: true }) },
++    )
++    await waitFor(() => expect(screen.getByTestId('property')).toHaveTextContent('prop-a'))
++  })
++
++  it('restores a stored active property when it is still a membership', async () => {
++    localStorage.setItem('activePropertyId', 'prop-b')
++    renderWithProviders(
++      <SessionProvider>
++        <Probe />
++      </SessionProvider>,
++      { session: sessionFixture({ role: 'agent', withSecondProperty: true }) },
++    )
++    await waitFor(() => expect(screen.getByTestId('property')).toHaveTextContent('prop-b'))
++  })
++
++  it('ignores a stored property the user no longer has access to', async () => {
++    localStorage.setItem('activePropertyId', 'prop-gone')
++    renderWithProviders(
++      <SessionProvider>
++        <Probe />
++      </SessionProvider>,
++      { session: sessionFixture({ role: 'agent' }) },
++    )
++    await waitFor(() => expect(screen.getByTestId('property')).toHaveTextContent('prop-a'))
++  })
++
++  it('takes the role from the active property, not the first one', async () => {
++    localStorage.setItem('activePropertyId', 'prop-b')
++    renderWithProviders(
++      <SessionProvider>
++        <Probe />
++      </SessionProvider>,
++      { session: sessionFixture({ role: 'agent', withSecondProperty: true, secondRole: 'admin' }) },
++    )
++    await waitFor(() => expect(screen.getByTestId('role')).toHaveTextContent('admin'))
++  })
++
++  it('throws when used outside the provider, so a missing provider fails loudly', () => {
++    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
++    expect(() => renderWithProviders(<Probe />)).toThrow(/SessionProvider/)
++    quiet.mockRestore()
++  })
++})
+diff --git a/web/src/auth/SessionContext.tsx b/web/src/auth/SessionContext.tsx
+new file mode 100644
+index 0000000..76776b4
+--- /dev/null
++++ b/web/src/auth/SessionContext.tsx
+@@ -0,0 +1,67 @@
++import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
++import { useLogout, useSessionQuery } from '../api/hooks/auth'
++import type { MembershipOut, Role, UserOut } from '../api/types'
++import { hasCapability, type Capability } from './capabilities'
++
++const STORAGE_KEY = 'activePropertyId'
++
++export type Session = {
++  user: UserOut
++  memberships: MembershipOut[]
++  membership: MembershipOut
++  propertyId: string
++  role: Role
++  can: (capability: Capability) => boolean
++  setPropertyId: (id: string) => void
++  logout: () => void
++}
++
++const SessionContext = createContext<Session | null>(null)
++
++export function useSession(): Session {
++  const value = useContext(SessionContext)
++  if (!value) throw new Error('useSession must be used inside a SessionProvider')
++  return value
++}
++
++export function SessionProvider({ children }: { children: ReactNode }) {
++  const { data } = useSessionQuery()
++  // `mutate` is a stable reference in TanStack Query v5; the mutation object itself is not,
++  // so depending on that would defeat the memo below and re-render every consumer constantly.
++  const { mutate: logout } = useLogout()
++  const [stored, setStored] = useState<string | null>(() => {
++    try {
++      return localStorage.getItem(STORAGE_KEY)
++    } catch {
++      return null // private mode / blocked storage: fall back to the first membership
++    }
++  })
++
++  const setPropertyId = useCallback((id: string) => {
++    setStored(id)
++    try {
++      localStorage.setItem(STORAGE_KEY, id)
++    } catch {
++      /* not fatal — the choice just will not survive a reload */
++    }
++  }, [])
++
++  const value = useMemo<Session | null>(() => {
++    if (!data || data.memberships.length === 0) return null
++    const membership =
++      data.memberships.find((m) => m.propertyId === stored) ?? data.memberships[0]!
++    return {
++      user: data.user,
++      memberships: data.memberships,
++      membership,
++      propertyId: membership.propertyId,
++      role: membership.role,
++      can: (capability) => hasCapability(membership.role, capability),
++      setPropertyId,
++      logout: () => logout(),
++    }
++  }, [data, stored, setPropertyId, logout])
++
++  if (!value) return null
++  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
++}
+diff --git a/web/src/auth/capabilities.test.ts b/web/src/auth/capabilities.test.ts
+new file mode 100644
+index 0000000..ef09d5a
+--- /dev/null
++++ b/web/src/auth/capabilities.test.ts
+@@ -0,0 +1,49 @@
++import { describe, expect, it } from 'vitest'
++import type { Role } from '../api/types'
++import { hasCapability, landingPath } from './capabilities'
++
++describe('hasCapability', () => {
++  it('lets agents reply but not close work orders', () => {
++    expect(hasCapability('agent', 'reply')).toBe(true)
++    expect(hasCapability('agent', 'close_work_order')).toBe(false)
++  })
++
++  it('lets dept_staff close work orders but not archive conversations', () => {
++    expect(hasCapability('dept_staff', 'close_work_order')).toBe(true)
++    expect(hasCapability('dept_staff', 'archive')).toBe(false)
++  })
++
++  it('keeps dept_staff out of the property-wide conversation list', () => {
++    expect(hasCapability('dept_staff', 'view_all_conversations')).toBe(false)
++    expect(hasCapability('agent', 'view_all_conversations')).toBe(true)
++  })
++
++  it('gives corporate analytics but not reply or admin-side writes', () => {
++    expect(hasCapability('corporate', 'view_property_analytics')).toBe(true)
++    expect(hasCapability('corporate', 'reply')).toBe(false)
++    expect(hasCapability('corporate', 'manage_admin')).toBe(true)
++  })
++
++  it('restricts admin screens to admin and corporate', () => {
++    const allowed: Role[] = ['admin', 'corporate']
++    const denied: Role[] = ['agent', 'dept_staff', 'supervisor', 'manager']
++    for (const r of allowed) expect(hasCapability(r, 'manage_admin'), r).toBe(true)
++    for (const r of denied) expect(hasCapability(r, 'manage_admin'), r).toBe(false)
++  })
++
++  it('lets every staff role add a note', () => {
++    const all: Role[] = ['agent', 'dept_staff', 'supervisor', 'manager', 'admin', 'corporate']
++    for (const r of all) expect(hasCapability(r, 'add_note'), r).toBe(true)
++  })
++})
++
++describe('landingPath', () => {
++  it('sends each role where §5.2 says', () => {
++    expect(landingPath('agent')).toBe('/app/inbox')
++    expect(landingPath('dept_staff')).toBe('/app/board?mine=1')
++    expect(landingPath('supervisor')).toBe('/app/board?mine=1')
++    expect(landingPath('manager')).toBe('/app/analytics')
++    expect(landingPath('admin')).toBe('/app/analytics')
++    expect(landingPath('corporate')).toBe('/app/analytics')
++  })
++})
+diff --git a/web/src/auth/capabilities.ts b/web/src/auth/capabilities.ts
+new file mode 100644
+index 0000000..07a5b58
+--- /dev/null
++++ b/web/src/auth/capabilities.ts
+@@ -0,0 +1,50 @@
++import type { Role } from '../api/types'
++
++export type Capability =
++  | 'view_all_conversations'
++  | 'reply'
++  | 'assign'
++  | 'add_note'
++  | 'archive'
++  | 'create_work_order'
++  | 'close_work_order'
++  | 'view_property_analytics'
++  | 'view_own_stats'
++  | 'manage_admin'
++  | 'export'
++
++const STAFF: Role[] = ['agent', 'dept_staff', 'supervisor', 'manager', 'admin', 'corporate']
++
++/** Mirrors server/app/auth/permissions.py CAPABILITIES. Keep the two in step. */
++const CAPABILITIES: Record<Capability, Role[]> = {
++  view_all_conversations: ['agent', 'supervisor', 'manager', 'admin', 'corporate'],
++  reply: ['agent', 'dept_staff', 'supervisor', 'manager', 'admin'],
++  assign: ['agent', 'dept_staff', 'supervisor', 'manager', 'admin'],
++  add_note: STAFF,
++  archive: ['agent', 'supervisor', 'manager', 'admin'],
++  create_work_order: ['agent', 'dept_staff', 'supervisor', 'manager', 'admin'],
++  close_work_order: ['dept_staff', 'supervisor', 'manager', 'admin'],
++  view_property_analytics: ['supervisor', 'manager', 'admin', 'corporate'],
++  view_own_stats: ['agent', 'dept_staff'],
++  manage_admin: ['admin', 'corporate'],
++  export: ['manager', 'admin', 'corporate'],
++}
++
++export function hasCapability(role: Role, capability: Capability): boolean {
++  return CAPABILITIES[capability].includes(role)
++}
++
++/** §5.2: /app redirects here. */
++export function landingPath(role: Role): string {
++  switch (role) {
++    case 'agent':
++      return '/app/inbox'
++    case 'dept_staff':
++    case 'supervisor':
++      return '/app/board?mine=1'
++    case 'manager':
++    case 'admin':
++    case 'corporate':
++      return '/app/analytics'
++  }
++}
+diff --git a/web/src/test/harness.tsx b/web/src/test/harness.tsx
+new file mode 100644
+index 0000000..506ad9e
+--- /dev/null
++++ b/web/src/test/harness.tsx
+@@ -0,0 +1,63 @@
++import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
++import { type RenderResult, render } from '@testing-library/react'
++import type { ReactNode } from 'react'
++import { MemoryRouter } from 'react-router-dom'
++import { qk } from '../api/queryKeys'
++import type { MembershipOut, Role, SessionOut } from '../api/types'
++
++export function sessionFixture(opts: {
++  role?: Role
++  withSecondProperty?: boolean
++  secondRole?: Role
++  departmentId?: string | null
++} = {}): SessionOut {
++  const memberships: MembershipOut[] = [
++    {
++      propertyId: 'prop-a',
++      propertyName: 'Harbourview Hotel',
++      propertyCode: 'HVH',
++      role: opts.role ?? 'agent',
++      departmentId: opts.departmentId ?? null,
++    },
++  ]
++  if (opts.withSecondProperty) {
++    memberships.push({
++      propertyId: 'prop-b',
++      propertyName: 'Lakeside Inn',
++      propertyCode: 'LSI',
++      role: opts.secondRole ?? opts.role ?? 'agent',
++      departmentId: null,
++    })
++  }
++  return {
++    user: {
++      id: 'u-ava',
++      email: 'ava@hvh.test',
++      firstName: 'Ava',
++      lastName: 'Nolan',
++      locale: 'en',
++      avatarUrl: null,
++    },
++    memberships,
++  }
++}
++
++export function testQueryClient(): QueryClient {
++  return new QueryClient({
++    defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
++  })
++}
++
++export function renderWithProviders(
++  ui: ReactNode,
++  opts: { session?: SessionOut; route?: string; client?: QueryClient } = {},
++): RenderResult & { client: QueryClient } {
++  const client = opts.client ?? testQueryClient()
++  if (opts.session) client.setQueryData(qk.session, opts.session)
++  const result = render(
++    <QueryClientProvider client={client}>
++      <MemoryRouter initialEntries={[opts.route ?? '/']}>{ui}</MemoryRouter>
++    </QueryClientProvider>,
++  )
++  return { ...result, client }
++}
+diff --git a/web/vite.config.ts b/web/vite.config.ts
+index 42b48aa..b6b105d 100644
+--- a/web/vite.config.ts
++++ b/web/vite.config.ts
+@@ -17,12 +17,23 @@ export default defineConfig({
+     environment: 'jsdom',
+     environmentMatchGlobs: [
+       ['src/index.css.test.ts', 'node'],
+       ['src/api/types.generated.test.ts', 'node'],
+     ],
+     globals: true,
+     setupFiles: ['./vitest.setup.ts'],
+     css: false,
+     // Unit and component tests only. tests/e2e/ belongs to Playwright.
+     include: ['src/**/*.test.{ts,tsx}'],
++    poolOptions: {
++      // Node's own global `localStorage` (stable since Node 22) shadows jsdom's working
++      // implementation: vitest only copies a jsdom window property onto the test global when
++      // that key isn't already present on `global`, so Node's stub (which throws without
++      // --localstorage-file) wins and jsdom's storage never gets installed. Disabling Node's
++      // built-in lets vitest fall through to jsdom's real localStorage/sessionStorage.
++      // Vitest's default pool is 'forks', not 'threads' -- set execArgv on both so the fix
++      // holds regardless of which pool a future config change (or CLI flag) selects.
++      threads: { execArgv: ['--no-experimental-webstorage'] },
++      forks: { execArgv: ['--no-experimental-webstorage'] },
++    },
+   },
+ })

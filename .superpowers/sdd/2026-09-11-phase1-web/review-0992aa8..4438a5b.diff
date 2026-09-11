@@ -1,0 +1,736 @@
+# Review package: 0992aa8..4438a5b
+
+## Commits
+4438a5b fix(web): a failed save must not accuse the next record's inputs
+09cdd3d refactor(web): extract fieldErrors into a shared, tested normaliser (D90)
+
+## Files changed
+ web/src/api/fieldErrors.test.ts                   | 137 ++++++++++++++++++++
+ web/src/api/fieldErrors.ts                        |  46 +++++++
+ web/src/features/admin/QuickRepliesAdmin.test.tsx | 148 ++++++++++++++++++++--
+ web/src/features/admin/QuickRepliesAdmin.tsx      | 122 +++++++++---------
+ 4 files changed, 377 insertions(+), 76 deletions(-)
+
+## Diff
+diff --git a/web/src/api/fieldErrors.test.ts b/web/src/api/fieldErrors.test.ts
+new file mode 100644
+index 0000000..50c450b
+--- /dev/null
++++ b/web/src/api/fieldErrors.test.ts
+@@ -0,0 +1,137 @@
++import { describe, expect, it } from 'vitest'
++import { ApiError } from './client'
++import { fieldErrors } from './fieldErrors'
++
++function failure(details: unknown, message = 'Invalid request body'): ApiError {
++  return new ApiError(400, 'VALIDATION_FAILED', message, details)
++}
++
++describe('fieldErrors', () => {
++  describe('the object shape — domain validators and patch_changes', () => {
++    it('keys a reason code by the camelCase field the server named', () => {
++      expect(fieldErrors(failure({ escalationMinutes: 'required' }))).toEqual({
++        escalationMinutes: 'required',
++      })
++    })
++
++    it('carries every field in one failure', () => {
++      // update_settings can refuse several cleared fields at once.
++      expect(fieldErrors(failure({ name: 'required', currency: 'required' }))).toEqual({
++        name: 'required',
++        currency: 'required',
++      })
++    })
++
++    it('passes the reason code through verbatim, for the form to word', () => {
++      // normalize_phone raises a code, not a sentence, and not the raw input.
++      expect(fieldErrors(failure({ smsNumber: 'invalid_phone_number' }))).toEqual({
++        smsNumber: 'invalid_phone_number',
++      })
++    })
++
++    it('stringifies a non-string value rather than rendering [object Object]', () => {
++      expect(fieldErrors(failure({ slaMinutes: 0 }))).toEqual({ slaMinutes: '0' })
++    })
++  })
++
++  describe('the array shape — parse_body forwarding Pydantic', () => {
++    it('takes the field from loc and the wording from msg', () => {
++      expect(
++        fieldErrors(
++          failure([
++            {
++              type: 'string_too_long',
++              loc: ['smsNumber'],
++              msg: 'String should have at most 32 characters',
++              input: '+1555012345678901234567890123456789',
++              ctx: { max_length: 32 },
++            },
++          ]),
++        ),
++      ).toEqual({ smsNumber: 'String should have at most 32 characters' })
++    })
++
++    it('never surfaces `input`, which is only the admin’s own typing echoed back', () => {
++      const mapped = fieldErrors(
++        failure([
++          { type: 'string_pattern_mismatch', loc: ['shortcut'], msg: 'String should match pattern',
++            input: 'not-a-shortcut', ctx: { pattern: '^/[a-z0-9_-]+$' } },
++        ]),
++      )
++      expect(Object.values(mapped)).not.toContain('not-a-shortcut')
++      expect(JSON.stringify(mapped)).not.toContain('not-a-shortcut')
++    })
++
++    it('reports every field, and keeps the first error for a field that fails twice', () => {
++      expect(
++        fieldErrors(
++          failure([
++            { loc: ['locale'], msg: 'String should have at least 1 character' },
++            { loc: ['shortcut'], msg: 'String should match pattern' },
++            { loc: ['locale'], msg: 'a later complaint about the same input' },
++          ]),
++        ),
++      ).toEqual({
++        locale: 'String should have at least 1 character',
++        shortcut: 'String should match pattern',
++      })
++    })
++
++    it('uses the last loc element, so a nested field lands on its own input', () => {
++      expect(fieldErrors(failure([{ loc: ['settings', 'slaMinutes'], msg: 'Input should be greater than 0' }])))
++        .toEqual({ slaMinutes: 'Input should be greater than 0' })
++    })
++
++    it('leaves out an error whose loc ends in an array index, rather than keying it by a number', () => {
++      // A list field's nth element names no input on any form. The panel banner still carries the
++      // top-level message, so the failure is reported — just not pinned to a box.
++      expect(fieldErrors(failure([{ loc: ['tags', 0], msg: 'Input should be a valid string' }]))).toEqual({})
++    })
++
++    it('keeps the fields it can place when one entry in the same failure cannot be placed', () => {
++      expect(
++        fieldErrors(
++          failure([
++            { loc: ['tags', 2], msg: 'Input should be a valid string' },
++            { loc: ['name'], msg: 'String should have at least 1 character' },
++          ]),
++        ),
++      ).toEqual({ name: 'String should have at least 1 character' })
++    })
++
++    it('skips an entry with no msg and one with no loc', () => {
++      expect(fieldErrors(failure([{ loc: ['name'] }, { msg: 'orphaned' }]))).toEqual({})
++    })
++  })
++
++  describe('nothing to map', () => {
++    it('is empty when the error carries no details', () => {
++      expect(fieldErrors(failure(undefined, 'Shortcut /wifi is already in use'))).toEqual({})
++    })
++
++    it('is empty for a null or non-object details', () => {
++      expect(fieldErrors(failure(null))).toEqual({})
++      expect(fieldErrors(failure('something went wrong'))).toEqual({})
++      expect(fieldErrors(failure([]))).toEqual({})
++    })
++
++    it('is empty for no error at all, or an error that is not an ApiError', () => {
++      expect(fieldErrors(null)).toEqual({})
++      expect(fieldErrors(undefined)).toEqual({})
++      expect(fieldErrors(new Error('boom'))).toEqual({})
++    })
++
++    it('names a field no form has without disturbing the ones it does', () => {
++      // `code` is rejected by extra="forbid" on PropertySettingsPatch but is read-only in the UI,
++      // so nothing looks it up. It must not break the lookup of the fields that are on screen.
++      const mapped = fieldErrors(
++        failure([
++          { loc: ['code'], msg: 'Extra inputs are not permitted' },
++          { loc: ['currency'], msg: 'String should match pattern' },
++        ]),
++      )
++      expect(mapped.currency).toBe('String should match pattern')
++      expect(mapped.name).toBeUndefined()
++    })
++  })
++})
+diff --git a/web/src/api/fieldErrors.ts b/web/src/api/fieldErrors.ts
+new file mode 100644
+index 0000000..fbd5584
+--- /dev/null
++++ b/web/src/api/fieldErrors.ts
+@@ -0,0 +1,46 @@
++import { ApiError } from './client'
++
++/** One Pydantic error, as `app/api/_util.parse_body` forwards it (`e.errors(include_url=False)`). */
++type PydanticError = { loc?: unknown[]; msg?: string }
++
++/**
++ * Maps a 400's `details` onto the form inputs it names, so a failure lands on the field the admin
++ * typed in rather than only in a banner.
++ *
++ * The server has **two** shapes for `details` and neither is going away. A1 left them alone
++ * deliberately: unifying them means changing `parse_body` for every endpoint in the product, and
++ * it interacts with a separate unfixed defect there. So this normaliser is the contract.
++ *
++ * - `app/api/_util.parse_body` forwards Pydantic's error **array**:
++ *   `[{ loc: ["smsNumber"], msg: "String should have at most 32 characters", type, ctx, input }]`.
++ *   The field is `loc`'s last element; the message is `msg`.
++ * - `app/domain/_patch.patch_changes` and the domain validators raise an **object** keyed by field:
++ *   `{ "escalationMinutes": "required", "smsNumber": "invalid_phone_number" }`. The value there is
++ *   a reason **code**, not a sentence — a form maps it to its own wording.
++ *
++ * Both key on the camelCase name the client sent, so the result can be indexed by the form's own
++ * field names either way. A key the form has no input for is simply never looked up; the panel's
++ * banner still carries the top-level `message`, so nothing is lost.
++ *
++ * `input` is deliberately never read. It echoes the admin's raw typing back, which tells them
++ * nothing they cannot already see in the box they typed it into.
++ */
++export function fieldErrors(error: unknown): Record<string, string> {
++  const details = error instanceof ApiError ? error.details : undefined
++  if (!details || typeof details !== 'object') return {}
++
++  if (!Array.isArray(details)) {
++    return Object.fromEntries(
++      Object.entries(details as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
++    )
++  }
++
++  const out: Record<string, string> = {}
++  for (const item of details as PydanticError[]) {
++    // `loc` ends in an array index for a list field's nth element, which names no input. Such an
++    // error is left out rather than keyed under a number; the banner still reports it.
++    const field = item.loc?.[item.loc.length - 1]
++    if (typeof field === 'string' && item.msg && !(field in out)) out[field] = item.msg
++  }
++  return out
++}
+diff --git a/web/src/features/admin/QuickRepliesAdmin.test.tsx b/web/src/features/admin/QuickRepliesAdmin.test.tsx
+index 60c6cef..2b510cc 100644
+--- a/web/src/features/admin/QuickRepliesAdmin.test.tsx
++++ b/web/src/features/admin/QuickRepliesAdmin.test.tsx
+@@ -1,22 +1,23 @@
+-import { screen, waitFor } from '@testing-library/react'
++import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+ import userEvent from '@testing-library/user-event'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import type { RenderedQuickReply } from '../../api/types'
+ import { SessionProvider } from '../../auth/SessionContext'
+ import { aDepartment, aQuickReply } from '../../test/factories'
+ import { renderWithProviders, sessionFixture } from '../../test/harness'
+ import { QuickRepliesAdmin } from './QuickRepliesAdmin'
+ 
+ const REPLIES = [
+   aQuickReply({ id: 'q1', shortcut: '/wifi', title: 'WiFi details', usageCount: 212 }),
+-  aQuickReply({ id: 'q2', shortcut: '/shuttle', title: 'Airport shuttle', active: false, usageCount: 0 }),
++  aQuickReply({ id: 'q2', shortcut: '/shuttle', title: 'Airport shuttle', active: false, usageCount: 0,
++                body: 'The shuttle runs on the hour from 5 AM.' }),
+ ]
+ 
+ // What GET /quick-replies/variables answers — server/app/domain/quick_replies.py VARIABLES.
+ const VARIABLES = [
+   'guest_first_name', 'room_number', 'property_name', 'agent_first_name', 'departure_date',
+ ]
+ // server/app/domain/quick_replies.py FALLBACKS, which is what a preview with no conversation uses.
+ const FALLBACKS: Record<string, string> = {
+   guest_first_name: 'there', room_number: 'your room', property_name: 'the hotel',
+   agent_first_name: 'the front desk', departure_date: 'soon',
+@@ -291,35 +292,61 @@ describe('QuickRepliesAdmin', () => {
+     await user.click(screen.getByRole('button', { name: 'room_number' }))
+     expect(body).toHaveValue('Hi {{guest_first_name}} in {{room_number}}')
+     expect(await screen.findByText('Hi there in your room')).toBeInTheDocument()
+     expect(screen.getByText(/Preview · sample values/)).toBeInTheDocument()
+     // No conversation is chosen, fetched or sent - Property B has none, and a stored-row render
+     // could not show an unsaved draft anyway.
+     expect(lastBody('POST')).toEqual({ body: 'Hi {{guest_first_name}} in {{room_number}}' })
+     expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('/conversations'))).toBe(false)
+   })
+ 
++  /**
++   * Fake timers, so the 300 ms window is exact rather than raced against the machine.
++   *
++   * An earlier version typed with a real ~20 ms delay and asserted "fewer than 5 requests". It
++   * could fail — verified — but only by a margin a loaded machine can close: once a gap between
++   * keystrokes exceeds 300 ms, intermediate previews fire for real. A flake in the *passing*
++   * direction, on the one test whose job is to catch a missing debounce, is worthless.
++   *
++   * Two constraints shape how this is written, both measured rather than assumed:
++   *  - Timers are faked only once the panel is open. @testing-library's `waitFor` recognises
++   *    *jest's* fake timers and not vitest's, so a `findBy*` inside the faked section would sit on
++   *    a clock nobody advances.
++   *  - Input is driven by `fireEvent`, not `userEvent`. `userEvent.type` hangs under vitest fake
++   *    timers even on a bare textarea with no debounce at all (reduced and confirmed): React's
++   *    async `act` waits on a `setTimeout` that is itself faked. `fireEvent` + synchronous `act`
++   *    needs no timer to flush. One `change` is one `onChange`, which is all the debounce sees.
++   */
+   it('debounces the preview instead of firing one request per keystroke', async () => {
+-    // Real keystroke spacing, deliberately: with `delay: null` the whole burst lands inside one
+-    // task and even a 0 ms debounce coalesces it, which would make this test unable to fail.
+-    const user = userEvent.setup({ delay: 20 })
+     mount()
+-    await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
++    await userEvent.click(await screen.findByRole('button', { name: /new quick reply/i }))
+     const body = await screen.findByLabelText('Body')
+     expect(previewed).toEqual([]) // empty body: the server 400s on one, so it is never asked
+ 
+-    const text = 'The pool is open 7 AM to 10 PM.' // 31 keystrokes, ~20 ms apart
+-    await user.type(body, text)
+-    await waitFor(() => expect(previewed.at(-1)).toBe(text))
+-    // Undebounced this is one round trip per character; 300 ms of quiet makes it one in total.
+-    expect(previewed.length).toBeLessThan(5)
+-    await waitFor(() => expect(screen.getByText(/chars/)).toBeInTheDocument())
++    vi.useFakeTimers()
++    try {
++      // Undebounced this is a round trip before the clock has moved at all.
++      fireEvent.change(body, { target: { value: 'The pool' } })
++      expect(previewed).toEqual([])
++
++      act(() => void vi.advanceTimersByTime(299))
++      expect(previewed).toEqual([]) // 299 ms: still inside the window
++
++      fireEvent.change(body, { target: { value: 'The pool is open' } }) // restarts it
++      act(() => void vi.advanceTimersByTime(299))
++      expect(previewed).toEqual([])
++
++      act(() => void vi.advanceTimersByTime(1))
++      expect(previewed).toEqual(['The pool is open']) // exactly one, for the settled body
++    } finally {
++      vi.useRealTimers()
++    }
+   })
+ 
+   it('sends locale on patch and it survives the round trip', async () => {
+     const user = userEvent.setup()
+     mount()
+     await user.click(await screen.findByText('WiFi details'))
+     const locale = await screen.findByLabelText('Locale')
+     expect(locale).toHaveValue('en')
+     await user.clear(locale)
+     await user.type(locale, 'fr-CA')
+@@ -401,11 +428,108 @@ describe('QuickRepliesAdmin', () => {
+         ? json({ error: { code: 'VALIDATION_FAILED', message: 'Body is too long' } }, 400)
+         : null,
+     )
+     const user = userEvent.setup()
+     mount()
+     await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
+     await user.type(await screen.findByLabelText('Body'), 'Anything at all.')
+     expect(await screen.findByText(/Preview unavailable: Body is too long/)).toBeInTheDocument()
+     expect(screen.queryByText(/chars/)).not.toBeInTheDocument()
+   })
++
++  // --- fix round 1 ---
++
++  it('drops a failed save when another record is opened (F1)', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi details'))
++    await screen.findByLabelText('Locale')
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: locale',
++                          details: { locale: 'required' } } }, 400)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++    await screen.findByText('required')
++
++    serve() // the next record is fine; the previous record's complaint is not about it
++    await user.click(screen.getByText('Airport shuttle'))
++    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('Airport shuttle'))
++    // A red "required" pinned under a Locale holding a valid "en" is worse than the stale banner:
++    // it accuses a specific, correct input belonging to a different row.
++    expect(screen.queryByText('required')).not.toBeInTheDocument()
++    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
++  })
++
++  it('drops a failed save on Cancel, so the next panel opens clean (F1)', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi details'))
++    await screen.findByLabelText('Locale')
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: locale',
++                          details: { locale: 'required' } } }, 400)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++    await screen.findByText('required')
++
++    serve()
++    await user.click(screen.getByRole('button', { name: 'Cancel' }))
++    await user.click(screen.getByRole('button', { name: /new quick reply/i }))
++    await screen.findByLabelText('Locale')
++    expect(screen.queryByText('required')).not.toBeInTheDocument()
++    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
++  })
++
++  it('never shows the previous record’s render while the next one is debouncing (F2)', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('WiFi details'))
++    // The WiFi body interpolates, so its render is textually distinct from the raw body.
++    const wifiRender = await screen.findByText('Hi there — the network is Harbourview-Guest, no password needed.')
++    expect(wifiRender).toBeInTheDocument()
++
++    // Frozen clock: the debounce provably has not elapsed, which is the whole window at issue.
++    // fireEvent rather than userEvent for the same reason as the debounce test above.
++    vi.useFakeTimers()
++    try {
++      fireEvent.click(screen.getByText('Airport shuttle'))
++      const pane = document.querySelector('[aria-busy]')
++      expect(screen.getByLabelText('Body')).toHaveValue('The shuttle runs on the hour from 5 AM.')
++      expect(pane).toHaveTextContent('The shuttle runs on the hour from 5 AM.')
++      expect(pane).not.toHaveTextContent('Harbourview-Guest')
++      expect(pane).toHaveAttribute('aria-busy', 'true')
++    } finally {
++      vi.useRealTimers()
++    }
++  })
++
++  it('says variables exist when the list cannot be loaded, rather than a bare Insert: (F3)', async () => {
++    serve((url) =>
++      url.includes('/quick-replies/variables')
++        ? json({ error: { code: 'INTERNAL', message: 'boom' } }, 500)
++        : null,
++    )
++    mount()
++    await userEvent.click(await screen.findByText('WiFi details'))
++    await screen.findByLabelText('Body')
++
++    expect(await screen.findByText(/placeholders are filled in when the reply is sent/))
++      .toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: 'guest_first_name' })).not.toBeInTheDocument()
++    // The chips replaced a hint line; a label with nothing after it would lose both.
++    expect(screen.queryByText((_t, el) => el?.textContent?.trim() === 'Insert:')).not.toBeInTheDocument()
++  })
++
++  it('caps the body at the 1600 characters the server accepts (F4)', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
++    const body = await screen.findByLabelText('Body')
++    await user.click(body)
++    await user.paste('x'.repeat(1700))
++    // Past 1600 the preview answers the generic "Invalid request body", which never says why.
++    expect((body as HTMLTextAreaElement).value).toHaveLength(1600)
++  })
+ })
+diff --git a/web/src/features/admin/QuickRepliesAdmin.tsx b/web/src/features/admin/QuickRepliesAdmin.tsx
+index 9f25a34..6be3d9a 100644
+--- a/web/src/features/admin/QuickRepliesAdmin.tsx
++++ b/web/src/features/admin/QuickRepliesAdmin.tsx
+@@ -1,12 +1,12 @@
+ import { useEffect, useRef, useState } from 'react'
+-import { ApiError } from '../../api/client'
++import { fieldErrors } from '../../api/fieldErrors'
+ import {
+   useCreateQuickReply, useDeleteQuickReply, usePatchQuickReply, useQuickReplies,
+   useQuickReplyPreview, useQuickReplyVariables,
+ } from '../../api/hooks/content'
+ import { useDepartments } from '../../api/hooks/users'
+ import type { QuickReplyOut } from '../../api/types'
+ import { Badge, Button, EmptyState, Input, Spinner, Textarea } from '../../components/ui'
+ import { cn } from '../../lib/cn'
+ import { AdminTable, type Column } from './AdminTable'
+ import { EditPanel } from './EditPanel'
+@@ -22,71 +22,51 @@ type Draft = {
+   active: boolean
+ }
+ 
+ const EMPTY: Draft = {
+   shortcut: '', title: '', body: '', departmentId: null, category: null, locale: 'en', active: true,
+ }
+ 
+ const LABEL = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
+ const SELECT = 'h-11 w-full rounded border border-border3 bg-surface2 px-3 text-sm text-text focus:border-accent focus:outline-none'
+ 
+-/**
+- * A PATCH that clears a NOT NULL field answers 400 with `details: {"<camelCaseField>": "required"}`;
+- * a body Pydantic rejects answers 400 with `details` as its error list, each entry's `loc` ending
+- * in the field name. Both name the input the admin typed in, so both are rendered against it
+- * rather than only in the panel's banner.
+- */
+-function fieldErrors(error: unknown): Record<string, string> {
+-  const details = error instanceof ApiError ? error.details : undefined
+-  if (!details || typeof details !== 'object') return {}
+-  if (!Array.isArray(details)) {
+-    return Object.fromEntries(
+-      Object.entries(details as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
+-    )
+-  }
+-  const out: Record<string, string> = {}
+-  for (const item of details as { loc?: unknown[]; msg?: string }[]) {
+-    const field = item.loc?.[item.loc.length - 1]
+-    if (typeof field === 'string' && item.msg && !(field in out)) out[field] = item.msg
+-  }
+-  return out
+-}
+-
+ /** Keeps the preview to one request per pause, not one per keystroke. */
+ function useDebounced(value: string, ms: number): string {
+   const [settled, setSettled] = useState(value)
+   useEffect(() => {
+     const timer = setTimeout(() => setSettled(value), ms)
+     return () => clearTimeout(timer)
+   }, [value, ms])
+   return settled
+ }
+ 
+ export function QuickRepliesAdmin() {
+   const [search, setSearch] = useState('')
+   const { data, isPending, error } = useQuickReplies(search || undefined)
+   const { data: departments } = useDepartments()
+-  const { data: variables } = useQuickReplyVariables()
++  const { data: variables, isError: variablesFailed } = useQuickReplyVariables()
+   const create = useCreateQuickReply()
+   const patch = usePatchQuickReply()
+   const remove = useDeleteQuickReply()
+   const [draft, setDraft] = useState<Draft | null>(null)
+   const [selected, setSelected] = useState<QuickReplyOut | null>(null)
+   const bodyRef = useRef<HTMLTextAreaElement>(null)
+   const pendingCaret = useRef<number | null>(null)
+ 
+   const body = draft?.body ?? ''
+   const debouncedBody = useDebounced(body, 300)
+   const preview = useQuickReplyPreview(debouncedBody)
+   // The rendered text belongs to `debouncedBody`; until that catches up and the request settles,
+-  // what is on screen describes an older draft, so it is labelled rather than passed off as current.
++  // what is on screen describes an older draft — possibly a different record's, when the admin
++  // clicks from one row to the next — so the pane shows the draft as typed instead, labelled.
+   const previewStale = debouncedBody !== body || preview.isFetching
++  const previewBody = previewStale ? body : preview.data?.body ?? body
+ 
+   const rows = data ?? []
+   const activeCount = rows.filter((r) => r.active).length
+   const pending = create.isPending || patch.isPending || remove.isPending
+   const failed = create.error ?? patch.error ?? remove.error
+   const failure = failed?.message ?? null
+   const fields = fieldErrors(failed)
+   const draftId = draft?.id
+ 
+   // A chip insert changes the controlled value, so the caret can only be placed once React has
+@@ -113,21 +93,39 @@ export function QuickRepliesAdmin() {
+       render: (r) => departments?.find((d) => d.id === r.departmentId)?.name ?? 'All',
+     },
+     { key: 'uses', head: 'Uses', mono: true, render: (r) => r.usageCount },
+     {
+       key: 'active',
+       head: 'Active',
+       render: (r) => (r.active ? <Badge tone="ok">on</Badge> : <Badge>off</Badge>),
+     },
+   ]
+ 
++  /**
++   * A mutation error outlives its panel: react-query keeps it until the next mutate. Left alone,
++   * opening a different row shows the previous record's banner and — worse, since the message is
++   * pinned to a specific box — a red field error under an input holding a perfectly valid value.
++   */
++  function clearFailures() {
++    create.reset()
++    patch.reset()
++    remove.reset()
++  }
++
++  function close() {
++    clearFailures()
++    setDraft(null)
++    setSelected(null)
++  }
++
+   function open(reply: QuickReplyOut) {
++    clearFailures()
+     setSelected(reply)
+     setDraft({
+       id: reply.id,
+       shortcut: reply.shortcut,
+       title: reply.title,
+       body: reply.body,
+       departmentId: reply.departmentId ?? null,
+       category: reply.category ?? null,
+       locale: reply.locale,
+       active: reply.active,
+@@ -139,28 +137,24 @@ export function QuickRepliesAdmin() {
+     const token = `{{${name}}}`
+     const el = bodyRef.current
+     const start = el?.selectionStart ?? draft.body.length
+     const end = el?.selectionEnd ?? draft.body.length
+     pendingCaret.current = start + token.length
+     setDraft({ ...draft, body: draft.body.slice(0, start) + token + draft.body.slice(end) })
+   }
+ 
+   function save() {
+     if (!draft || !draft.shortcut.trim() || !draft.title.trim() || !draft.body.trim()) return
+-    const done = () => {
+-      setDraft(null)
+-      setSelected(null)
+-    }
+     // Every field on the draft is patchable: A1 added `locale` to QuickReplyPatch, so the old
+     // "strip locale, extra=forbid rejects it" carve-out is gone.
+-    if (draft.id) patch.mutate(draft, { onSuccess: done })
+-    else create.mutate(draft, { onSuccess: done })
++    if (draft.id) patch.mutate(draft, { onSuccess: close })
++    else create.mutate(draft, { onSuccess: close })
+   }
+ 
+   return (
+     <div className="flex min-h-0 flex-1">
+       <div className="flex min-w-0 flex-1 flex-col">
+         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+           <div>
+             <h1 className="text-base font-bold">Quick replies</h1>
+             <p className="text-xs text-text3">
+               {activeCount} active · {rows.length - activeCount} inactive
+@@ -169,20 +163,21 @@ export function QuickRepliesAdmin() {
+           <Input
+             className="ml-4 max-w-xs"
+             placeholder="Search shortcut or text"
+             value={search}
+             onChange={(event) => setSearch(event.target.value)}
+           />
+           <Button
+             variant="primary"
+             className="ml-auto"
+             onClick={() => {
++              clearFailures()
+               setSelected(null)
+               setDraft({ ...EMPTY })
+             }}
+           >
+             New quick reply
+           </Button>
+         </header>
+ 
+         <div className="min-h-0 flex-1 overflow-y-auto p-4">
+           {isPending ? (
+@@ -199,35 +194,22 @@ export function QuickRepliesAdmin() {
+         </div>
+       </div>
+ 
+       {draft ? (
+         <EditPanel
+           title={draft.id ? 'Edit quick reply' : 'New quick reply'}
+           subtitle={selected ? `${selected.usageCount} uses` : undefined}
+           saving={pending}
+           error={failure}
+           onSave={save}
+-          onCancel={() => {
+-            setDraft(null)
+-            setSelected(null)
+-          }}
+-          onDelete={
+-            draftId
+-              ? () =>
+-                  remove.mutate({ id: draftId }, {
+-                    onSuccess: () => {
+-                      setDraft(null)
+-                      setSelected(null)
+-                    },
+-                  })
+-              : undefined
+-          }
++          onCancel={close}
++          onDelete={draftId ? () => remove.mutate({ id: draftId }, { onSuccess: close }) : undefined}
+         >
+           <div className="grid grid-cols-2 gap-3">
+             <div>
+               <label className={LABEL} htmlFor="qr-shortcut">Shortcut</label>
+               <Input id="qr-shortcut" className="font-mono" value={draft.shortcut}
+                      onChange={(e) => setDraft({ ...draft, shortcut: e.target.value })} />
+               <FieldError message={fields.shortcut} />
+             </div>
+             <div>
+               <label className={LABEL} htmlFor="qr-dept">Department</label>
+@@ -242,60 +224,72 @@ export function QuickRepliesAdmin() {
+             </div>
+           </div>
+           <div>
+             <label className={LABEL} htmlFor="qr-title">Title</label>
+             <Input id="qr-title" value={draft.title}
+                    onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+             <FieldError message={fields.title} />
+           </div>
+           <div>
+             <label className={LABEL} htmlFor="qr-body">Body</label>
+-            <Textarea id="qr-body" ref={bodyRef} rows={6} value={draft.body}
++            {/* QuickReplyIn.body and PreviewRequest.body are both capped at 1600; without this
++                the preview answers the generic "Invalid request body" and never says why. */}
++            <Textarea id="qr-body" ref={bodyRef} rows={6} value={draft.body} maxLength={1600}
+                       onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
+             <FieldError message={fields.body} />
+-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-text3">
+-              Insert:
+-              {(variables ?? []).map((name) => (
+-                <button
+-                  key={name}
+-                  type="button"
+-                  // Keeps the textarea's selection alive across the click, so the token lands
+-                  // where the caret already was rather than at the end of the body.
+-                  onMouseDown={(e) => e.preventDefault()}
+-                  onClick={() => insertVariable(name)}
+-                  className="rounded-md bg-tagBg px-2 py-1 font-mono text-xs text-roomNum hover:bg-sel"
+-                >
+-                  {name}
+-                </button>
+-              ))}
+-            </div>
++            {variables?.length ? (
++              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-text3">
++                Insert:
++                {variables.map((name) => (
++                  <button
++                    key={name}
++                    type="button"
++                    // Keeps the textarea's selection alive across the click, so the token lands
++                    // where the caret already was rather than at the end of the body.
++                    onMouseDown={(e) => e.preventDefault()}
++                    onClick={() => insertVariable(name)}
++                    className="rounded-md bg-tagBg px-2 py-1 font-mono text-xs text-roomNum hover:bg-sel"
++                  >
++                    {name}
++                  </button>
++                ))}
++              </div>
++            ) : variablesFailed ? (
++              // The chips replaced a static hint that named the variables. If the list cannot be
++              // fetched, say they exist rather than leaving a bare "Insert:" or nothing at all —
++              // without naming them here, which would be the hardcoded copy the chips avoid.
++              <p className="mt-1.5 text-xs text-text3">
++                {'{{variable_name}}'} placeholders are filled in when the reply is sent. The list of
++                names could not be loaded.
++              </p>
++            ) : null}
+           </div>
+ 
+           {draft.body ? (
+             <div>
+               {/* Not "Preview as <guest>": this renders the server's sample values, so naming a
+                   real guest would be a lie. See the A2 report's disclosed divergences. */}
+               <span className={LABEL}>Preview · sample values</span>
+               {preview.error ? (
+                 <p className="rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
+                   Preview unavailable: {preview.error.message}
+                 </p>
+               ) : (
+                 <>
+                   <div
+                     aria-busy={previewStale}
+                     className={cn(
+                       'rounded px-3 py-2 text-sm leading-relaxed bg-outBg text-outText',
+                       previewStale && 'opacity-60',
+                     )}
+                   >
+-                    {preview.data?.body ?? draft.body}
++                    {previewBody}
+                   </div>
+                   <p className="mt-1 font-mono text-xs text-text3">
+                     {previewStale || !preview.data
+                       ? 'Updating…'
+                       // Server-computed: server/app/domain/sms.py is the count that bills.
+                       : `${preview.data.characters} chars · ${preview.data.segments} segment${
+                           preview.data.segments === 1 ? '' : 's'
+                         }`}
+                   </p>
+                 </>

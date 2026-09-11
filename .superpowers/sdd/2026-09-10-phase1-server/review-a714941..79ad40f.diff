@@ -1,0 +1,292 @@
+# Review package: a714941..79ad40f
+
+## Commits
+79ad40f feat(server): guests, in-house stay lookup, TCPA consent keywords and send-path check
+4bee7f1 docs: refresh handoff — Tasks 6/7 reviews clean, Task 8 committed
+
+## Files changed
+ docs/superpowers/RESUME.md        | 15 +++++-----
+ server/app/domain/consent.py      | 59 +++++++++++++++++++++++++++++++++++++++
+ server/app/domain/guests.py       | 39 ++++++++++++++++++++++++++
+ server/app/domain/stays.py        | 28 +++++++++++++++++++
+ server/tests/test_consent.py      | 43 ++++++++++++++++++++++++++++
+ server/tests/test_guests_stays.py | 27 ++++++++++++++++++
+ 6 files changed, 204 insertions(+), 7 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/RESUME.md b/docs/superpowers/RESUME.md
+index 6c14229..ba1a936 100644
+--- a/docs/superpowers/RESUME.md
++++ b/docs/superpowers/RESUME.md
+@@ -14,37 +14,38 @@ inbox, problems become work orders, and when a work order closes the agent is pr
+ | `docs/superpowers/plans/2026-09-10-phase1-server.md` | **The plan being executed.** 24 tasks, each with complete code and tests |
+ | `docs/mockups/*.dc.html` | Approved screen designs ("Night Shift" direction). Published: https://claude.ai/code/artifact/cc54191d-cdf8-4474-b5a2-eda523b54ad8 |
+ 
+ Stack: Python 3.14 · Flask 3 · SQLAlchemy 2 · Alembic · Pydantic v2 · flask-sock · pytest, on SQLite
+ (PostgreSQL later by changing `DATABASE_URL`). Frontend (not started): Vite + React + TypeScript.
+ 
+ Remote to push to when done: **https://github.com/bnfarrellUUS/message_app** (no git remote configured yet).
+ 
+ ## Where the build stands
+ 
+-**Tasks 1–7 of 24 committed and green.** Suite: **58 passing, 0 warnings**
++**Tasks 1–8 of 24 committed and green.** Suite: **64 passing, 0 warnings**
+ (`cd server && ../.venv/Scripts/python.exe -m pytest -q`). Working tree clean.
+ 
+-Task 7's independent review has **not** been run yet — that is the first thing to do on resume
+-(package the diff `21fec0c..e69ff49` and dispatch a reviewer), before starting Task 8.
++Reviews for Tasks 6 and 7 were run at the top of session 2 and both came back **clean**
++(spec ✅, quality Approved, 0 Critical/Important). No reviews are owed.
+ 
+ | # | Task | State |
+ |---|---|---|
+ | 1 | Scaffold: app factory, config, clock, error shape, health route | ✅ `859b27a`, `b40401c` |
+ | 2 | 20 SQLAlchemy models, 17 enums, initial Alembic migration | ✅ `22aff26`, `71a9445` |
+ | 3 | Test fixtures, conftest, template-DB copy, login helper | ✅ `b07acd5`, `aa1e88e` |
+ | 4 | Auth: bcrypt, server-side sessions, decorators, capabilities, rate limiting | ✅ `4c89683` |
+ | 5 | Departments/users routes + **property-isolation suite** (acceptance #9) | ✅ `5fdf2b6` |
+-| 6 | SMS segments, card redaction, quick-reply interpolation | ✅ `0f130aa`, `21fec0c` |
+-| 7 | Realtime event outbox, connection registry, notifications | ✅ `9471872`, `e69ff49` — **review still owed** |
+-| **8** | **Job queue and worker — start here** | Not started |
+-| 9–24 | Channels/mock SMS, guests+consent, conversations, work orders, content, analytics, WS/presence, PMS, dev endpoints, seed, schema export, README | Not started |
++| 6 | SMS segments, card redaction, quick-reply interpolation | ✅ `0f130aa`, `21fec0c` — review clean |
++| 7 | Realtime event outbox, connection registry, notifications | ✅ `9471872`, `e69ff49` — review clean |
++| 8 | Job queue and worker (retry/backoff/dead-letter, in-process thread) | ✅ `9d45faf` — review in flight |
++| **9** | **Channels/mock SMS, outbound + delivery-status handlers — in progress** | Dispatched |
++| 10–24 | Guests+consent, conversations, work orders, content, analytics, WS/presence, PMS, dev endpoints, seed, schema export, README | Not started |
+ 
+ ## How to resume the process
+ 
+ The build is running under the `superpowers:subagent-driven-development` skill:
+ 
+ 1. Read the ledger: `.superpowers/sdd/2026-09-10-phase1-server/progress.md`. Tasks with a
+    `Task N: complete` line are done — never re-dispatch them.
+ 2. Task briefs are already extracted for all 24 tasks at
+    `.superpowers/sdd/2026-09-10-phase1-server/task-N-brief.md`. Regenerate one with:
+    `bash "<superpowers>/skills/subagent-driven-development/scripts/task-brief" docs/superpowers/plans/2026-09-10-phase1-server.md N`
+diff --git a/server/app/domain/consent.py b/server/app/domain/consent.py
+new file mode 100644
+index 0000000..cab7e20
+--- /dev/null
++++ b/server/app/domain/consent.py
+@@ -0,0 +1,59 @@
++"""TCPA consent (design.md §9.1). assert_can_send() is called from exactly one place: messages.send()."""
++from __future__ import annotations
++
++from typing import Literal
++
++from sqlalchemy.orm import Session
++
++from app import clock
++from app.domain import audit
++from app.errors import ConsentError
++from app.models import Guest
++from app.schemas.enums import SmsConsentStatus
++
++STOP_WORDS = {"stop", "stopall", "unsubscribe", "cancel", "end", "quit"}
++START_WORDS = {"start", "unstop", "yes"}
++HELP_WORDS = {"help"}
++
++Keyword = Literal["stop", "start", "help"]
++
++
++def classify_keyword(body: str) -> Keyword | None:
++    words = body.strip().lower().split()
++    if not words:
++        return None
++    first = words[0].strip(".,!?")
++    if first in STOP_WORDS:
++        return "stop"
++    if first in START_WORDS:
++        return "start"
++    if first in HELP_WORDS:
++        return "help"
++    return None
++
++
++def STOP_CONFIRMATION(property_name: str) -> str:
++    return f"You're unsubscribed from {property_name} messages. Reply START to resume."
++
++
++def _set(db: Session, guest: Guest, status: SmsConsentStatus, source: str) -> None:
++    before = {"sms_consent_status": guest.sms_consent_status.value}
++    guest.sms_consent_status = status
++    guest.sms_consent_at = clock.now()
++    guest.sms_consent_source = source
++    db.flush()
++    audit.record(db, guest.property_id, None, f"consent.{status.value}", "guest", guest.id,
++                 before=before, after={"sms_consent_status": status.value, "source": source})
++
++
++def opt_out(db: Session, guest: Guest, source: str) -> None:
++    _set(db, guest, SmsConsentStatus.opted_out, source)
++
++
++def opt_in(db: Session, guest: Guest, source: str) -> None:
++    _set(db, guest, SmsConsentStatus.opted_in, source)
++
++
++def assert_can_send(guest: Guest, *, allow_opt_out_confirmation: bool = False) -> None:
++    if guest.sms_consent_status == SmsConsentStatus.opted_out and not allow_opt_out_confirmation:
++        raise ConsentError("Guest has opted out of SMS")
+diff --git a/server/app/domain/guests.py b/server/app/domain/guests.py
+new file mode 100644
+index 0000000..394b9e8
+--- /dev/null
++++ b/server/app/domain/guests.py
+@@ -0,0 +1,39 @@
++from __future__ import annotations
++
++import re
++
++from sqlalchemy import select
++from sqlalchemy.orm import Session
++
++from app.models import Guest
++
++
++def normalize_phone(raw: str) -> str:
++    raw = raw.strip()
++    digits = re.sub(r"\D", "", raw)
++    if raw.startswith("+"):
++        return "+" + digits
++    if len(digits) == 10:
++        return "+1" + digits
++    if len(digits) == 11 and digits.startswith("1"):
++        return "+" + digits
++    return "+" + digits
++
++
++def find_by_phone(db: Session, property_id: str, phone: str) -> Guest | None:
++    return db.scalar(select(Guest).where(Guest.property_id == property_id,
++                                         Guest.phone_e164 == normalize_phone(phone)))
++
++
++def find_or_create_by_phone(db: Session, property_id: str, phone: str) -> tuple[Guest, bool]:
++    existing = find_by_phone(db, property_id, phone)
++    if existing:
++        return existing, False
++    g = Guest(property_id=property_id, phone_e164=normalize_phone(phone))
++    db.add(g)
++    db.flush()
++    return g, True
++
++
++def get(db: Session, property_id: str, guest_id: str) -> Guest | None:
++    return db.scalar(select(Guest).where(Guest.id == guest_id, Guest.property_id == property_id))
+diff --git a/server/app/domain/stays.py b/server/app/domain/stays.py
+new file mode 100644
+index 0000000..74dbb80
+--- /dev/null
++++ b/server/app/domain/stays.py
+@@ -0,0 +1,28 @@
++from __future__ import annotations
++
++from sqlalchemy import select
++from sqlalchemy.orm import Session
++
++from app.domain.guests import find_by_phone
++from app.models import Guest, Stay
++from app.schemas.enums import StayStatus
++
++
++def find_in_house_for_guest(db: Session, property_id: str, guest_id: str) -> Stay | None:
++    return db.scalar(
++        select(Stay).where(Stay.property_id == property_id, Stay.guest_id == guest_id,
++                           Stay.status == StayStatus.checked_in)
++        .order_by(Stay.actual_checkin_at.desc())
++    )
++
++
++def find_in_house_by_phone(db: Session, property_id: str, phone: str) -> tuple[Guest, Stay] | None:
++    guest = find_by_phone(db, property_id, phone)
++    if guest is None:
++        return None
++    stay = find_in_house_for_guest(db, property_id, guest.id)
++    return (guest, stay) if stay else None
++
++
++def get(db: Session, property_id: str, stay_id: str) -> Stay | None:
++    return db.scalar(select(Stay).where(Stay.id == stay_id, Stay.property_id == property_id))
+diff --git a/server/tests/test_consent.py b/server/tests/test_consent.py
+new file mode 100644
+index 0000000..575ed71
+--- /dev/null
++++ b/server/tests/test_consent.py
+@@ -0,0 +1,43 @@
++import pytest
++
++from app.domain import consent
++from app.errors import ConsentError
++from app.models import Guest
++from app.schemas.enums import SmsConsentStatus
++
++
++@pytest.mark.parametrize("body,expected", [
++    ("STOP", "stop"), ("stop", "stop"), (" Stop please ", "stop"), ("STOPALL", "stop"),
++    ("UNSUBSCRIBE", "stop"), ("CANCEL", "stop"), ("END", "stop"), ("QUIT", "stop"),
++    ("START", "start"), ("UNSTOP", "start"), ("YES", "start"),
++    ("HELP", "help"), ("help me", "help"),
++    ("Please stop the AC noise", None),     # 'stop' not the first word → real message
++    ("Can you help with towels?", None),
++    ("", None),
++])
++def test_classify_keyword(body, expected):
++    assert consent.classify_keyword(body) == expected
++
++
++def test_opt_out_and_opt_in_record_source_and_time(app, fx, database):
++    from app import clock
++
++    with database.session() as db:
++        g = db.get(Guest, fx.guest_inhouse_a.id)
++        consent.opt_out(db, g, "sms_keyword")
++        assert g.sms_consent_status == SmsConsentStatus.opted_out
++        assert g.sms_consent_source == "sms_keyword"
++        assert g.sms_consent_at == clock.now()
++        consent.opt_in(db, g, "sms_keyword")
++        assert g.sms_consent_status == SmsConsentStatus.opted_in
++
++
++def test_assert_can_send_blocks_opted_out_unless_confirmation(app, fx, database):
++    with database.session() as db:
++        g = db.get(Guest, fx.guest_inhouse_a.id)
++        consent.assert_can_send(g)
++        consent.opt_out(db, g, "sms_keyword")
++        with pytest.raises(ConsentError) as ei:
++            consent.assert_can_send(g)
++        assert ei.value.code == "CONSENT_OPTED_OUT"
++        consent.assert_can_send(g, allow_opt_out_confirmation=True)  # the one exception
+diff --git a/server/tests/test_guests_stays.py b/server/tests/test_guests_stays.py
+new file mode 100644
+index 0000000..f92badf
+--- /dev/null
++++ b/server/tests/test_guests_stays.py
+@@ -0,0 +1,27 @@
++from app.domain import guests, stays
++from app.schemas.enums import SmsConsentStatus
++
++
++def test_normalize_phone():
++    assert guests.normalize_phone("(555) 123-4567") == "+15551234567"
++    assert guests.normalize_phone("15551234567") == "+15551234567"
++    assert guests.normalize_phone("+44 20 7946 0958") == "+442079460958"
++
++
++def test_find_or_create_by_phone_is_idempotent_and_property_scoped(app, fx, database):
++    with database.session() as db:
++        g1, created1 = guests.find_or_create_by_phone(db, fx.property_a.id, "+15550001111")
++        g2, created2 = guests.find_or_create_by_phone(db, fx.property_a.id, "+1 (555) 000-1111")
++        gb, createdb = guests.find_or_create_by_phone(db, fx.property_b.id, "+15550001111")
++    assert created1 and not created2 and createdb
++    assert g1.id == g2.id and gb.id != g1.id
++    assert g1.sms_consent_status == SmsConsentStatus.unknown
++
++
++def test_find_in_house_by_phone_matches_checked_in_stay_only(app, fx, database):
++    with database.session() as db:
++        hit = stays.find_in_house_by_phone(db, fx.property_a.id, fx.guest_inhouse_a.phone_e164)
++        assert hit is not None and hit[1].room_number == "412"
++        assert stays.find_in_house_by_phone(db, fx.property_a.id, fx.guest_nostay_a.phone_e164) is None
++        # Same phone at another property is not in-house here.
++        assert stays.find_in_house_by_phone(db, fx.property_a.id, fx.guest_b.phone_e164) is None

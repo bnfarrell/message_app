@@ -1,0 +1,332 @@
+# Review package: e018303..HEAD
+
+## Commits
+859b27a feat(server): scaffold Flask app factory, config, clock, error shape
+
+## Files changed
+ .gitignore                  | 14 ++++++++
+ server/app/__init__.py      | 21 ++++++++++++
+ server/app/api/__init__.py  |  0
+ server/app/api/health.py    |  8 +++++
+ server/app/clock.py         | 27 +++++++++++++++
+ server/app/config.py        | 37 +++++++++++++++++++++
+ server/app/errors.py        | 80 +++++++++++++++++++++++++++++++++++++++++++++
+ server/pyproject.toml       | 36 ++++++++++++++++++++
+ server/run.py               |  7 ++++
+ server/tests/__init__.py    |  0
+ server/tests/test_health.py | 19 +++++++++++
+ 11 files changed, 249 insertions(+)
+
+## Diff
+diff --git a/.gitignore b/.gitignore
+index bdad166..2a6a40a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,4 +1,18 @@
+ 
+ # assembled design canvases (re-generated from the .dc.html sources)
+ docs/mockups/*-directions.html
+ .playwright-mcp/
++
++.venv/
++__pycache__/
++*.pyc
++.pytest_cache/
++.ruff_cache/
++*.egg-info/
++server/data/
++*.db
++*.db-wal
++*.db-shm
++node_modules/
++web/dist/
++.env
+diff --git a/server/app/__init__.py b/server/app/__init__.py
+new file mode 100644
+index 0000000..7a55290
+--- /dev/null
++++ b/server/app/__init__.py
+@@ -0,0 +1,21 @@
++from __future__ import annotations
++
++from flask import Flask
++
++from app.config import Config
++from app.errors import register_error_handlers
++
++
++def create_app(config: Config | None = None) -> Flask:
++    config = config or Config.from_env()
++    app = Flask(__name__)
++    app.config["APP"] = config
++    app.config["TESTING"] = config.TESTING
++    app.config["SECRET_KEY"] = config.SESSION_SECRET
++
++    register_error_handlers(app)
++
++    from app.api import health
++
++    app.register_blueprint(health.bp)
++    return app
+diff --git a/server/app/api/__init__.py b/server/app/api/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/server/app/api/health.py b/server/app/api/health.py
+new file mode 100644
+index 0000000..aab83bc
+--- /dev/null
++++ b/server/app/api/health.py
+@@ -0,0 +1,8 @@
++from flask import Blueprint, jsonify
++
++bp = Blueprint("health", __name__)
++
++
++@bp.get("/api/health")
++def health():
++    return jsonify({"status": "ok"})
+diff --git a/server/app/clock.py b/server/app/clock.py
+new file mode 100644
+index 0000000..ab58e5b
+--- /dev/null
++++ b/server/app/clock.py
+@@ -0,0 +1,27 @@
++"""Single source of time for the application. Tests freeze/advance it."""
++from __future__ import annotations
++
++from datetime import datetime, timedelta, timezone
++
++_frozen: datetime | None = None
++
++
++def now() -> datetime:
++    return _frozen if _frozen is not None else datetime.now(timezone.utc)
++
++
++def freeze(dt: datetime) -> None:
++    global _frozen
++    if dt.tzinfo is None:
++        raise ValueError("clock.freeze requires an aware datetime")
++    _frozen = dt.astimezone(timezone.utc)
++
++
++def advance(*, seconds: float = 0, minutes: float = 0, hours: float = 0) -> datetime:
++    freeze(now() + timedelta(seconds=seconds, minutes=minutes, hours=hours))
++    return now()
++
++
++def reset() -> None:
++    global _frozen
++    _frozen = None
+diff --git a/server/app/config.py b/server/app/config.py
+new file mode 100644
+index 0000000..ed7edf5
+--- /dev/null
++++ b/server/app/config.py
+@@ -0,0 +1,37 @@
++from __future__ import annotations
++
++import os
++from dataclasses import dataclass
++
++from dotenv import load_dotenv
++
++
++@dataclass
++class Config:
++    DATABASE_URL: str = "sqlite:///data/app.db"
++    SESSION_SECRET: str = "dev-secret-change-me"
++    MOCK_SMS_SECRET: str = "dev"
++    SMS_ADAPTER: str = "mock"
++    PMS_TICK_SECONDS: int = 90
++    START_WORKER: bool = False
++    CORS_ORIGIN: str = "http://localhost:5173"
++    ENV: str = "development"
++    TESTING: bool = False
++
++    @property
++    def is_production(self) -> bool:
++        return self.ENV == "production"
++
++    @classmethod
++    def from_env(cls) -> Config:
++        load_dotenv()
++        return cls(
++            DATABASE_URL=os.getenv("DATABASE_URL", cls.DATABASE_URL),
++            SESSION_SECRET=os.getenv("SESSION_SECRET", cls.SESSION_SECRET),
++            MOCK_SMS_SECRET=os.getenv("MOCK_SMS_SECRET", cls.MOCK_SMS_SECRET),
++            SMS_ADAPTER=os.getenv("SMS_ADAPTER", cls.SMS_ADAPTER),
++            PMS_TICK_SECONDS=int(os.getenv("PMS_TICK_SECONDS", cls.PMS_TICK_SECONDS)),
++            START_WORKER=os.getenv("START_WORKER", "0") == "1",
++            CORS_ORIGIN=os.getenv("CORS_ORIGIN", cls.CORS_ORIGIN),
++            ENV=os.getenv("FLASK_ENV", cls.ENV),
++        )
+diff --git a/server/app/errors.py b/server/app/errors.py
+new file mode 100644
+index 0000000..9c32b7b
+--- /dev/null
++++ b/server/app/errors.py
+@@ -0,0 +1,80 @@
++from __future__ import annotations
++
++from typing import Any
++
++from flask import Flask, jsonify
++from pydantic import ValidationError
++from werkzeug.exceptions import HTTPException
++
++
++class AppError(Exception):
++    status = 400
++    code = "BAD_REQUEST"
++
++    def __init__(self, message: str | None = None, *, details: Any = None, code: str | None = None):
++        super().__init__(message or self.code)
++        self.message = message or self.code.replace("_", " ").capitalize()
++        self.details = details
++        if code:
++            self.code = code
++
++    def to_body(self) -> dict:
++        err: dict[str, Any] = {"code": self.code, "message": self.message}
++        if self.details is not None:
++            err["details"] = self.details
++        return {"error": err}
++
++
++class ValidationFailed(AppError):
++    status = 400
++    code = "VALIDATION_FAILED"
++
++
++class Unauthorized(AppError):
++    status = 401
++    code = "UNAUTHORIZED"
++
++
++class Forbidden(AppError):
++    status = 403
++    code = "FORBIDDEN"
++
++
++class NotFound(AppError):
++    status = 404
++    code = "NOT_FOUND"
++
++
++class Conflict(AppError):
++    status = 409
++    code = "CONFLICT"
++
++
++class TransitionError(AppError):
++    status = 409
++    code = "INVALID_TRANSITION"
++
++
++class ConsentError(AppError):
++    status = 422
++    code = "CONSENT_OPTED_OUT"
++
++
++class RateLimited(AppError):
++    status = 429
++    code = "RATE_LIMITED"
++
++
++def register_error_handlers(app: Flask) -> None:
++    @app.errorhandler(AppError)
++    def _app_error(e: AppError):
++        return jsonify(e.to_body()), e.status
++
++    @app.errorhandler(ValidationError)
++    def _pydantic_error(e: ValidationError):
++        return jsonify(ValidationFailed("Invalid request", details=e.errors()).to_body()), 400
++
++    @app.errorhandler(HTTPException)
++    def _http_error(e: HTTPException):
++        code = (e.name or "error").upper().replace(" ", "_")
++        return jsonify({"error": {"code": code, "message": e.description}}), e.code or 500
+diff --git a/server/pyproject.toml b/server/pyproject.toml
+new file mode 100644
+index 0000000..1e48126
+--- /dev/null
++++ b/server/pyproject.toml
+@@ -0,0 +1,36 @@
++[project]
++name = "concierge-server"
++version = "0.1.0"
++description = "Hotel guest engagement & operations platform — Phase 1 server"
++requires-python = ">=3.12"
++dependencies = [
++  "flask>=3.1",
++  "sqlalchemy>=2.0.36",
++  "alembic>=1.14",
++  "pydantic>=2.9",
++  "bcrypt>=4.2",
++  "flask-sock>=0.7",
++  "python-dotenv>=1.0",
++]
++
++[project.optional-dependencies]
++dev = ["pytest>=8", "ruff>=0.6", "simple-websocket>=1.1"]
++
++[build-system]
++requires = ["setuptools>=68"]
++build-backend = "setuptools.build_meta"
++
++[tool.setuptools.packages.find]
++include = ["app*", "seed*"]
++
++[tool.pytest.ini_options]
++testpaths = ["tests"]
++pythonpath = ["."]
++filterwarnings = ["error::DeprecationWarning:app.*"]
++
++[tool.ruff]
++line-length = 100
++target-version = "py312"
++
++[tool.ruff.lint]
++select = ["E", "F", "I", "B", "UP"]
+diff --git a/server/run.py b/server/run.py
+new file mode 100644
+index 0000000..d0bf731
+--- /dev/null
++++ b/server/run.py
+@@ -0,0 +1,7 @@
++from app import create_app
++from app.config import Config
++
++if __name__ == "__main__":
++    cfg = Config.from_env()
++    app = create_app(cfg)
++    app.run(host="127.0.0.1", port=5000, debug=not cfg.is_production, threaded=True)
+diff --git a/server/tests/__init__.py b/server/tests/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/server/tests/test_health.py b/server/tests/test_health.py
+new file mode 100644
+index 0000000..567df73
+--- /dev/null
++++ b/server/tests/test_health.py
+@@ -0,0 +1,19 @@
++from app import create_app
++from app.config import Config
++
++
++def test_health_returns_ok():
++    app = create_app(Config(TESTING=True, DATABASE_URL="sqlite:///:memory:"))
++    client = app.test_client()
++    res = client.get("/api/health")
++    assert res.status_code == 200
++    assert res.get_json() == {"status": "ok"}
++
++
++def test_unknown_route_uses_error_shape():
++    app = create_app(Config(TESTING=True, DATABASE_URL="sqlite:///:memory:"))
++    res = app.test_client().get("/api/nope")
++    assert res.status_code == 404
++    body = res.get_json()
++    assert body["error"]["code"] == "NOT_FOUND"
++    assert "message" in body["error"]

@@ -1,0 +1,42 @@
+# Review package: f76a15a..acc7ebf
+
+## Commits
+acc7ebf fix(web): stop the dev proxy from swallowing /app/* on hard navigation
+
+## Files changed
+ web/vite.config.ts | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/web/vite.config.ts b/web/vite.config.ts
+index fe079ee..9141df7 100644
+--- a/web/vite.config.ts
++++ b/web/vite.config.ts
+@@ -32,21 +32,26 @@ function nodeAcceptsFlag(flag: string): boolean {
+ // instead of hard-coding one.
+ const webStorageFlag = ['--no-webstorage', '--no-experimental-webstorage'].find(nodeAcceptsFlag)
+ const webStorageExecArgv = webStorageFlag ? [webStorageFlag] : []
+ 
+ export default defineConfig({
+   plugins: [react()],
+   server: {
+     port: 5173,
+     proxy: {
+       '/api': { target: API, changeOrigin: true },
+-      '/a': { target: API, changeOrigin: true },
++      // A string key is matched by prefix, and '/app/inbox'.startsWith('/a') is true --
++      // every hard navigation to an /app/* route was being proxied to Flask instead of
++      // served by Vite. A key starting with '^' is a RegExp instead: '^/a/' requires the
++      // slash right after '/a', so it still matches the asset short-link route
++      // (GET /a/<short_code>) without also matching /app/*.
++      '^/a/': { target: API, changeOrigin: true },
+       '/ws': { target: API, ws: true, changeOrigin: true },
+     },
+   },
+   test: {
+     environment: 'jsdom',
+     environmentMatchGlobs: [
+       ['src/index.css.test.ts', 'node'],
+       ['src/api/types.generated.test.ts', 'node'],
+     ],
+     globals: true,

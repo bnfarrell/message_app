@@ -1,0 +1,34 @@
+# Review package: 4c89683..aa1e88e
+
+## Commits
+aa1e88e test(server): make the per-test database isolation test actually assert isolation
+
+## Files changed
+ server/tests/test_fixtures.py | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/server/tests/test_fixtures.py b/server/tests/test_fixtures.py
+index 83a6b75..b2ac829 100644
+--- a/server/tests/test_fixtures.py
++++ b/server/tests/test_fixtures.py
+@@ -12,15 +12,18 @@ def test_fixture_loads_two_properties_and_users(app, fx, database):
+     assert fx.stay_inhouse_a.room_number == "412"
+ 
+ 
+ def test_clock_is_frozen(app):
+     from app import clock
+ 
+     assert clock.now().isoformat() == "2026-09-10T12:00:00+00:00"
+ 
+ 
+ def test_each_test_gets_a_fresh_database(app, database):
++    """The entry assertion is the real check: a leaked row from a prior run would fail it."""
+     from app.models import Property
+ 
+     with database.session() as db:
++        assert db.scalar(select(Property).where(Property.code == "SCR")) is None
+         db.add(Property(name="Scratch", code="SCR", timezone="UTC"))
+-    # The next test's assertion on counts would fail if this leaked.
++    with database.session() as db:
++        assert db.scalar(select(Property).where(Property.code == "SCR")) is not None

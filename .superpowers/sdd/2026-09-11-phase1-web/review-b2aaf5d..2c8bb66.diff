@@ -1,0 +1,996 @@
+# Review package: b2aaf5d..2c8bb66
+
+## Commits
+2c8bb66 feat(web): inbox queue with server ordering, role-aware filters and presence avatars
+
+## Files changed
+ web/src/api/hooks/conversations.ts               |  45 +++++
+ web/src/api/hooks/users.ts                       |  32 ++++
+ web/src/auth/RequireAuth.tsx                     |  14 +-
+ web/src/features/inbox/ConversationList.test.tsx | 135 +++++++++++++
+ web/src/features/inbox/ConversationList.tsx      | 132 +++++++++++++
+ web/src/features/inbox/ConversationView.tsx      |  21 ++
+ web/src/features/inbox/FilterTabs.test.tsx       |  64 +++++++
+ web/src/features/inbox/FilterTabs.tsx            |  50 +++++
+ web/src/features/inbox/InboxPage.tsx             |  48 +++++
+ web/src/routes.test.tsx                          |   8 +-
+ web/src/routes.tsx                               |   5 +-
+ web/src/test/factories.ts                        | 232 +++++++++++++++++++++++
+ 12 files changed, 779 insertions(+), 7 deletions(-)
+
+## Diff
+diff --git a/web/src/api/hooks/conversations.ts b/web/src/api/hooks/conversations.ts
+new file mode 100644
+index 0000000..7d0c667
+--- /dev/null
++++ b/web/src/api/hooks/conversations.ts
+@@ -0,0 +1,45 @@
++import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
++import { useSession } from '../../auth/SessionContext'
++import { ApiError, api, propertyPath } from '../client'
++import { qk } from '../queryKeys'
++import type { ConversationDetail, ConversationSummary } from '../types'
++
++export type ConversationFilter =
++  | 'all'
++  | 'mine'
++  | 'unassigned'
++  | 'overdue'
++  | 'snoozed'
++  | 'resolved'
++  | 'archived'
++
++const PAGE = 50
++
++export function useConversations(filter: ConversationFilter, dept?: string | null) {
++  const { propertyId } = useSession()
++  return useInfiniteQuery<ConversationSummary[], ApiError>({
++    queryKey: qk.conversations(propertyId, filter, dept),
++    initialPageParam: 0,
++    queryFn: ({ pageParam }) => {
++      const params = new URLSearchParams({
++        filter,
++        limit: String(PAGE),
++        offset: String(pageParam as number),
++      })
++      if (dept) params.set('dept', dept)
++      return api<ConversationSummary[]>(propertyPath(propertyId, `conversations?${params}`))
++    },
++    // Ruling R3: offset paging. A short page means the end.
++    getNextPageParam: (last, all) =>
++      last.length < PAGE ? undefined : all.reduce((n, p) => n + p.length, 0),
++  })
++}
++
++export function useConversation(id: string | undefined) {
++  const { propertyId } = useSession()
++  return useQuery<ConversationDetail, ApiError>({
++    queryKey: qk.conversation(propertyId, id ?? ''),
++    queryFn: () => api<ConversationDetail>(propertyPath(propertyId, `conversations/${id}`)),
++    enabled: Boolean(id),
++  })
++}
+diff --git a/web/src/api/hooks/users.ts b/web/src/api/hooks/users.ts
+new file mode 100644
+index 0000000..4375fe5
+--- /dev/null
++++ b/web/src/api/hooks/users.ts
+@@ -0,0 +1,32 @@
++import { useQuery } from '@tanstack/react-query'
++import { useSession } from '../../auth/SessionContext'
++import { ApiError, api, propertyPath } from '../client'
++import { qk } from '../queryKeys'
++import type { DepartmentOut, GuestDetail, StaffUserOut } from '../types'
++
++export function useDepartments() {
++  const { propertyId } = useSession()
++  return useQuery<DepartmentOut[], ApiError>({
++    queryKey: qk.departments(propertyId),
++    queryFn: () => api<DepartmentOut[]>(propertyPath(propertyId, 'departments')),
++    staleTime: 5 * 60_000, // departments change about never
++  })
++}
++
++export function useStaff() {
++  const { propertyId } = useSession()
++  return useQuery<StaffUserOut[], ApiError>({
++    queryKey: qk.staff(propertyId),
++    queryFn: () => api<StaffUserOut[]>(propertyPath(propertyId, 'users')),
++    staleTime: 5 * 60_000,
++  })
++}
++
++export function useGuest(id: string | undefined) {
++  const { propertyId } = useSession()
++  return useQuery<GuestDetail, ApiError>({
++    queryKey: qk.guest(propertyId, id ?? ''),
++    queryFn: () => api<GuestDetail>(propertyPath(propertyId, `guests/${id}`)),
++    enabled: Boolean(id),
++  })
++}
+diff --git a/web/src/auth/RequireAuth.tsx b/web/src/auth/RequireAuth.tsx
+index 285e2c3..774418e 100644
+--- a/web/src/auth/RequireAuth.tsx
++++ b/web/src/auth/RequireAuth.tsx
+@@ -1,25 +1,35 @@
+-import { useEffect } from 'react'
++import { useEffect, useRef } from 'react'
+ import { Navigate, Outlet, useLocation } from 'react-router-dom'
+ import { useSessionQuery } from '../api/hooks/auth'
+ import { onUnauthorized } from '../api/client'
+ import { Spinner } from '../components/ui'
+ import { SessionProvider } from './SessionContext'
+ 
+ export function RequireAuth() {
+   const { data, isPending, error, refetch } = useSessionQuery()
+   const location = useLocation()
++  // A truly-dead session makes refetch()'s own /api/auth/me call 401 too, which would
++  // re-invoke this same handler and refetch again forever. Guard against that: ignore an
++  // unauthorized signal that arrives while a refetch it triggered is still in flight.
++  const refetching = useRef(false)
+ 
+   // Any 401 from any request means the cookie died mid-session; refetching /api/auth/me
+   // flips this guard to the redirect below instead of leaving a half-dead screen up.
+   useEffect(() => {
+-    onUnauthorized(() => void refetch())
++    onUnauthorized(() => {
++      if (refetching.current) return
++      refetching.current = true
++      void refetch().finally(() => {
++        refetching.current = false
++      })
++    })
+     return () => onUnauthorized(null)
+   }, [refetch])
+ 
+   if (isPending) {
+     return (
+       <div className="grid h-full place-items-center bg-bg">
+         <Spinner />
+       </div>
+     )
+   }
+diff --git a/web/src/features/inbox/ConversationList.test.tsx b/web/src/features/inbox/ConversationList.test.tsx
+new file mode 100644
+index 0000000..d2155c7
+--- /dev/null
++++ b/web/src/features/inbox/ConversationList.test.tsx
+@@ -0,0 +1,135 @@
++import { screen } from '@testing-library/react'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { SessionProvider } from '../../auth/SessionContext'
++import { aConversation, aGuest, aStaffUser } from '../../test/factories'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { ConversationList } from './ConversationList'
++
++function respondWith(rows: unknown[], staff: unknown[] = [aStaffUser()]) {
++  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
++    const url = String(input)
++    const body = url.includes('/users') ? staff : url.includes('/departments') ? [] : rows
++    return Promise.resolve(
++      new Response(JSON.stringify(body), {
++        status: 200,
++        headers: { 'Content-Type': 'application/json' },
++      }),
++    )
++  })
++}
++
++function mount(selectedId?: string) {
++  return renderWithProviders(
++    <SessionProvider>
++      <ConversationList filter="all" selectedId={selectedId} />
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'agent' }), route: '/app/inbox' },
++  )
++}
++
++describe('ConversationList', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++    vi.stubGlobal('WebSocket', class { close() {} } as unknown as typeof WebSocket)
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('renders a row per conversation with room, guest and preview', async () => {
++    respondWith([aConversation()])
++    mount()
++    expect(await screen.findByText('412')).toBeInTheDocument()
++    expect(screen.getByText('Sarah Chen')).toBeInTheDocument()
++    expect(screen.getByText(/The AC in our room/)).toBeInTheDocument()
++  })
++
++  it('preserves the server order and does not re-sort', async () => {
++    respondWith([
++      aConversation({ id: 'c-1', roomNumber: '412', lastGuestMessageAt: '2026-09-10T18:41:00Z' }),
++      aConversation({ id: 'c-2', roomNumber: '118', lastGuestMessageAt: '2026-09-10T17:00:00Z' }),
++    ])
++    mount()
++    await screen.findByText('412')
++    const rooms = screen.getAllByTestId('row-room').map((el) => el.textContent)
++    expect(rooms).toEqual(['412', '118'])
++  })
++
++  it('prefixes an answered conversation with You:', async () => {
++    respondWith([
++      aConversation({
++        unanswered: false,
++        lastStaffMessageAt: '2026-09-10T18:50:00Z',
++        lastMessagePreview: 'Your car is at the valet stand now.',
++      }),
++    ])
++    mount()
++    expect(await screen.findByText(/^You: Your car is at the valet/)).toBeInTheDocument()
++  })
++
++  it('shows Unassigned when nobody owns it', async () => {
++    respondWith([aConversation({ assignedUserId: null, assignedDepartmentId: null })])
++    mount()
++    expect(await screen.findByText('Unassigned')).toBeInTheDocument()
++  })
++
++  it('shows the assignee initials when someone does', async () => {
++    respondWith([aConversation({ assignedUserId: 'u-ava' })])
++    mount()
++    expect(await screen.findByTitle('Ava Nolan')).toBeInTheDocument()
++  })
++
++  it('marks a guest with no stay as New', async () => {
++    respondWith([
++      aConversation({
++        roomNumber: null,
++        guest: aGuest({ firstName: null, lastName: null, phoneE164: '+15550142290' }),
++      }),
++    ])
++    mount()
++    expect(await screen.findByText('New')).toBeInTheDocument()
++    expect(screen.getByText('+15550142290')).toBeInTheDocument()
++  })
++
++  it('flags an opted-out guest in red (§5.3)', async () => {
++    respondWith([aConversation({ guest: aGuest({ smsConsentStatus: 'opted_out' }) })])
++    mount()
++    const chip = await screen.findByText(/opted out/i)
++    expect(chip.className).toContain('dangerText')
++  })
++
++  it('renders an SLA chip for an unanswered conversation and done for an answered one', async () => {
++    respondWith([
++      aConversation({ id: 'c-1', unanswered: true }),
++      aConversation({ id: 'c-2', roomNumber: '205', unanswered: false }),
++    ])
++    mount()
++    expect(await screen.findByText('done')).toBeInTheDocument()
++  })
++
++  it('marks the selected row', async () => {
++    respondWith([aConversation({ id: 'c-1' })])
++    mount('c-1')
++    expect(await screen.findByRole('link', { name: /Sarah Chen/ })).toHaveAttribute(
++      'aria-current',
++      'true',
++    )
++  })
++
++  it('shows an empty state rather than a blank column', async () => {
++    respondWith([])
++    mount()
++    expect(await screen.findByText(/nothing waiting/i)).toBeInTheDocument()
++  })
++
++  it('shows the error message when the list fails', async () => {
++    vi.mocked(fetch).mockResolvedValue(
++      new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: 'Not your property' } }), {
++        status: 403,
++        headers: { 'Content-Type': 'application/json' },
++      }),
++    )
++    mount()
++    expect(await screen.findByText('Not your property')).toBeInTheDocument()
++  })
++})
+diff --git a/web/src/features/inbox/ConversationList.tsx b/web/src/features/inbox/ConversationList.tsx
+new file mode 100644
+index 0000000..c0efd3d
+--- /dev/null
++++ b/web/src/features/inbox/ConversationList.tsx
+@@ -0,0 +1,132 @@
++import { Link } from 'react-router-dom'
++import { useConversations, type ConversationFilter } from '../../api/hooks/conversations'
++import { useStaff } from '../../api/hooks/users'
++import { useRealtime } from '../../api/ws'
++import type { ConversationSummary } from '../../api/types'
++import { SlaChip } from '../../components/SlaChip'
++import { Avatar, Badge, EmptyState, Spinner } from '../../components/ui'
++import { cn } from '../../lib/cn'
++
++function guestLabel(conversation: ConversationSummary): string {
++  const { firstName, lastName, phoneE164 } = conversation.guest
++  const name = [firstName, lastName].filter(Boolean).join(' ')
++  return name || phoneE164
++}
++
++function Row({
++  conversation,
++  selected,
++  assigneeName,
++}: {
++  conversation: ConversationSummary
++  selected: boolean
++  assigneeName: string | null
++}) {
++  const { presence } = useRealtime()
++  const watchers = (presence[conversation.id] ?? []).filter((u) => u.state !== 'composing')
++  const answered = !conversation.unanswered
++  const preview = conversation.lastMessagePreview ?? ''
++
++  return (
++    <Link
++      to={`/app/inbox/${conversation.id}`}
++      aria-current={selected ? 'true' : undefined}
++      className={cn(
++        'flex min-h-[44px] items-center gap-3.5 border-b border-border px-4 py-3.5',
++        selected ? 'bg-sel shadow-[inset_3px_0_0_var(--accent)]' : 'hover:bg-surface2',
++      )}
++    >
++      <SlaChip
++        dueAt={conversation.slaDueAt}
++        startAt={conversation.lastGuestMessageAt}
++        answered={answered}
++      />
++      <div className="min-w-0 flex-1">
++        <div className="flex items-center gap-2">
++          <span data-testid="row-room" className="font-mono text-sm font-semibold text-roomNum">
++            {conversation.roomNumber ?? '—'}
++          </span>
++          <span className="truncate text-sm font-semibold">{guestLabel(conversation)}</span>
++          {!conversation.roomNumber ? <Badge>New</Badge> : null}
++          {conversation.guest.smsConsentStatus === 'opted_out' ? (
++            <Badge tone="danger" className="text-dangerText">
++              Opted out
++            </Badge>
++          ) : null}
++          {assigneeName ? (
++            <Avatar name={assigneeName} size={22} tone="muted" />
++          ) : (
++            <Badge>Unassigned</Badge>
++          )}
++        </div>
++        <p className={cn('truncate text-[13px]', answered ? 'text-text3' : 'text-text2')}>
++          {answered && conversation.lastStaffMessageAt ? `You: ${preview}` : preview}
++        </p>
++      </div>
++      {watchers.length > 0 ? (
++        <div className="flex flex-none -space-x-1.5">
++          {watchers.slice(0, 3).map((u) => (
++            <Avatar key={u.id} name={u.firstName} size={22} tone="presence" />
++          ))}
++        </div>
++      ) : null}
++    </Link>
++  )
++}
++
++export function ConversationList({
++  filter,
++  selectedId,
++  dept,
++}: {
++  filter: ConversationFilter
++  selectedId?: string
++  dept?: string | null
++}) {
++  const query = useConversations(filter, dept)
++  const { data: staff } = useStaff()
++  const rows = query.data?.pages.flat() ?? []
++
++  if (query.isPending) {
++    return (
++      <div className="grid place-items-center p-10">
++        <Spinner />
++      </div>
++    )
++  }
++  if (query.error) {
++    return <EmptyState title="Could not load the queue" hint={query.error.message} />
++  }
++  if (rows.length === 0) {
++    return <EmptyState title="Nothing waiting" hint="No conversations match this filter." />
++  }
++
++  const nameFor = (userId: string | null | undefined): string | null => {
++    if (!userId) return null
++    const person = staff?.find((s) => s.id === userId)
++    return person ? `${person.firstName} ${person.lastName}` : null
++  }
++
++  return (
++    <div className="flex flex-col">
++      {/* The server orders by unanswered-then-oldest; rendering as received is deliberate. */}
++      {rows.map((conversation) => (
++        <Row
++          key={conversation.id}
++          conversation={conversation}
++          selected={conversation.id === selectedId}
++          assigneeName={nameFor(conversation.assignedUserId)}
++        />
++      ))}
++      {query.hasNextPage ? (
++        <button
++          onClick={() => void query.fetchNextPage()}
++          disabled={query.isFetchingNextPage}
++          className="h-11 border-b border-border text-sm font-semibold text-text3 hover:text-text"
++        >
++          {query.isFetchingNextPage ? 'Loading…' : 'Load more'}
++        </button>
++      ) : null}
++    </div>
++  )
++}
+diff --git a/web/src/features/inbox/ConversationView.tsx b/web/src/features/inbox/ConversationView.tsx
+new file mode 100644
+index 0000000..0594b9e
+--- /dev/null
++++ b/web/src/features/inbox/ConversationView.tsx
+@@ -0,0 +1,21 @@
++import { useConversation } from '../../api/hooks/conversations'
++import { Spinner } from '../../components/ui'
++
++/**
++ * Scoped stub for Task 12: just enough for InboxPage to compile and the three-column
++ * layout to be verifiable. Task 13 replaces this with the real thread view.
++ */
++export function ConversationView({ conversationId }: { conversationId: string }) {
++  const { data, isPending } = useConversation(conversationId)
++
++  if (isPending) {
++    return (
++      <div className="grid place-items-center p-10">
++        <Spinner />
++      </div>
++    )
++  }
++
++  const name = [data?.guest.firstName, data?.guest.lastName].filter(Boolean).join(' ')
++  return <div className="p-4 text-sm font-semibold">{name || data?.guest.phoneE164}</div>
++}
+diff --git a/web/src/features/inbox/FilterTabs.test.tsx b/web/src/features/inbox/FilterTabs.test.tsx
+new file mode 100644
+index 0000000..64927c2
+--- /dev/null
++++ b/web/src/features/inbox/FilterTabs.test.tsx
+@@ -0,0 +1,64 @@
++import { screen } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { describe, expect, it, vi } from 'vitest'
++import { SessionProvider } from '../../auth/SessionContext'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { FilterTabs } from './FilterTabs'
++import type { Role } from '../../api/types'
++
++function mount(role: Role, onChange = vi.fn()) {
++  renderWithProviders(
++    <SessionProvider>
++      <FilterTabs value="all" counts={{ all: 23, mine: 6, unassigned: 8, overdue: 3 }} onChange={onChange} />
++    </SessionProvider>,
++    { session: sessionFixture({ role }) },
++  )
++  return onChange
++}
++
++describe('FilterTabs', () => {
++  it('shows the four live filters with their counts for an agent', async () => {
++    mount('agent')
++    expect(await screen.findByRole('tab', { name: /All 23/ })).toBeInTheDocument()
++    expect(screen.getByRole('tab', { name: /Mine 6/ })).toBeInTheDocument()
++    expect(screen.getByRole('tab', { name: /Unassigned 8/ })).toBeInTheDocument()
++    expect(screen.getByRole('tab', { name: /Overdue 3/ })).toBeInTheDocument()
++  })
++
++  it('also offers Snoozed, Resolved and Archived as separate filters (§5.3)', async () => {
++    mount('agent')
++    expect(await screen.findByRole('tab', { name: /Snoozed/ })).toBeInTheDocument()
++    expect(screen.getByRole('tab', { name: /Resolved/ })).toBeInTheDocument()
++    expect(screen.getByRole('tab', { name: /Archived/ })).toBeInTheDocument()
++  })
++
++  it('marks the active tab as selected', async () => {
++    mount('agent')
++    expect(await screen.findByRole('tab', { name: /All/ })).toHaveAttribute('aria-selected', 'true')
++    expect(screen.getByRole('tab', { name: /Mine/ })).toHaveAttribute('aria-selected', 'false')
++  })
++
++  it('hides All and Unassigned from dept_staff, who cannot view the whole property', async () => {
++    mount('dept_staff')
++    expect(await screen.findByRole('tab', { name: /Mine/ })).toBeInTheDocument()
++    expect(screen.queryByRole('tab', { name: /All/ })).not.toBeInTheDocument()
++    expect(screen.queryByRole('tab', { name: /Unassigned/ })).not.toBeInTheDocument()
++  })
++
++  it('omits a count that has not loaded rather than showing a stale zero', async () => {
++    renderWithProviders(
++      <SessionProvider>
++        <FilterTabs value="all" counts={{}} onChange={vi.fn()} />
++      </SessionProvider>,
++      { session: sessionFixture({ role: 'agent' }) },
++    )
++    const tab = await screen.findByRole('tab', { name: /All/ })
++    expect(tab.textContent).toBe('All')
++  })
++
++  it('reports the chosen filter', async () => {
++    const onChange = mount('agent')
++    await userEvent.click(await screen.findByRole('tab', { name: /Overdue/ }))
++    expect(onChange).toHaveBeenCalledWith('overdue')
++  })
++})
+diff --git a/web/src/features/inbox/FilterTabs.tsx b/web/src/features/inbox/FilterTabs.tsx
+new file mode 100644
+index 0000000..0bd05b0
+--- /dev/null
++++ b/web/src/features/inbox/FilterTabs.tsx
+@@ -0,0 +1,50 @@
++import { useSession } from '../../auth/SessionContext'
++import { cn } from '../../lib/cn'
++import type { ConversationFilter } from '../../api/hooks/conversations'
++
++const ALL_TABS: { value: ConversationFilter; label: string; needsAllAccess?: boolean }[] = [
++  { value: 'all', label: 'All', needsAllAccess: true },
++  { value: 'mine', label: 'Mine' },
++  { value: 'unassigned', label: 'Unassigned', needsAllAccess: true },
++  { value: 'overdue', label: 'Overdue' },
++  { value: 'snoozed', label: 'Snoozed' },
++  { value: 'resolved', label: 'Resolved' },
++  { value: 'archived', label: 'Archived' },
++]
++
++export function FilterTabs({
++  value,
++  counts,
++  onChange,
++}: {
++  value: ConversationFilter
++  counts: Partial<Record<ConversationFilter, number>>
++  onChange: (filter: ConversationFilter) => void
++}) {
++  const { can } = useSession()
++  const tabs = ALL_TABS.filter((t) => !t.needsAllAccess || can('view_all_conversations'))
++
++  return (
++    <div role="tablist" className="flex flex-wrap items-center gap-1.5">
++      {tabs.map((tab) => {
++        const count = counts[tab.value]
++        return (
++          <button
++            key={tab.value}
++            role="tab"
++            aria-selected={value === tab.value}
++            onClick={() => onChange(tab.value)}
++            className={cn(
++              'inline-flex h-9 items-center gap-2 rounded px-3.5 text-[13.5px] font-semibold',
++              value === tab.value ? 'bg-accent text-accentText' : 'text-text3 hover:text-text',
++            )}
++          >
++            {tab.label}
++            {/* Only render a count we actually have — a stale 0 reads as "nothing to do". */}
++            {count === undefined ? null : <span className="font-mono text-xs opacity-85">{count}</span>}
++          </button>
++        )
++      })}
++    </div>
++  )
++}
+diff --git a/web/src/features/inbox/InboxPage.tsx b/web/src/features/inbox/InboxPage.tsx
+new file mode 100644
+index 0000000..6631889
+--- /dev/null
++++ b/web/src/features/inbox/InboxPage.tsx
+@@ -0,0 +1,48 @@
++import { useState } from 'react'
++import { useParams } from 'react-router-dom'
++import { useSession } from '../../auth/SessionContext'
++import type { ConversationFilter } from '../../api/hooks/conversations'
++import { useConversations } from '../../api/hooks/conversations'
++import { ConversationList } from './ConversationList'
++import { FilterTabs } from './FilterTabs'
++import { EmptyState } from '../../components/ui'
++import { ConversationView } from './ConversationView'
++
++export function InboxPage() {
++  const { id } = useParams<{ id: string }>()
++  const { can } = useSession()
++  // dept_staff cannot see the whole property, so their queue starts at Mine.
++  const [filter, setFilter] = useState<ConversationFilter>(
++    can('view_all_conversations') ? 'all' : 'mine',
++  )
++
++  // Counts for the tabs: the active filter's own length, plus the cheap always-on ones.
++  const active = useConversations(filter)
++  const counts = { [filter]: active.data?.pages.flat().length } as Partial<
++    Record<ConversationFilter, number>
++  >
++
++  return (
++    <div className="flex h-full flex-col">
++      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
++        <FilterTabs value={filter} counts={counts} onChange={setFilter} />
++      </div>
++      <div className="flex min-h-0 flex-1">
++        <div
++          className={`w-full overflow-y-auto border-r border-border md:w-[360px] md:flex-none ${
++            id ? 'hidden md:block' : ''
++          }`}
++        >
++          <ConversationList filter={filter} selectedId={id} />
++        </div>
++        <div className={`min-w-0 flex-1 ${id ? '' : 'hidden md:block'}`}>
++          {id ? (
++            <ConversationView conversationId={id} />
++          ) : (
++            <EmptyState title="Pick a conversation" hint="Choose a row to read the thread." />
++          )}
++        </div>
++      </div>
++    </div>
++  )
++}
+diff --git a/web/src/routes.test.tsx b/web/src/routes.test.tsx
+index 7153a20..1e86ddd 100644
+--- a/web/src/routes.test.tsx
++++ b/web/src/routes.test.tsx
+@@ -47,21 +47,23 @@ describe('AppRoutes', () => {
+         }),
+       ),
+     )
+   })
+   afterEach(() => {
+     vi.unstubAllGlobals()
+   })
+ 
+   it('sends an agent from /app to the inbox', async () => {
+     mountAt('/app', 'agent')
+-    expect(await (await mainScreen()).findByText('Inbox')).toBeInTheDocument()
++    // Task 12 replaced the Inbox placeholder with the real screen, which has no literal
++    // "Inbox" text of its own in <main> — the location is the stable signal that we landed.
++    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/inbox'))
+   })
+ 
+   it('sends dept_staff from /app to the board, filtered to mine', async () => {
+     mountAt('/app', 'dept_staff')
+     expect(await (await mainScreen()).findByText('Board')).toBeInTheDocument()
+     // The Placeholder ignores query strings entirely, so this is the only thing in this
+     // file that would catch <Navigate> silently dropping `?mine=1` on the way there.
+     expect(screen.getByTestId('location')).toHaveTextContent('/app/board?mine=1')
+   })
+ 
+@@ -81,39 +83,39 @@ describe('AppRoutes', () => {
+     expect(await (await mainScreen()).findByText('Analytics')).toBeInTheDocument()
+   })
+ 
+   it('sends corporate from /app to analytics', async () => {
+     mountAt('/app', 'corporate')
+     expect(await (await mainScreen()).findByText('Analytics')).toBeInTheDocument()
+   })
+ 
+   it('keeps an agent out of analytics, bouncing them to their landing screen', async () => {
+     mountAt('/app/analytics', 'agent')
++    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/inbox'))
+     const main = await mainScreen()
+-    expect(await main.findByText('Inbox')).toBeInTheDocument()
+     expect(main.queryByText('Analytics')).not.toBeInTheDocument()
+   })
+ 
+   it('keeps a manager out of admin', async () => {
+     mountAt('/app/admin/users', 'manager')
+     const main = await mainScreen()
+     expect(await main.findByText('Analytics')).toBeInTheDocument()
+     expect(main.queryByText('Admin')).not.toBeInTheDocument()
+   })
+ 
+   it('lets an admin into admin', async () => {
+     mountAt('/app/admin/users', 'admin')
+     expect(await (await mainScreen()).findByText('Admin')).toBeInTheDocument()
+   })
+ 
+   it('redirects an unknown path to /app', async () => {
+     mountAt('/nonsense', 'agent')
+-    expect(await (await mainScreen()).findByText('Inbox')).toBeInTheDocument()
++    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/inbox'))
+   })
+ 
+   it('sends an unauthenticated visitor to /login', async () => {
+     renderWithProviders(<AppRoutes />, { route: '/app/inbox' })
+     await waitFor(() =>
+       expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument(),
+     )
+   })
+ })
+diff --git a/web/src/routes.tsx b/web/src/routes.tsx
+index 387c1c4..93c7756 100644
+--- a/web/src/routes.tsx
++++ b/web/src/routes.tsx
+@@ -1,18 +1,19 @@
+ import { Suspense, lazy } from 'react'
+ import { Navigate, Route, Routes } from 'react-router-dom'
+ import { useSession } from './auth/SessionContext'
+ import { RequireAuth } from './auth/RequireAuth'
+ import { landingPath } from './auth/capabilities'
+ import { AppLayout } from './AppLayout'
+ import { EmptyState, Spinner } from './components/ui'
+ import { LoginPage } from './features/login/LoginPage'
++import { InboxPage } from './features/inbox/InboxPage'
+ 
+ /** Temporary: each feature task replaces one of these with the real screen. */
+ function Placeholder({ name }: { name: string }) {
+   return <EmptyState title={name} hint="Not built yet." />
+ }
+ 
+ function LandingRedirect() {
+   const { role } = useSession()
+   return <Navigate to={landingPath(role)} replace />
+ }
+@@ -34,22 +35,22 @@ const SimulatorPage = import.meta.env.DEV
+   ? lazy(() => import('./features/sim/SimulatorPage'))
+   : null
+ 
+ export function AppRoutes() {
+   return (
+     <Routes>
+       <Route path="/login" element={<LoginPage />} />
+       <Route path="/app" element={<RequireAuth />}>
+         <Route element={<AppLayout />}>
+           <Route index element={<LandingRedirect />} />
+-          <Route path="inbox" element={<Placeholder name="Inbox" />} />
+-          <Route path="inbox/:id" element={<Placeholder name="Inbox" />} />
++          <Route path="inbox" element={<InboxPage />} />
++          <Route path="inbox/:id" element={<InboxPage />} />
+           <Route path="board" element={<Placeholder name="Board" />} />
+           <Route path="work-orders/:id" element={<Placeholder name="Work order" />} />
+           <Route
+             path="analytics"
+             element={
+               <RequireCapability capability="view_property_analytics">
+                 <Placeholder name="Analytics" />
+               </RequireCapability>
+             }
+           />
+diff --git a/web/src/test/factories.ts b/web/src/test/factories.ts
+new file mode 100644
+index 0000000..853a273
+--- /dev/null
++++ b/web/src/test/factories.ts
+@@ -0,0 +1,232 @@
++import type {
++  ConversationDetail,
++  ConversationSummary,
++  DepartmentOut,
++  DraftPromptOut,
++  GuestOut,
++  MessageOut,
++  NoteOut,
++  NotificationOut,
++  QuickReplyOut,
++  AssetOut,
++  StaffUserOut,
++  StayOut,
++  WorkOrderDetail,
++  WorkOrderOut,
++} from '../api/types'
++
++export function aGuest(over: Partial<GuestOut> = {}): GuestOut {
++  return {
++    id: 'g-1',
++    phoneE164: '+15551234567',
++    firstName: 'Sarah',
++    lastName: 'Chen',
++    email: null,
++    loyaltyTier: 'gold',
++    notesSummary: null,
++    smsConsentStatus: 'opted_in',
++    vip: false,
++    ...over,
++  }
++}
++
++export function aStay(over: Partial<StayOut> = {}): StayOut {
++  return {
++    id: 's-1',
++    roomNumber: '412',
++    roomType: 'King',
++    status: 'checked_in',
++    arrivalDate: '2026-09-09',
++    departureDate: '2026-09-12',
++    adults: 2,
++    children: 0,
++    stayCount: 4,
++    isReturnGuest: true,
++    ...over,
++  }
++}
++
++export function aConversation(over: Partial<ConversationSummary> = {}): ConversationSummary {
++  return {
++    id: 'c-1',
++    status: 'open',
++    channelPrimary: 'sms',
++    guest: aGuest(),
++    roomNumber: '412',
++    assignedUserId: null,
++    assignedDepartmentId: null,
++    lastMessagePreview: "The AC in our room isn't working at all",
++    lastGuestMessageAt: '2026-09-10T18:41:00Z',
++    lastStaffMessageAt: null,
++    slaDueAt: '2026-09-10T18:56:00Z',
++    snoozedUntil: null,
++    openWorkOrderCount: 0,
++    unanswered: true,
++    ...over,
++  }
++}
++
++export function aMessage(over: Partial<MessageOut> = {}): MessageOut {
++  return {
++    id: 'm-1',
++    conversationId: 'c-1',
++    direction: 'inbound',
++    channel: 'sms',
++    authorType: 'guest',
++    authorUserId: null,
++    body: "The AC in our room isn't working at all",
++    deliveryStatus: 'delivered',
++    sentAt: '2026-09-10T18:41:00Z',
++    deliveredAt: '2026-09-10T18:41:02Z',
++    providerErrorCode: null,
++    providerErrorMessage: null,
++    digitalAssetId: null,
++    redacted: false,
++    ...over,
++  }
++}
++
++export function aNote(over: Partial<NoteOut> = {}): NoteOut {
++  return {
++    id: 'n-1',
++    authorUserId: 'u-ava',
++    authorName: 'Ava',
++    body: 'Guest is Gold, 4th stay.',
++    mentions: [],
++    createdAt: '2026-09-10T18:43:00Z',
++    ...over,
++  }
++}
++
++export function aDraftPrompt(over: Partial<DraftPromptOut> = {}): DraftPromptOut {
++  return {
++    id: 'd-1',
++    workOrderId: 'w-204',
++    workOrderTitle: 'AC not cooling',
++    body: 'Hi Sarah — engineering has repaired the AC in 412 and it is cooling now.',
++    status: 'pending',
++    createdAt: '2026-09-10T18:56:00Z',
++    ...over,
++  }
++}
++
++export function aConversationDetail(over: Partial<ConversationDetail> = {}): ConversationDetail {
++  return {
++    id: 'c-1',
++    status: 'open',
++    channelPrimary: 'sms',
++    guest: aGuest(),
++    stay: aStay(),
++    assignedUserId: null,
++    assignedDepartmentId: null,
++    resolutionCategoryId: null,
++    lastGuestMessageAt: '2026-09-10T18:41:00Z',
++    lastStaffMessageAt: null,
++    slaDueAt: '2026-09-10T18:56:00Z',
++    snoozedUntil: null,
++    archivedAt: null,
++    firstResponseSeconds: null,
++    messages: [aMessage()],
++    notes: [],
++    workOrders: [],
++    draftPrompts: [],
++    ...over,
++  }
++}
++
++export function aWorkOrder(over: Partial<WorkOrderOut> = {}): WorkOrderOut {
++  return {
++    id: 'w-204',
++    title: 'AC not cooling',
++    description: 'Guest reports the AC in 412 is not working.',
++    type: 'maintenance',
++    status: 'open',
++    priority: 'urgent',
++    locationType: 'room',
++    locationRef: '412',
++    departmentId: 'dept-eng',
++    assignedUserId: null,
++    reportedByUserId: 'u-ava',
++    sourceConversationId: 'c-1',
++    sourceMessageId: 'm-1',
++    dueAt: null,
++    acknowledgedAt: null,
++    startedAt: null,
++    completedAt: null,
++    verifiedAt: null,
++    guestNotifiedAt: null,
++    createdAt: '2026-09-10T18:42:00Z',
++    updatedAt: '2026-09-10T18:42:00Z',
++    ...over,
++  }
++}
++
++export function aWorkOrderDetail(over: Partial<WorkOrderDetail> = {}): WorkOrderDetail {
++  return { ...aWorkOrder(), events: [], guestName: 'Sarah Chen', roomNumber: '412', ...over }
++}
++
++export function aDepartment(over: Partial<DepartmentOut> = {}): DepartmentOut {
++  return { id: 'dept-eng', name: 'Engineering', type: 'engineering', escalationMinutes: 15, active: true, ...over }
++}
++
++export function aStaffUser(over: Partial<StaffUserOut> = {}): StaffUserOut {
++  return {
++    id: 'u-ava',
++    email: 'ava@hvh.test',
++    firstName: 'Ava',
++    lastName: 'Nolan',
++    role: 'agent',
++    departmentId: 'dept-fd',
++    avatarUrl: null,
++    status: 'active',
++    ...over,
++  }
++}
++
++export function aQuickReply(over: Partial<QuickReplyOut> = {}): QuickReplyOut {
++  return {
++    id: 'q-1',
++    shortcut: '/wifi',
++    title: 'WiFi details',
++    body: 'Hi {{guest_first_name}} — the network is Harbourview-Guest, no password needed.',
++    departmentId: null,
++    category: null,
++    locale: 'en',
++    active: true,
++    usageCount: 212,
++    ...over,
++  }
++}
++
++export function aAsset(over: Partial<AssetOut> = {}): AssetOut {
++  return {
++    id: 'a-1',
++    name: 'WiFi card',
++    type: 'file',
++    url: 'https://example.test/wifi.pdf',
++    shortCode: 'wifi1',
++    description: null,
++    thumbnailUrl: null,
++    category: null,
++    departmentId: null,
++    validFrom: null,
++    validUntil: null,
++    sendCount: 12,
++    active: true,
++    ...over,
++  }
++}
++
++export function aNotification(over: Partial<NotificationOut> = {}): NotificationOut {
++  return {
++    id: 'nt-1',
++    type: 'sla.breach',
++    title: 'SLA breached in 412',
++    body: 'Sarah Chen has been waiting 16 minutes.',
++    entityType: 'conversation',
++    entityId: 'c-1',
++    readAt: null,
++    createdAt: '2026-09-10T18:57:00Z',
++    ...over,
++  }
++}

@@ -1,0 +1,86 @@
+# Review package: f8bdb79..02e85eb
+
+## Commits
+02e85eb fix(server): close viewer-scope bypass on send-message and retry routes too
+
+## Files changed
+ server/app/api/conversations.py        | 5 ++++-
+ server/tests/test_conversations_api.py | 6 ++++--
+ 2 files changed, 8 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/server/app/api/conversations.py b/server/app/api/conversations.py
+index 4db3c06..c0ffdf4 100644
+--- a/server/app/api/conversations.py
++++ b/server/app/api/conversations.py
+@@ -40,33 +40,36 @@ def get_conversation(property_id: str, conversation_id: str):
+ 
+ 
+ @bp.post("/<conversation_id>/messages")
+ @require_auth
+ @require_property
+ @require_capability("reply")
+ def send_message(property_id: str, conversation_id: str):
+     body = parse_body(SendMessageRequest)
+     ip, ua = client_meta()
+     with db_session() as db:
++        c = conversations.get(db, g.property_id, conversation_id)
++        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+         m = messages.send(db, g.property_id, conversation_id, body.body, author_user_id=g.user.id,
+                           digital_asset_id=body.digital_asset_id, draft_prompt_id=body.draft_prompt_id,
+                           ip=ip, user_agent=ua)
+         return ok(MessageOut.model_validate(m), 201)
+ 
+ 
+ @bp.post("/<conversation_id>/messages/<message_id>/retry")
+ @require_auth
+ @require_property
+ @require_capability("reply")
+ def retry_message(property_id: str, conversation_id: str, message_id: str):
+     with db_session() as db:
+-        conversations.get(db, g.property_id, conversation_id)
++        c = conversations.get(db, g.property_id, conversation_id)
++        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+         target = db.scalar(select(Message).where(Message.id == message_id,
+                                                   Message.property_id == g.property_id))
+         if target is None or target.conversation_id != conversation_id:
+             raise NotFound("Message not found")
+         m = messages.retry(db, g.property_id, message_id)
+         return ok(MessageOut.model_validate(m))
+ 
+ 
+ @bp.post("/<conversation_id>/notes")
+ @require_auth
+diff --git a/server/tests/test_conversations_api.py b/server/tests/test_conversations_api.py
+index 27eb1b5..841e681 100644
+--- a/server/tests/test_conversations_api.py
++++ b/server/tests/test_conversations_api.py
+@@ -54,24 +54,26 @@ def test_filters_mine_unassigned_overdue_resolved_archived(app, fx, client, data
+ 
+ def test_dept_staff_sees_only_their_department_or_own_conversations(app, fx, client, database, login):
+     inbound(client, fx, fx.guest_nostay_a.phone_e164, "one")
+     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "two")
+     diego, sarah = _cid(database, fx.guest_nostay_a.id), _cid(database, fx.guest_inhouse_a.id)
+     agent = login("agent@hvh.test")
+     agent.patch(f"{_base(fx)}/{sarah}", json={"assignedDepartmentId": fx.dept_engineering.id})
+     eng = login("engineer@hvh.test")
+     assert {r["id"] for r in eng.get(_base(fx)).get_json()} == {sarah}
+     assert eng.get(f"{_base(fx)}/{diego}").status_code == 403
+-    # A conversation invisible via GET must stay invisible through every other route too —
+-    # an empty PATCH or a note-create must not become a side door to read or touch it.
++    # A conversation invisible via GET must stay invisible through every other route too — an empty
++    # PATCH, a note-create, sending a message, or retrying one must not become a side door to it.
+     assert eng.patch(f"{_base(fx)}/{diego}", json={}).status_code == 403
+     assert eng.post(f"{_base(fx)}/{diego}/notes", json={"body": "peeking"}).status_code == 403
++    assert eng.post(f"{_base(fx)}/{diego}/messages", json={"body": "should not send"}).status_code == 403
++    assert eng.post(f"{_base(fx)}/{diego}/messages/00000000-0000-0000-0000-000000000000/retry").status_code == 403
+ 
+ 
+ def test_dept_staff_without_department_sees_only_own_assigned(app, fx, client, database, login):
+     """A dept_staff membership with no department must never widen to the whole unassigned queue."""
+     from app.auth.passwords import hash_password
+     from app.models import PropertyMembership, UserAccount
+     from app.schemas.enums import Role
+     from tests.fixtures import PASSWORD
+ 
+     with database.session() as db:

@@ -1,0 +1,265 @@
+### Task 3: API client and query keys
+
+**Files:**
+- Create: `web/src/api/client.ts`, `web/src/api/queryKeys.ts`
+- Test: `web/src/api/client.test.ts`
+
+**Interfaces:**
+- Consumes: `./types` (Task 2).
+- Produces:
+  - `class ApiError extends Error { readonly status: number; readonly code: string; readonly details?: unknown }`
+  - `api<T>(path: string, init?: ApiInit): Promise<T>` where `ApiInit = Omit<RequestInit, 'body'> & { json?: unknown }`
+  - `onUnauthorized(fn: (() => void) | null): void` — one global hook, called when any request returns 401
+  - `propertyPath(propertyId: string, rest: string): string` → `/api/p/<id>/<rest>`
+  - `qk` — the query-key factory every hook uses
+
+**Contract facts this encodes** (all verified in `server/app/api/_util.py` and `server/app/errors.py`):
+- Success bodies are the **bare** model or array — no `{data: …}` envelope.
+- 204 responses have an empty body; `api()` resolves to `undefined` cast to `T`.
+- Errors are `{"error": {"code", "message", "details"?}}`. `ConsentError` → 422 `CONSENT_OPTED_OUT`; `TransitionError` → 409; validation → 400; auth → 401/403.
+- Session is the HttpOnly `sid` cookie, so every request needs `credentials: 'same-origin'`. There is no token to attach and none to store.
+
+- [ ] **Step 1: Write the failing test**
+
+`web/src/api/client.test.ts`:
+
+```ts
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError, api, onUnauthorized, propertyPath } from './client'
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+describe('api client', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+    onUnauthorized(null)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('returns the parsed body directly — there is no envelope', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, [{ id: 'c1' }]))
+    await expect(api<{ id: string }[]>('/api/p/p1/conversations')).resolves.toEqual([{ id: 'c1' }])
+  })
+
+  it('sends cookies so the HttpOnly sid session is used', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+    await api('/api/auth/me')
+    expect(vi.mocked(fetch).mock.calls[0]![1]).toMatchObject({ credentials: 'same-origin' })
+  })
+
+  it('serialises `json` as a POST body with the right content type', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(201, { id: 'w1' }))
+    await api('/api/p/p1/work-orders', { method: 'POST', json: { title: 'AC' } })
+    const init = vi.mocked(fetch).mock.calls[0]![1]!
+    expect(init.body).toBe('{"title":"AC"}')
+    expect(new Headers(init.headers).get('Content-Type')).toBe('application/json')
+  })
+
+  it('resolves to undefined on 204 without trying to parse a body', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }))
+    await expect(api('/api/p/p1/notifications/n1/read', { method: 'POST' })).resolves
+      .toBeUndefined()
+  })
+
+  it('unwraps the error envelope into an ApiError carrying code and status', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(422, {
+        error: { code: 'CONSENT_OPTED_OUT', message: 'Guest has opted out', details: { a: 1 } },
+      }),
+    )
+    const err = await api('/x').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({
+      status: 422,
+      code: 'CONSENT_OPTED_OUT',
+      message: 'Guest has opted out',
+      details: { a: 1 },
+    })
+  })
+
+  it('still throws a usable ApiError when the body is not JSON', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response('<html>502</html>', { status: 502 }))
+    const err = await api('/x').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({ status: 502, code: 'HTTP_502' })
+    expect((err as ApiError).message).toBeTruthy()
+  })
+
+  it('calls the unauthorized hook on 401 and still rejects', async () => {
+    const seen = vi.fn()
+    onUnauthorized(seen)
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(401, { error: { code: 'UNAUTHORIZED', message: 'Session expired' } }),
+    )
+    await expect(api('/api/auth/me')).rejects.toBeInstanceOf(ApiError)
+    expect(seen).toHaveBeenCalledOnce()
+  })
+
+  it('does not fire the unauthorized hook for 403 — that is a role problem, not a session one', async () => {
+    const seen = vi.fn()
+    onUnauthorized(seen)
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(403, { error: { code: 'FORBIDDEN', message: 'Not your property' } }),
+    )
+    await expect(api('/api/p/other/conversations')).rejects.toBeInstanceOf(ApiError)
+    expect(seen).not.toHaveBeenCalled()
+  })
+
+  it('builds property-scoped paths', () => {
+    expect(propertyPath('p1', 'conversations?filter=all')).toBe('/api/p/p1/conversations?filter=all')
+  })
+
+  it('turns a network failure into an ApiError rather than a raw TypeError', async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError('Failed to fetch'))
+    const err = await api('/x').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({ status: 0, code: 'NETWORK' })
+  })
+})
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+```bash
+cd web && npx vitest run src/api/client.test.ts
+```
+
+Expected: FAIL — cannot resolve `./client`.
+
+- [ ] **Step 3: Write `web/src/api/client.ts`**
+
+```ts
+export type ApiInit = Omit<RequestInit, 'body'> & { json?: unknown }
+
+export class ApiError extends Error {
+  readonly status: number
+  readonly code: string
+  readonly details?: unknown
+
+  constructor(status: number, code: string, message: string, details?: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+    this.details = details
+  }
+}
+
+let unauthorizedHandler: (() => void) | null = null
+
+/** One global hook, installed by SessionProvider, so an expired session lands on /login once. */
+export function onUnauthorized(fn: (() => void) | null): void {
+  unauthorizedHandler = fn
+}
+
+export function propertyPath(propertyId: string, rest: string): string {
+  return `/api/p/${propertyId}/${rest}`
+}
+
+function errorFrom(status: number, body: unknown, fallback: string): ApiError {
+  const envelope = (body as { error?: { code?: string; message?: string; details?: unknown } })
+    ?.error
+  return new ApiError(
+    status,
+    envelope?.code ?? `HTTP_${status}`,
+    envelope?.message ?? fallback,
+    envelope?.details,
+  )
+}
+
+export async function api<T>(path: string, init: ApiInit = {}): Promise<T> {
+  const { json, headers, ...rest } = init
+  const requestHeaders = new Headers(headers)
+  if (json !== undefined) requestHeaders.set('Content-Type', 'application/json')
+
+  let response: Response
+  try {
+    response = await fetch(path, {
+      ...rest,
+      headers: requestHeaders,
+      credentials: 'same-origin',
+      body: json === undefined ? undefined : JSON.stringify(json),
+    })
+  } catch (cause) {
+    throw new ApiError(0, 'NETWORK', 'Could not reach the server. Check your connection.', cause)
+  }
+
+  if (!response.ok) {
+    // A proxy or crash can answer with HTML; never let a parse failure mask the status.
+    const body = await response.json().catch(() => null)
+    if (response.status === 401) unauthorizedHandler?.()
+    throw errorFrom(response.status, body, `Request failed (${response.status})`)
+  }
+
+  if (response.status === 204) return undefined as T
+  return (await response.json()) as T
+}
+```
+
+- [ ] **Step 4: Write `web/src/api/queryKeys.ts`**
+
+One place for every key, so an event handler in `ws.ts` can invalidate without guessing a shape. Every key is property-scoped after the first segment because the same user can hold memberships at two properties and must never see A's cache at B.
+
+```ts
+export const qk = {
+  session: ['session'] as const,
+
+  conversations: (propertyId: string, filter: string, dept?: string | null) =>
+    ['conversations', propertyId, filter, dept ?? null] as const,
+  conversationsAll: (propertyId: string) => ['conversations', propertyId] as const,
+  conversation: (propertyId: string, id: string) => ['conversation', propertyId, id] as const,
+
+  workOrders: (propertyId: string, params: Record<string, string | boolean | null>) =>
+    ['workOrders', propertyId, params] as const,
+  workOrdersAll: (propertyId: string) => ['workOrders', propertyId] as const,
+  workOrder: (propertyId: string, id: string) => ['workOrder', propertyId, id] as const,
+  workOrderPrefill: (propertyId: string, conversationId: string) =>
+    ['workOrderPrefill', propertyId, conversationId] as const,
+
+  quickReplies: (propertyId: string, q?: string) => ['quickReplies', propertyId, q ?? ''] as const,
+  assets: (propertyId: string) => ['assets', propertyId] as const,
+  categories: (propertyId: string) => ['categories', propertyId] as const,
+  departments: (propertyId: string) => ['departments', propertyId] as const,
+  staff: (propertyId: string) => ['staff', propertyId] as const,
+  guest: (propertyId: string, id: string) => ['guest', propertyId, id] as const,
+
+  notifications: (propertyId: string, unreadOnly: boolean) =>
+    ['notifications', propertyId, unreadOnly] as const,
+  notificationsAll: (propertyId: string) => ['notifications', propertyId] as const,
+  unreadCount: (propertyId: string) => ['unreadCount', propertyId] as const,
+
+  analyticsOverview: (propertyId: string, from: string, to: string) =>
+    ['analytics', 'overview', propertyId, from, to] as const,
+  analyticsAgents: (propertyId: string, from: string, to: string) =>
+    ['analytics', 'agents', propertyId, from, to] as const,
+
+  simGuests: ['sim', 'guests'] as const,
+  simThread: (propertyId: string, phone: string) => ['sim', 'thread', propertyId, phone] as const,
+  simEvents: ['sim', 'events'] as const,
+}
+```
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+```bash
+cd web && npm test
+```
+
+Expected: PASS — 10 client tests plus Tasks 1 and 2's.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add web/src/api/client.ts web/src/api/queryKeys.ts web/src/api/client.test.ts
+git commit -m "feat(web): API client with typed ApiError, 204 handling and query keys"
+```
+
+---
+

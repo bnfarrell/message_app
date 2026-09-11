@@ -1,0 +1,1504 @@
+# Review package: 8094d4f..9ae2bac
+
+## Commits
+9ae2bac chore(web): regenerate the API types my schema changes made stale
+02c5def feat(server): expose the three live settings-bag keys as typed fields
+e6677e5 fix(server): a sender number must carry at least two digits
+8469e64 fix(server): an explicit null on a NOT NULL column is a 400, not a 500
+
+## Files changed
+ server/app/domain/_patch.py            |  38 +++++++
+ server/app/domain/assets.py            |   3 +-
+ server/app/domain/categories.py        |   3 +-
+ server/app/domain/guests.py            |  15 +++
+ server/app/domain/properties.py        |  34 +++++-
+ server/app/domain/quick_replies.py     |   3 +-
+ server/app/domain/users.py             |   3 +-
+ server/app/schemas/properties.py       |   9 +-
+ server/tests/test_content.py           |  38 +++++++
+ server/tests/test_departments_users.py |  14 +++
+ server/tests/test_guests_stays.py      |  13 ++-
+ server/tests/test_property_settings.py |  79 +++++++++++++-
+ web/src/api/schema.json                |  65 +++++++++++-
+ web/src/api/types.generated.ts         | 189 ++++++++++++++++++++++++++-------
+ web/src/api/types.ts                   |  25 +++--
+ 15 files changed, 467 insertions(+), 64 deletions(-)
+
+## Diff
+diff --git a/server/app/domain/_patch.py b/server/app/domain/_patch.py
+new file mode 100644
+index 0000000..66a9172
+--- /dev/null
++++ b/server/app/domain/_patch.py
+@@ -0,0 +1,38 @@
++from __future__ import annotations
++
++from pydantic import BaseModel
++from sqlalchemy import inspect
++
++from app.errors import ValidationFailed
++
++
++def patch_changes(model: type, data: BaseModel, *, required: tuple[str, ...] = ()) -> dict:
++    """`model_dump(exclude_unset=True)`, refusing an explicit `null` on a field that cannot hold
++    one (ruling D82).
++
++    Every PATCH schema here declares its fields `T | None = None` so `exclude_unset` can tell
++    "absent" from "present" — which makes an explicit `{"name": null}` indistinguishable from the
++    optional type at the edge. Left alone the `None` reaches `setattr` and the NOT NULL constraint
++    raises `IntegrityError` at flush time; `errors.py` registers no `IntegrityError` handler, so
++    the caller gets a bare 500 (and on quick replies, a 409 blaming the shortcut, because the
++    nested flush's `except IntegrityError` assumed a collision). An admin form that serialises a
++    cleared input as `null` hits this on every required field.
++
++    Rejecting is deliberate where skipping was the alternative: a skipped `null` returns 200 and
++    silently discards the edit, which is the same silent no-op in a friendlier costume.
++
++    `required` names fields that are not columns on `model` but still cannot be null — the typed
++    keys this project stores inside `Property.settings`.
++    """
++    changes = data.model_dump(exclude_unset=True)
++    columns = inspect(model).columns
++    cleared = sorted(k for k, v in changes.items() if v is None
++                     and (k in required or (k in columns and not columns[k].nullable)))
++    if cleared:
++        # Report the camelCase names the caller actually sent, so a form can map the failure back
++        # to the input the admin cleared; `changes` stays snake_case for setattr.
++        fields = type(data).model_fields
++        wire = [fields[k].alias or k for k in cleared]
++        raise ValidationFailed(f"Cannot be cleared: {', '.join(wire)}",
++                               details={name: "required" for name in wire})
++    return changes
+diff --git a/server/app/domain/assets.py b/server/app/domain/assets.py
+index d627868..c47fbe3 100644
+--- a/server/app/domain/assets.py
++++ b/server/app/domain/assets.py
+@@ -1,18 +1,19 @@
+ from __future__ import annotations
+ 
+ import secrets
+ 
+ from sqlalchemy import select
+ from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
+ 
++from app.domain._patch import patch_changes
+ from app.errors import Conflict, NotFound
+ from app.models import DigitalAsset
+ from app.schemas.content import AssetIn, AssetOut, AssetPatch
+ 
+ ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"  # no 0/o/1/l/i
+ MAX_SHORT_CODE_ATTEMPTS = 20
+ 
+ 
+ def new_short_code(db: Session) -> str:
+     for _ in range(MAX_SHORT_CODE_ATTEMPTS):
+@@ -54,20 +55,20 @@ def create(db: Session, property_id: str, data: AssetIn) -> DigitalAsset:
+                 db.add(a)
+                 db.flush()
+         except IntegrityError:
+             continue
+         return a
+     raise Conflict(f"Could not generate a unique short code after {MAX_SHORT_CODE_ATTEMPTS} tries")
+ 
+ 
+ def update(db: Session, property_id: str, asset_id: str, data: AssetPatch) -> DigitalAsset:
+     a = get(db, property_id, asset_id)
+-    for k, v in data.model_dump(exclude_unset=True).items():
++    for k, v in patch_changes(DigitalAsset, data).items():
+         setattr(a, k, v)
+     db.flush()
+     return a
+ 
+ 
+ def delete(db: Session, property_id: str, asset_id: str) -> None:
+     a = get(db, property_id, asset_id)
+     # soft: messages already sent still reference the id; the short link stops resolving
+     a.active = False
+diff --git a/server/app/domain/categories.py b/server/app/domain/categories.py
+index 128cd0b..fde9b63 100644
+--- a/server/app/domain/categories.py
++++ b/server/app/domain/categories.py
+@@ -1,15 +1,16 @@
+ from __future__ import annotations
+ 
+ from sqlalchemy import select
+ from sqlalchemy.orm import Session
+ 
++from app.domain._patch import patch_changes
+ from app.errors import Conflict, NotFound
+ from app.models import Conversation, ResolutionCategory
+ from app.schemas.content import CategoryIn, CategoryOut, CategoryPatch
+ 
+ 
+ def list_tree(db: Session, property_id: str) -> list[CategoryOut]:
+     rows = db.scalars(select(ResolutionCategory)
+                       .where(ResolutionCategory.property_id == property_id)
+                       .order_by(ResolutionCategory.name)).all()
+     nodes = {r.id: CategoryOut(id=r.id, name=r.name, parent_id=r.parent_id, active=r.active,
+@@ -33,21 +34,21 @@ def create(db: Session, property_id: str, data: CategoryIn) -> ResolutionCategor
+         get(db, property_id, data.parent_id)
+     c = ResolutionCategory(property_id=property_id, **data.model_dump())
+     db.add(c)
+     db.flush()
+     return c
+ 
+ 
+ def update(db: Session, property_id: str, category_id: str,
+           data: CategoryPatch) -> ResolutionCategory:
+     c = get(db, property_id, category_id)
+-    for k, v in data.model_dump(exclude_unset=True).items():
++    for k, v in patch_changes(ResolutionCategory, data).items():
+         setattr(c, k, v)
+     db.flush()
+     return c
+ 
+ 
+ def delete(db: Session, property_id: str, category_id: str) -> None:
+     c = get(db, property_id, category_id)
+     if db.scalar(select(ResolutionCategory.id).where(ResolutionCategory.parent_id == c.id)):
+         raise Conflict("Delete or move the child categories first")
+     if db.scalar(select(Conversation.id).where(Conversation.resolution_category_id == c.id)):
+diff --git a/server/app/domain/guests.py b/server/app/domain/guests.py
+index 1ec4be4..73e5209 100644
+--- a/server/app/domain/guests.py
++++ b/server/app/domain/guests.py
+@@ -2,25 +2,40 @@ from __future__ import annotations
+ 
+ import re
+ 
+ from sqlalchemy import select
+ from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
+ 
+ from app.errors import ValidationFailed
+ from app.models import Guest
+ 
++# The "+" branch below accepted any digit count, so "+" and "+1-" normalised to "+" and "+1" and
++# saved cleanly. On Property.sms_number that is an outage: channels/inbound.py routes a guest's
++# SMS by `Property.sms_number == normalize_phone(To)`, so one admin typo silently drops every
++# inbound message for the property (ruling D83).
++#
++# The floor is deliberately 2 rather than a full E.164 length. This function also normalises SMS
++# short codes, which are legitimate senders at 3-6 digits in the shortest national schemes, and
++# guest numbers arriving from inbound webhooks. A floor tuned to a full subscriber number would
++# reject that legitimate traffic — the same outage in the other direction. 2 is simultaneously the
++# smallest floor that rejects both reported typos and comfortably below the shortest short code,
++# so it cannot reject one.
++MIN_SENDER_DIGITS = 2
++
+ 
+ def normalize_phone(raw: str) -> str:
+     raw = raw.strip()
+     digits = re.sub(r"\D", "", raw)
+     if raw.startswith("+"):
++        if len(digits) < MIN_SENDER_DIGITS:
++            raise ValidationFailed("Invalid phone number", details={"phone": raw})
+         return "+" + digits
+     if len(digits) == 10:
+         return "+1" + digits
+     if len(digits) == 11 and digits.startswith("1"):
+         return "+" + digits
+     raise ValidationFailed("Invalid phone number", details={"phone": raw})
+ 
+ 
+ def find_by_phone(db: Session, property_id: str, phone: str) -> Guest | None:
+     return db.scalar(select(Guest).where(Guest.property_id == property_id,
+diff --git a/server/app/domain/properties.py b/server/app/domain/properties.py
+index 14eed3c..004e4c3 100644
+--- a/server/app/domain/properties.py
++++ b/server/app/domain/properties.py
+@@ -1,53 +1,81 @@
+ from __future__ import annotations
+ 
+ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+ 
+ from sqlalchemy.orm import Session
+ 
++from app.domain._patch import patch_changes
+ from app.domain.guests import normalize_phone
+ from app.errors import NotFound, ValidationFailed
+ from app.models import Property
+ from app.schemas.properties import PropertySettingsOut, PropertySettingsPatch
+ 
+ # Stored E.164: app/channels/inbound.py routes an inbound SMS by matching
+ # `Property.sms_number == guests.normalize_phone(to_number)`, so a settings edit that saved a
+ # prettified number would silently stop inbound routing for the property.
+ _PHONE_FIELDS = ("phone", "sms_number")
+ 
++# The three live keys inside the untyped `Property.settings` blob, with the defaults their
++# readers already apply: domain/conversations.py `_setting` (sla_minutes, auto_resolve_hours) and
++# channels/inbound.py (help_text, the guest-visible automatic reply to HELP). The blob itself
++# stays off the API; these are exposed as typed, validated fields instead.
++_BAG_DEFAULTS: dict[str, object] = {"sla_minutes": 15, "auto_resolve_hours": 4, "help_text": None}
++_BAG_REQUIRED = ("sla_minutes", "auto_resolve_hours")  # `_setting` does int(...); None would 500
++
+ 
+ def normalize_timezone(raw: str) -> str:
+     """The zone is the intended basis for analytics bucketing, so a typo must be rejected rather
+     than persisted. Validated here rather than in a Pydantic validator to match `normalize_phone`,
+     the codebase's existing field-normalisation precedent."""
+     try:
+         ZoneInfo(raw)
+     except (ZoneInfoNotFoundError, ValueError) as e:
+         raise ValidationFailed("Invalid time zone", details={"timezone": raw}) from e
+     return raw
+ 
+ 
+ def get(db: Session, property_id: str) -> Property:
+     p = db.get(Property, property_id)
+     if p is None:
+         raise NotFound("Property not found")
+     return p
+ 
+ 
++def _out(p: Property) -> PropertySettingsOut:
++    bag = p.settings or {}
++    return PropertySettingsOut(
++        id=p.id, name=p.name, code=p.code, timezone=p.timezone, address=p.address, phone=p.phone,
++        sms_number=p.sms_number, brand=p.brand, currency=p.currency, logo_url=p.logo_url,
++        primary_color=p.primary_color,
++        sla_minutes=int(bag.get("sla_minutes", _BAG_DEFAULTS["sla_minutes"])),
++        auto_resolve_hours=int(bag.get("auto_resolve_hours", _BAG_DEFAULTS["auto_resolve_hours"])),
++        help_text=bag.get("help_text"),
++    )
++
++
+ def settings(db: Session, property_id: str) -> PropertySettingsOut:
+-    return PropertySettingsOut.model_validate(get(db, property_id))
++    return _out(get(db, property_id))
+ 
+ 
+ def update_settings(db: Session, property_id: str,
+                     data: PropertySettingsPatch) -> PropertySettingsOut:
+     p = get(db, property_id)
+-    for k, v in data.model_dump(exclude_unset=True).items():
++    changes = patch_changes(Property, data, required=_BAG_REQUIRED)
++
++    # `Property.settings` is a plain JSON column with no MutableDict, so mutating the dict in
++    # place would never be flushed: the whole value has to be reassigned.
++    bag_changes = {k: changes.pop(k) for k in list(changes) if k in _BAG_DEFAULTS}
++    if bag_changes:
++        p.settings = {**(p.settings or {}), **bag_changes}
++
++    for k, v in changes.items():
+         if v is not None:
+             if k in _PHONE_FIELDS:
+                 v = normalize_phone(v)
+             elif k == "timezone":
+                 v = normalize_timezone(v)
+             elif k == "currency":
+                 v = v.upper()
+         setattr(p, k, v)
+     db.flush()
+-    return PropertySettingsOut.model_validate(p)
++    return _out(p)
+diff --git a/server/app/domain/quick_replies.py b/server/app/domain/quick_replies.py
+index d8fa810..db913ca 100644
+--- a/server/app/domain/quick_replies.py
++++ b/server/app/domain/quick_replies.py
+@@ -1,19 +1,20 @@
+ from __future__ import annotations
+ 
+ import re
+ 
+ from sqlalchemy import func, or_, select
+ from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
+ 
+ from app.domain import conversations as conv_domain
++from app.domain._patch import patch_changes
+ from app.domain.sms import segment_count
+ from app.errors import Conflict, NotFound
+ from app.models import Guest, Property, QuickReply, Stay, UserAccount
+ from app.schemas.content import QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderedQuickReply
+ 
+ VARIABLES = ("guest_first_name", "room_number", "property_name", "agent_first_name",
+             "departure_date")
+ FALLBACKS = {
+     "guest_first_name": "there",
+     "room_number": "your room",
+@@ -81,21 +82,21 @@ def create(db: Session, property_id: str, data: QuickReplyIn) -> QuickReply:
+         with db.begin_nested():
+             db.add(r)
+             db.flush()
+     except IntegrityError:
+         raise Conflict(f"Shortcut {data.shortcut} is already in use") from None
+     return r
+ 
+ 
+ def update(db: Session, property_id: str, quick_reply_id: str, data: QuickReplyPatch) -> QuickReply:
+     r = get(db, property_id, quick_reply_id)
+-    changes = data.model_dump(exclude_unset=True)
++    changes = patch_changes(QuickReply, data)
+     if "shortcut" in changes and changes["shortcut"]:
+         _assert_shortcut_free(db, property_id, changes["shortcut"], exclude_id=r.id)
+     for k, v in changes.items():
+         setattr(r, k, v)
+     try:
+         with db.begin_nested():
+             db.flush()
+     except IntegrityError:
+         raise Conflict(f"Shortcut {changes.get('shortcut')} is already in use") from None
+     return r
+diff --git a/server/app/domain/users.py b/server/app/domain/users.py
+index 5e05546..6751f0c 100644
+--- a/server/app/domain/users.py
++++ b/server/app/domain/users.py
+@@ -1,19 +1,20 @@
+ from __future__ import annotations
+ 
+ from sqlalchemy import select
+ from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
+ 
+ from app.auth.passwords import hash_password
+ from app.auth.permissions import has_capability
+ from app.domain import audit
++from app.domain._patch import patch_changes
+ from app.errors import Conflict, NotFound, ValidationFailed
+ from app.models import (
+     Conversation,
+     Department,
+     DigitalAsset,
+     PropertyMembership,
+     QuickReply,
+     UserAccount,
+     WorkOrder,
+ )
+@@ -46,21 +47,21 @@ def get_department(db: Session, property_id: str, department_id: str) -> Departm
+ def create_department(db: Session, property_id: str, data: DepartmentIn) -> Department:
+     d = Department(property_id=property_id, **data.model_dump())
+     db.add(d)
+     db.flush()
+     return d
+ 
+ 
+ def update_department(db: Session, property_id: str, department_id: str,
+                       data: DepartmentPatch) -> Department:
+     d = get_department(db, property_id, department_id)
+-    for k, v in data.model_dump(exclude_unset=True).items():
++    for k, v in patch_changes(Department, data).items():
+         setattr(d, k, v)
+     db.flush()
+     return d
+ 
+ 
+ # Every nullable FK to department.id, with the message the admin sees if it still points here.
+ # Phase 1 does not soft-delete (design.md line 86) and these columns have no ON DELETE behaviour,
+ # so a delete that went through would either fail at the constraint or silently orphan the
+ # reference — e.g. null out a work order's owning department. Deactivating the department
+ # (active=False) is the escape hatch, so every message says so.
+diff --git a/server/app/schemas/properties.py b/server/app/schemas/properties.py
+index fdef9d8..51c43c5 100644
+--- a/server/app/schemas/properties.py
++++ b/server/app/schemas/properties.py
+@@ -8,28 +8,35 @@ class PropertySettingsOut(CamelModel):
+     name: str
+     code: str
+     timezone: str
+     address: str | None = None
+     phone: str | None = None
+     sms_number: str | None = None
+     brand: str | None = None
+     currency: str
+     logo_url: str | None = None
+     primary_color: str | None = None
++    sla_minutes: int
++    auto_resolve_hours: int
++    help_text: str | None = None
+ 
+ 
+ class PropertySettingsPatch(CamelModel):
+     """`code` is intentionally absent: it is unique across the whole install and identifies the
+     property, so renaming it is not a settings edit. `Property.settings` (an untyped JSON bag) is
+-    intentionally absent too — nothing in the UI needs it. `timezone`, `phone` and `sms_number`
++    intentionally absent too; its three live keys are exposed above as typed validated fields
++    instead (`slaMinutes`, `autoResolveHours`, `helpText`). `timezone`, `phone` and `sms_number`
+     carry only their column lengths here; their real validation lives in app/domain/properties.py
+     beside the reason each one is load-bearing."""
+ 
+     name: str | None = Field(default=None, min_length=1, max_length=200)
+     timezone: str | None = Field(default=None, max_length=64)
+     address: str | None = Field(default=None, max_length=400)
+     phone: str | None = Field(default=None, max_length=32)
+     sms_number: str | None = Field(default=None, max_length=32)
+     brand: str | None = Field(default=None, max_length=100)
+     currency: str | None = Field(default=None, pattern=r"^[A-Za-z]{3}$")
+     logo_url: str | None = Field(default=None, max_length=500)
+     primary_color: str | None = Field(default=None, max_length=16)
++    sla_minutes: int | None = Field(default=None, gt=0)
++    auto_resolve_hours: int | None = Field(default=None, gt=0)
++    help_text: str | None = Field(default=None, max_length=1600)
+diff --git a/server/tests/test_content.py b/server/tests/test_content.py
+index b0d0649..0a86cba 100644
+--- a/server/tests/test_content.py
++++ b/server/tests/test_content.py
+@@ -203,10 +203,48 @@ def test_preview_capability_differs_from_render(app, fx, login):
+ 
+ def test_preview_counts_segments_the_same_way_the_sender_does(app, fx, login):
+     from app.domain.sms import segment_count
+ 
+     url = f"/api/p/{fx.property_a.id}/quick-replies/preview"
+     admin = login("admin@hvh.test")
+     for body in ("a" * 160, "a" * 161, "café " * 20, "😀" + "a" * 69):
+         out = admin.post(url, json={"body": body}).get_json()
+         assert (out["segments"], out["characters"]) == (segment_count(body), len(body)), body
+     assert admin.post(url, json={"body": ""}).status_code == 400
++
++
++def test_patching_a_not_null_field_to_null_is_a_400_not_a_500(app, fx, login):
++    """Ruling D82. A PATCH schema declares every field `T | None = None` so `exclude_unset` can
++    tell absent from present, which makes an explicit null indistinguishable at the edge. Before
++    the shared `patch_changes` guard these reached the NOT NULL constraint: an unhandled
++    IntegrityError (500) everywhere, except on quick replies, where the nested flush's
++    `except IntegrityError` blamed the shortcut and returned 409 "Shortcut None is already in use".
++    """
++    admin = login("admin@hvh.test")
++    base = f"/api/p/{fx.property_a.id}"
++    qr = admin.post(f"{base}/quick-replies", json={"shortcut": "/null", "title": "T",
++                                                   "body": "B"}).get_json()
++    cat = admin.post(f"{base}/resolution-categories", json={"name": "Maintenance"}).get_json()
++    asset = admin.post(f"{base}/assets", json={"name": "Menu",
++                                               "url": "https://example.test/m.pdf"}).get_json()
++    cases = [
++        (f"{base}/quick-replies/{qr['id']}", "locale"),
++        (f"{base}/quick-replies/{qr['id']}", "shortcut"),
++        (f"{base}/quick-replies/{qr['id']}", "body"),
++        (f"{base}/resolution-categories/{cat['id']}", "name"),
++        (f"{base}/resolution-categories/{cat['id']}", "active"),
++        (f"{base}/assets/{asset['id']}", "name"),
++        (f"{base}/assets/{asset['id']}", "url"),
++    ]
++    for url, field in cases:
++        res = admin.patch(url, json={field: None})
++        assert res.status_code == 400, (url, field, res.status_code, res.get_json())
++        body = res.get_json()["error"]
++        assert body["code"] == "VALIDATION_FAILED" and field in body["message"], (url, field)
++
++    # the nullable neighbours on the same models must still be clearable
++    assert admin.patch(f"{base}/quick-replies/{qr['id']}",
++                       json={"departmentId": None, "category": None}).status_code == 200
++    assert admin.patch(f"{base}/resolution-categories/{cat['id']}",
++                       json={"parentId": None}).status_code == 200
++    assert admin.patch(f"{base}/assets/{asset['id']}",
++                       json={"description": None}).status_code == 200
+diff --git a/server/tests/test_departments_users.py b/server/tests/test_departments_users.py
+index d1a98db..1984d84 100644
+--- a/server/tests/test_departments_users.py
++++ b/server/tests/test_departments_users.py
+@@ -128,10 +128,24 @@ def test_department_delete_is_refused_while_anything_references_it(app, fx, data
+     with database.session() as db:
+         add_reference(db, fx, d["id"])
+ 
+     res = admin.delete(f"{base}/{d['id']}")
+     assert res.status_code == 409, res.get_json()
+     assert "deactivate" in res.get_json()["error"]["message"]
+     assert d["id"] in [x["id"] for x in admin.get(base).get_json()]
+ 
+     # deactivating is the documented escape hatch and must still work
+     assert admin.patch(f"{base}/{d['id']}", json={"active": False}).get_json()["active"] is False
++
++
++@pytest.mark.parametrize("field", ["name", "type", "escalationMinutes", "active"])
++def test_department_patch_rejects_an_explicit_null(app, fx, login, field):
++    """Ruling D82: every DepartmentOut field maps to a NOT NULL column, so a cleared form input
++    serialised as null used to reach the constraint as an unhandled 500."""
++    admin = login("admin@hvh.test")
++    d = _make_department(admin, fx)
++    res = admin.patch(f"/api/p/{fx.property_a.id}/departments/{d['id']}", json={field: None})
++    assert res.status_code == 400, res.get_json()
++    err = res.get_json()["error"]
++    assert err["code"] == "VALIDATION_FAILED"
++    # named in the camelCase the client sent, so a form can map it back to the cleared input
++    assert err["details"] == {field: "required"} and field in err["message"]
+diff --git a/server/tests/test_guests_stays.py b/server/tests/test_guests_stays.py
+index 60a0d16..b19f3eb 100644
+--- a/server/tests/test_guests_stays.py
++++ b/server/tests/test_guests_stays.py
+@@ -5,26 +5,37 @@ from app.errors import ValidationFailed
+ from app.models import Guest
+ from app.schemas.enums import SmsConsentStatus
+ 
+ 
+ def test_normalize_phone():
+     assert guests.normalize_phone("(555) 123-4567") == "+15551234567"
+     assert guests.normalize_phone("15551234567") == "+15551234567"
+     assert guests.normalize_phone("+44 20 7946 0958") == "+442079460958"
+ 
+ 
+-@pytest.mark.parametrize("raw", ["", "   ", "5551234", "123456789012345"])
++@pytest.mark.parametrize("raw", ["", "   ", "5551234", "123456789012345",
++                                 "+", "+ ", "+1-", "+()"])
+ def test_normalize_phone_rejects_junk(raw):
++    """The four "+" cases are ruling D83: the "+" branch used to accept any digit count, so "+"
++    normalised to "+" and saved. On Property.sms_number that silently drops every inbound guest
++    message for the property."""
+     with pytest.raises(ValidationFailed):
+         guests.normalize_phone(raw)
+ 
+ 
++@pytest.mark.parametrize("raw", ["+12", "+345", "+55512", "+123456"])
++def test_normalize_phone_still_accepts_short_codes(raw):
++    """The D83 floor is 2 digits precisely so it cannot reject an SMS short code — legitimate
++    senders at 3-6 digits — which a full-E.164 floor would have done."""
++    assert guests.normalize_phone(raw) == raw
++
++
+ def test_find_or_create_by_phone_is_idempotent_and_property_scoped(app, fx, database):
+     with database.session() as db:
+         g1, created1 = guests.find_or_create_by_phone(db, fx.property_a.id, "+15550001111")
+         g2, created2 = guests.find_or_create_by_phone(db, fx.property_a.id, "+1 (555) 000-1111")
+         gb, createdb = guests.find_or_create_by_phone(db, fx.property_b.id, "+15550001111")
+     assert created1 and not created2 and createdb
+     assert g1.id == g2.id and gb.id != g1.id
+     assert g1.sms_consent_status == SmsConsentStatus.unknown
+ 
+ 
+diff --git a/server/tests/test_property_settings.py b/server/tests/test_property_settings.py
+index 82b095b..3aa8c4a 100644
+--- a/server/tests/test_property_settings.py
++++ b/server/tests/test_property_settings.py
+@@ -1,48 +1,52 @@
+ from sqlalchemy import select
+ 
+ from app.models import Property
++from tests.factories import inbound
+ 
+ 
+ def _settings_url(property_id: str) -> str:
+     return f"/api/p/{property_id}/settings"
+ 
+ 
+ def test_get_settings_returns_the_whole_shape(app, fx, login):
+     res = login("agent@hvh.test").get(_settings_url(fx.property_a.id))
+     assert res.status_code == 200
+     body = res.get_json()
+     assert set(body) == {"id", "name", "code", "timezone", "address", "phone", "smsNumber",
+-                         "brand", "currency", "logoUrl", "primaryColor"}
++                         "brand", "currency", "logoUrl", "primaryColor",
++                         "slaMinutes", "autoResolveHours", "helpText"}
+     assert body["id"] == fx.property_a.id
+     assert body["code"] == fx.property_a.code
+-    assert "settings" not in body  # the untyped JSON bag is never exposed
++    assert "settings" not in body  # the bag itself is never exposed; its three live keys are
++    assert (body["slaMinutes"], body["autoResolveHours"]) == (15, 4)
++    assert "555 0100" in body["helpText"]
+ 
+ 
+ def test_patch_settings_updates_each_field(app, fx, database, login):
+     url = _settings_url(fx.property_a.id)
+     admin = login("admin@hvh.test")
+     patch = {"name": "Harbourview Hotel & Spa", "timezone": "Europe/Lisbon",
+              "address": "1 Harbour Way", "phone": "+15550111", "smsNumber": "+15550122",
+              "brand": "Harbourview Collection", "currency": "eur",
+              "logoUrl": "https://example.test/logo.png", "primaryColor": "#0F62FE"}
+     res = admin.patch(url, json=patch)
+     assert res.status_code == 200, res.get_json()
+     body = res.get_json()
+     expected = patch | {"currency": "EUR"}  # currency is upper-cased, everything else as sent
+     assert {k: body[k] for k in expected} == expected
+     assert body["code"] == fx.property_a.code  # unchanged and not patchable
+     assert admin.get(url).get_json() == body  # persisted, not just echoed
+     with database.session() as db:
+         p = db.get(Property, fx.property_a.id)
+         assert p.name == "Harbourview Hotel & Spa" and p.timezone == "Europe/Lisbon"
+-        assert p.settings  # the JSON bag is untouched by a settings patch
++        assert p.settings["help_text"]  # untouched keys survive a patch of the column fields
+ 
+ 
+ def test_patch_settings_normalises_phone_numbers(app, fx, login):
+     """Inbound routing matches Property.sms_number against guests.normalize_phone(To), so a
+     prettified number saved here would silently stop inbound SMS for the property."""
+     admin = login("admin@hvh.test")
+     body = admin.patch(_settings_url(fx.property_a.id),
+                        json={"smsNumber": "(555) 012-3456", "phone": "555 012 3457"}).get_json()
+     assert body["smsNumber"] == "+15550123456" and body["phone"] == "+15550123457"
+     assert admin.patch(_settings_url(fx.property_a.id),
+@@ -79,10 +83,79 @@ def test_settings_capability_and_tenant_gates(app, fx, login):
+     url = _settings_url(fx.property_a.id)
+     for email in ("agent@hvh.test", "manager@hvh.test", "engineer@hvh.test"):
+         c = login(email)
+         assert c.get(url).status_code == 200  # every member may read
+         assert c.patch(url, json={"name": "Nope"}).status_code == 403
+     assert login("corporate@hvh.test").patch(url, json={"brand": "Group"}).status_code == 200
+     admin_a = login("admin@hvh.test")
+     other = _settings_url(fx.property_b.id)
+     assert admin_a.get(other).status_code == 403
+     assert admin_a.patch(other, json={"name": "Hijacked"}).status_code == 403
++
++
++def test_patch_settings_rejects_an_explicit_null_on_a_required_field(app, fx, database, login):
++    """Ruling D82. `name`, `timezone` and `currency` are NOT NULL columns and slaMinutes /
++    autoResolveHours are read back through `int(...)`, so a cleared form input serialised as null
++    used to be an unhandled 500 (or, for the bag keys, a TypeError on the next inbound message)."""
++    url = _settings_url(fx.property_a.id)
++    admin = login("admin@hvh.test")
++    for field in ("name", "timezone", "currency", "slaMinutes", "autoResolveHours"):
++        res = admin.patch(url, json={field: None})
++        assert res.status_code == 400, (field, res.status_code, res.get_json())
++        err = res.get_json()["error"]
++        assert err["code"] == "VALIDATION_FAILED" and err["details"] == {field: "required"}
++    # the nullable neighbours are still clearable, which is what the form needs for empty inputs
++    cleared = admin.patch(url, json={"address": None, "phone": None, "brand": None,
++                                     "logoUrl": None, "primaryColor": None, "helpText": None})
++    assert cleared.status_code == 200
++    assert cleared.get_json()["address"] is None and cleared.get_json()["helpText"] is None
++    with database.session() as db:
++        assert db.get(Property, fx.property_a.id).name  # nothing was nulled by the rejections
++
++
++def test_patch_settings_rejects_a_sender_number_that_would_break_inbound(app, fx, database, login):
++    """Ruling D83: normalize_phone used to return "+" + digits for anything starting with "+", so
++    "+" saved with a 200 and silently stopped inbound SMS for the property."""
++    url = _settings_url(fx.property_a.id)
++    admin = login("admin@hvh.test")
++    for junk in ("+", "+1-", "+ "):
++        assert admin.patch(url, json={"smsNumber": junk}).status_code == 400, junk
++    assert admin.patch(url, json={"smsNumber": "+55512"}).get_json()["smsNumber"] == "+55512"
++    with database.session() as db:
++        assert db.get(Property, fx.property_a.id).sms_number == "+55512"  # short codes still work
++
++
++def test_patch_sla_minutes_reaches_the_conversation_sla(app, fx, client, database, login):
++    """`Property.settings` is a plain JSON column with no MutableDict, so the value has to be
++    reassigned rather than mutated in place or the write never flushes."""
++    from app.domain import conversations as conv_domain
++    from app.models import Conversation
++
++    url = _settings_url(fx.property_a.id)
++    admin = login("admin@hvh.test")
++    assert admin.patch(url, json={"slaMinutes": 0}).status_code == 400
++    patched = admin.patch(url, json={"slaMinutes": 45, "autoResolveHours": 12}).get_json()
++    assert (patched["slaMinutes"], patched["autoResolveHours"]) == (45, 12)
++    assert admin.get(url).get_json() == patched
++
++    with database.session() as db:  # a fresh session: proves it reached the database
++        assert conv_domain.sla_minutes(db, fx.property_a.id) == 45
++        assert conv_domain.auto_resolve_hours(db, fx.property_a.id) == 12
++
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hello")
++    with database.session() as db:
++        conv = db.scalar(select(Conversation).where(Conversation.guest_id == fx.guest_inhouse_a.id))
++        assert (conv.sla_due_at - conv.last_guest_message_at).total_seconds() == 45 * 60
++
++
++def test_patch_help_text_changes_the_guest_visible_help_reply(app, fx, client, database, login):
++    """help_text is the automatic reply to an SMS "HELP" — the one settings key a guest sees."""
++    from app.models import Message
++    from app.schemas.enums import Direction
++
++    admin = login("admin@hvh.test")
++    admin.patch(_settings_url(fx.property_a.id),
++                json={"helpText": "Harbourview: text us, or call +1 555 0199."})
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "HELP")
++    with database.session() as db:
++        out = db.scalar(select(Message).where(Message.direction == Direction.outbound))
++        assert out.body == "Harbourview: text us, or call +1 555 0199."
+diff --git a/web/src/api/schema.json b/web/src/api/schema.json
+index cddeffd..b9c25b1 100644
+--- a/web/src/api/schema.json
++++ b/web/src/api/schema.json
+@@ -2195,40 +2195,56 @@
+             {
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+           "default": null,
+           "title": "Address"
+         },
++        "autoResolveHours": {
++          "title": "Autoresolvehours",
++          "type": "integer"
++        },
+         "brand": {
+           "anyOf": [
+             {
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+           "default": null,
+           "title": "Brand"
+         },
+         "code": {
+           "title": "Code",
+           "type": "string"
+         },
+         "currency": {
+           "title": "Currency",
+           "type": "string"
+         },
++        "helpText": {
++          "anyOf": [
++            {
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Helptext"
++        },
+         "id": {
+           "title": "Id",
+           "type": "string"
+         },
+         "logoUrl": {
+           "anyOf": [
+             {
+               "type": "string"
+             },
+             {
+@@ -2259,20 +2275,24 @@
+             {
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+           "default": null,
+           "title": "Primarycolor"
+         },
++        "slaMinutes": {
++          "title": "Slaminutes",
++          "type": "integer"
++        },
+         "smsNumber": {
+           "anyOf": [
+             {
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+           "default": null,
+@@ -2281,42 +2301,57 @@
+         "timezone": {
+           "title": "Timezone",
+           "type": "string"
+         }
+       },
+       "required": [
+         "id",
+         "name",
+         "code",
+         "timezone",
+-        "currency"
++        "currency",
++        "slaMinutes",
++        "autoResolveHours"
+       ],
+       "title": "PropertySettingsOut",
+       "type": "object"
+     },
+     "PropertySettingsPatch": {
+       "additionalProperties": false,
+-      "description": "`code` is intentionally absent: it is unique across the whole install and identifies the\nproperty, so renaming it is not a settings edit. `Property.settings` (an untyped JSON bag) is\nintentionally absent too \u2014 nothing in the UI needs it. `timezone`, `phone` and `sms_number`\ncarry only their column lengths here; their real validation lives in app/domain/properties.py\nbeside the reason each one is load-bearing.",
++      "description": "`code` is intentionally absent: it is unique across the whole install and identifies the\nproperty, so renaming it is not a settings edit. `Property.settings` (an untyped JSON bag) is\nintentionally absent too; its three live keys are exposed above as typed validated fields\ninstead (`slaMinutes`, `autoResolveHours`, `helpText`). `timezone`, `phone` and `sms_number`\ncarry only their column lengths here; their real validation lives in app/domain/properties.py\nbeside the reason each one is load-bearing.",
+       "properties": {
+         "address": {
+           "anyOf": [
+             {
+               "maxLength": 400,
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+           "default": null,
+           "title": "Address"
+         },
++        "autoResolveHours": {
++          "anyOf": [
++            {
++              "exclusiveMinimum": 0,
++              "type": "integer"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Autoresolvehours"
++        },
+         "brand": {
+           "anyOf": [
+             {
+               "maxLength": 100,
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+@@ -2329,20 +2364,33 @@
+               "pattern": "^[A-Za-z]{3}$",
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+           "default": null,
+           "title": "Currency"
+         },
++        "helpText": {
++          "anyOf": [
++            {
++              "maxLength": 1600,
++              "type": "string"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Helptext"
++        },
+         "logoUrl": {
+           "anyOf": [
+             {
+               "maxLength": 500,
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+@@ -2382,20 +2430,33 @@
+               "maxLength": 16,
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+           "default": null,
+           "title": "Primarycolor"
+         },
++        "slaMinutes": {
++          "anyOf": [
++            {
++              "exclusiveMinimum": 0,
++              "type": "integer"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "default": null,
++          "title": "Slaminutes"
++        },
+         "smsNumber": {
+           "anyOf": [
+             {
+               "maxLength": 32,
+               "type": "string"
+             },
+             {
+               "type": "null"
+             }
+           ],
+diff --git a/web/src/api/types.generated.ts b/web/src/api/types.generated.ts
+index 434c14a..6713d39 100644
+--- a/web/src/api/types.generated.ts
++++ b/web/src/api/types.generated.ts
+@@ -215,28 +215,34 @@ export type Sourcemessageid = string | null;
+ export type Title1 = string;
+ export type WorkOrderType1 = 'maintenance' | 'housekeeping' | 'guest_request' | 'pm' | 'other';
+ export type Count = number;
+ export type Day = string;
+ export type Closed = number;
+ export type Departmentid6 = string | null;
+ export type Departmentname = string;
+ export type Meantimetoresolveseconds = number | null;
+ export type Active6 = boolean;
+ export type Escalationminutes = number;
+-export type Id10 = string;
+ export type Name7 = string;
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "DepartmentType".
+  */
+ export type DepartmentType =
+   'front_desk' | 'housekeeping' | 'engineering' | 'food_beverage' | 'spa' | 'security' | 'valet' | 'other';
++export type Active7 = boolean;
++export type Escalationminutes1 = number;
++export type Id10 = string;
++export type Name8 = string;
++export type Active8 = boolean | null;
++export type Escalationminutes2 = number | null;
++export type Name9 = string | null;
+ export type Conversationids = string[];
+ export type Stays = StayOut[];
+ export type Body4 = string;
+ export type Id11 = string;
+ export type Sentat1 = string | null;
+ export type Messages1 = GuestThreadMessage[];
+ export type Phone1 = string;
+ export type Propertyname = string;
+ export type Count1 = number;
+ export type Hour = number;
+@@ -277,100 +283,129 @@ export type Meantimetoresolveseconds1 = number | null;
+ export type Outboundmessages = number;
+ export type Since = string;
+ export type Slabreachrate = number;
+ export type Slabreaches1 = number;
+ export type Until = string;
+ export type Workordersbydepartment = DepartmentBucket[];
+ export type Workordersclosed = number;
+ export type Workorderscreated1 = number;
+ export type Workordersfromconversations = number;
+ export type Theme = ('dark' | 'light' | 'system') | null;
+-export type Active7 = boolean;
+ export type Body6 = string;
++export type Conversationid1 = string | null;
++export type Address = string | null;
++export type Autoresolvehours = number;
++export type Brand = string | null;
++export type Code = string;
++export type Currency = string;
++export type Helptext = string | null;
++export type Id13 = string;
++export type Logourl = string | null;
++export type Name10 = string;
++export type Phone2 = string | null;
++export type Primarycolor = string | null;
++export type Slaminutes = number;
++export type Smsnumber = string | null;
++export type Timezone = string;
++export type Address1 = string | null;
++export type Autoresolvehours1 = number | null;
++export type Brand1 = string | null;
++export type Currency1 = string | null;
++export type Helptext1 = string | null;
++export type Logourl1 = string | null;
++export type Name11 = string | null;
++export type Phone3 = string | null;
++export type Primarycolor1 = string | null;
++export type Slaminutes1 = number | null;
++export type Smsnumber1 = string | null;
++export type Timezone1 = string | null;
++export type Active9 = boolean;
++export type Body7 = string;
+ export type Category3 = string | null;
+ export type Departmentid8 = string | null;
+ export type Locale = string;
+ export type Shortcut = string;
+ export type Title3 = string;
+-export type Active8 = boolean;
+-export type Body7 = string;
++export type Active10 = boolean;
++export type Body8 = string;
+ export type Category4 = string | null;
+ export type Departmentid9 = string | null;
+-export type Id13 = string;
++export type Id14 = string;
+ export type Locale1 = string;
+ export type Shortcut1 = string;
+ export type Title4 = string;
+ export type Usagecount = number;
+-export type Active9 = boolean | null;
+-export type Body8 = string | null;
++export type Active11 = boolean | null;
++export type Body9 = string | null;
+ export type Category5 = string | null;
+ export type Departmentid10 = string | null;
++export type Locale2 = string | null;
+ export type Shortcut2 = string | null;
+ export type Title5 = string | null;
+-export type Conversationid1 = string;
+-export type Body9 = string;
++export type Conversationid2 = string;
++export type Body10 = string;
+ export type Characters = number;
+ export type Segments = number;
+-export type Body10 = string;
++export type Body11 = string;
+ export type Digitalassetid1 = string | null;
+ export type Draftpromptid = string | null;
+ export type Memberships = MembershipOut[];
+ export type Avatarurl = string | null;
+ export type Email3 = string;
+ export type Firstname2 = string;
+-export type Id14 = string;
++export type Id15 = string;
+ export type Lastname2 = string;
+-export type Locale2 = string;
++export type Locale3 = string;
+ export type At = string;
+ export type Propertyid1 = string;
+ export type Type1 = string;
+ export type Guestid = string;
+ export type Inhouse = boolean;
+-export type Name8 = string;
+-export type Phone2 = string;
++export type Name12 = string;
++export type Phone4 = string;
+ export type Propertyid2 = string;
+ export type Propertyname2 = string;
+ export type Propertysmsnumber = string | null;
+ export type Roomnumber2 = string | null;
+ export type Willfail = boolean;
+ export type Departmentid11 = string | null;
+ export type Avatarurl1 = string | null;
+ export type Departmentid12 = string | null;
+ export type Email4 = string;
+ export type Firstname3 = string;
+-export type Id15 = string;
++export type Id16 = string;
+ export type Lastname3 = string;
+ export type Status = string;
+ export type Count3 = number;
+ export type Acknowledgedat = string | null;
+ export type Assigneduserid5 = string | null;
+ export type Completedat1 = string | null;
+ export type Createdat4 = string;
+ export type Departmentid13 = string | null;
+ export type Description4 = string | null;
+ export type Dueat1 = string | null;
+ export type Comment = string | null;
+ export type Createdat5 = string;
+ export type Fromvalue = string | null;
+-export type Id16 = string;
++export type Id17 = string;
+ export type Tovalue = string | null;
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "WorkOrderEventType".
+  */
+ export type WorkOrderEventType = 'created' | 'status_changed' | 'assigned' | 'commented' | 'priority_changed';
+ export type Userid1 = string | null;
+ export type Username = string | null;
+ export type Events = WorkOrderEventOut[];
+ export type Guestname = string | null;
+ export type Guestnotifiedat1 = string | null;
+-export type Id17 = string;
++export type Id18 = string;
+ export type Locationref1 = string | null;
+ export type Reportedbyuserid = string | null;
+ export type Roomnumber3 = string | null;
+ export type Sourceconversationid1 = string | null;
+ export type Sourcemessageid1 = string | null;
+ export type Startedat = string | null;
+ export type Title6 = string;
+ export type Updatedat = string;
+ export type Verifiedat = string | null;
+ export type Assignee = string | null;
+@@ -379,21 +414,21 @@ export type Includeclosed = boolean;
+ export type Mine = boolean;
+ export type Status1 = string | null;
+ export type Acknowledgedat1 = string | null;
+ export type Assigneduserid6 = string | null;
+ export type Completedat2 = string | null;
+ export type Createdat6 = string;
+ export type Departmentid14 = string | null;
+ export type Description5 = string | null;
+ export type Dueat2 = string | null;
+ export type Guestnotifiedat2 = string | null;
+-export type Id18 = string;
++export type Id19 = string;
+ export type Locationref2 = string | null;
+ export type Reportedbyuserid1 = string | null;
+ export type Sourceconversationid2 = string | null;
+ export type Sourcemessageid2 = string | null;
+ export type Startedat1 = string | null;
+ export type Title7 = string;
+ export type Updatedat1 = string;
+ export type Verifiedat1 = string | null;
+ export type Assigneduserid7 = string | null;
+ export type Clearassignee = boolean;
+@@ -700,31 +735,51 @@ export interface DayBucket {
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "DepartmentBucket".
+  */
+ export interface DepartmentBucket {
+   closed: Closed;
+   departmentId?: Departmentid6;
+   departmentName: Departmentname;
+   meanTimeToResolveSeconds?: Meantimetoresolveseconds;
+ }
++/**
++ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
++ * via the `definition` "DepartmentIn".
++ */
++export interface DepartmentIn {
++  active?: Active6;
++  escalationMinutes?: Escalationminutes;
++  name: Name7;
++  type: DepartmentType;
++}
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "DepartmentOut".
+  */
+ export interface DepartmentOut {
+-  active: Active6;
+-  escalationMinutes: Escalationminutes;
++  active: Active7;
++  escalationMinutes: Escalationminutes1;
+   id: Id10;
+-  name: Name7;
++  name: Name8;
+   type: DepartmentType;
+ }
++/**
++ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
++ * via the `definition` "DepartmentPatch".
++ */
++export interface DepartmentPatch {
++  active?: Active8;
++  escalationMinutes?: Escalationminutes2;
++  name?: Name9;
++  type?: DepartmentType | null;
++}
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "GuestDetail".
+  */
+ export interface GuestDetail {
+   conversationIds: Conversationids;
+   guest: GuestOut;
+   stays: Stays;
+ }
+ /**
+@@ -834,104 +889,160 @@ export interface ResponseBucket {
+ }
+ /**
+  * Only the keys the client is allowed to set. `extra='forbid'` comes from CamelModel.
+  *
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "PrefsPatch".
+  */
+ export interface PrefsPatch {
+   theme?: Theme;
+ }
++/**
++ * Previews arbitrary body text, so the admin editor can render unsaved drafts.
++ *
++ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
++ * via the `definition` "PreviewRequest".
++ */
++export interface PreviewRequest {
++  body: Body6;
++  conversationId?: Conversationid1;
++}
++/**
++ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
++ * via the `definition` "PropertySettingsOut".
++ */
++export interface PropertySettingsOut {
++  address?: Address;
++  autoResolveHours: Autoresolvehours;
++  brand?: Brand;
++  code: Code;
++  currency: Currency;
++  helpText?: Helptext;
++  id: Id13;
++  logoUrl?: Logourl;
++  name: Name10;
++  phone?: Phone2;
++  primaryColor?: Primarycolor;
++  slaMinutes: Slaminutes;
++  smsNumber?: Smsnumber;
++  timezone: Timezone;
++}
++/**
++ * `code` is intentionally absent: it is unique across the whole install and identifies the
++ * property, so renaming it is not a settings edit. `Property.settings` (an untyped JSON bag) is
++ * intentionally absent too; its three live keys are exposed above as typed validated fields
++ * instead (`slaMinutes`, `autoResolveHours`, `helpText`). `timezone`, `phone` and `sms_number`
++ * carry only their column lengths here; their real validation lives in app/domain/properties.py
++ * beside the reason each one is load-bearing.
++ *
++ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
++ * via the `definition` "PropertySettingsPatch".
++ */
++export interface PropertySettingsPatch {
++  address?: Address1;
++  autoResolveHours?: Autoresolvehours1;
++  brand?: Brand1;
++  currency?: Currency1;
++  helpText?: Helptext1;
++  logoUrl?: Logourl1;
++  name?: Name11;
++  phone?: Phone3;
++  primaryColor?: Primarycolor1;
++  slaMinutes?: Slaminutes1;
++  smsNumber?: Smsnumber1;
++  timezone?: Timezone1;
++}
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "QuickReplyIn".
+  */
+ export interface QuickReplyIn {
+-  active?: Active7;
+-  body: Body6;
++  active?: Active9;
++  body: Body7;
+   category?: Category3;
+   departmentId?: Departmentid8;
+   locale?: Locale;
+   shortcut: Shortcut;
+   title: Title3;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "QuickReplyOut".
+  */
+ export interface QuickReplyOut {
+-  active: Active8;
+-  body: Body7;
++  active: Active10;
++  body: Body8;
+   category?: Category4;
+   departmentId?: Departmentid9;
+-  id: Id13;
++  id: Id14;
+   locale: Locale1;
+   shortcut: Shortcut1;
+   title: Title4;
+   usageCount: Usagecount;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "QuickReplyPatch".
+  */
+ export interface QuickReplyPatch {
+-  active?: Active9;
+-  body?: Body8;
++  active?: Active11;
++  body?: Body9;
+   category?: Category5;
+   departmentId?: Departmentid10;
++  locale?: Locale2;
+   shortcut?: Shortcut2;
+   title?: Title5;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "RenderRequest".
+  */
+ export interface RenderRequest {
+-  conversationId: Conversationid1;
++  conversationId: Conversationid2;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "RenderedQuickReply".
+  */
+ export interface RenderedQuickReply {
+-  body: Body9;
++  body: Body10;
+   characters: Characters;
+   segments: Segments;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "SendMessageRequest".
+  */
+ export interface SendMessageRequest {
+-  body: Body10;
++  body: Body11;
+   digitalAssetId?: Digitalassetid1;
+   draftPromptId?: Draftpromptid;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "SessionOut".
+  */
+ export interface SessionOut {
+   memberships: Memberships;
+   user: UserOut;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "UserOut".
+  */
+ export interface UserOut {
+   avatarUrl?: Avatarurl;
+   email: Email3;
+   firstName: Firstname2;
+-  id: Id14;
++  id: Id15;
+   lastName: Lastname2;
+-  locale: Locale2;
++  locale: Locale3;
+   notificationPrefs?: Notificationprefs;
+ }
+ export interface Notificationprefs {
+   [k: string]: unknown;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "SimEvent".
+  */
+ export interface SimEvent {
+@@ -943,22 +1054,22 @@ export interface SimEvent {
+ export interface Payload {
+   [k: string]: unknown;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "SimGuest".
+  */
+ export interface SimGuest {
+   guestId: Guestid;
+   inHouse: Inhouse;
+-  name: Name8;
+-  phone: Phone2;
++  name: Name12;
++  phone: Phone4;
+   propertyId: Propertyid2;
+   propertyName: Propertyname2;
+   propertySmsNumber?: Propertysmsnumber;
+   roomNumber?: Roomnumber2;
+   smsConsentStatus: SmsConsentStatus;
+   willFail: Willfail;
+ }
+ /**
+  * Per-property membership fields only.
+  *
+@@ -978,21 +1089,21 @@ export interface StaffPatch {
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "StaffUserOut".
+  */
+ export interface StaffUserOut {
+   avatarUrl?: Avatarurl1;
+   departmentId?: Departmentid12;
+   email: Email4;
+   firstName: Firstname3;
+-  id: Id15;
++  id: Id16;
+   lastName: Lastname3;
+   role: Role;
+   status: Status;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "UnreadCount".
+  */
+ export interface UnreadCount {
+   count: Count3;
+@@ -1005,21 +1116,21 @@ export interface WorkOrderDetail {
+   acknowledgedAt?: Acknowledgedat;
+   assignedUserId?: Assigneduserid5;
+   completedAt?: Completedat1;
+   createdAt: Createdat4;
+   departmentId?: Departmentid13;
+   description?: Description4;
+   dueAt?: Dueat1;
+   events: Events;
+   guestName?: Guestname;
+   guestNotifiedAt?: Guestnotifiedat1;
+-  id: Id17;
++  id: Id18;
+   locationRef?: Locationref1;
+   locationType: LocationType1;
+   priority: Priority;
+   reportedByUserId?: Reportedbyuserid;
+   roomNumber?: Roomnumber3;
+   sourceConversationId?: Sourceconversationid1;
+   sourceMessageId?: Sourcemessageid1;
+   startedAt?: Startedat;
+   status: WorkOrderStatus;
+   title: Title6;
+@@ -1028,21 +1139,21 @@ export interface WorkOrderDetail {
+   verifiedAt?: Verifiedat;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "WorkOrderEventOut".
+  */
+ export interface WorkOrderEventOut {
+   comment?: Comment;
+   createdAt: Createdat5;
+   fromValue?: Fromvalue;
+-  id: Id16;
++  id: Id17;
+   toValue?: Tovalue;
+   type: WorkOrderEventType;
+   userId?: Userid1;
+   userName?: Username;
+ }
+ /**
+  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+  * via the `definition` "WorkOrderListQuery".
+  */
+ export interface WorkOrderListQuery {
+@@ -1059,21 +1170,21 @@ export interface WorkOrderListQuery {
+  */
+ export interface WorkOrderOut {
+   acknowledgedAt?: Acknowledgedat1;
+   assignedUserId?: Assigneduserid6;
+   completedAt?: Completedat2;
+   createdAt: Createdat6;
+   departmentId?: Departmentid14;
+   description?: Description5;
+   dueAt?: Dueat2;
+   guestNotifiedAt?: Guestnotifiedat2;
+-  id: Id18;
++  id: Id19;
+   locationRef?: Locationref2;
+   locationType: LocationType1;
+   priority: Priority;
+   reportedByUserId?: Reportedbyuserid1;
+   sourceConversationId?: Sourceconversationid2;
+   sourceMessageId?: Sourcemessageid2;
+   startedAt?: Startedat1;
+   status: WorkOrderStatus;
+   title: Title7;
+   type: WorkOrderType;
+diff --git a/web/src/api/types.ts b/web/src/api/types.ts
+index c58fc05..fa3aa6e 100644
+--- a/web/src/api/types.ts
++++ b/web/src/api/types.ts
+@@ -1,20 +1,23 @@
+ /**
+  * The client's type surface. Import from here, never from `types.generated.ts`:
+  * that file is overwritten by `npm run gen:types` and carries the document root
+  * (`ConciergeAPI`), which is an artefact of the export, not a model.
+  */
+ export type {
+   AgentStats, AssetIn, AssetOut, AssetPatch, AssetType, AuthorType,
+   CategoryIn, CategoryOut, CategoryPatch, Channel, ConversationDetail,
+-  ConversationPatch, ConversationStatus, ConversationSummary, CreateNoteRequest,
+-  CreateStaffRequest, CreateWorkOrder, DayBucket, DeliveryStatus, DepartmentBucket,
+-  DepartmentOut, DepartmentType, Direction, DraftPromptOut, DraftPromptStatus,
+-  GuestDetail, GuestOut, GuestThread, GuestThreadMessage, HourBucket, ListQuery,
+-  LocationType, LoginRequest, MembershipOut, MessageOut, NoteOut, NotificationOut,
+-  Overview, Priority, QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderRequest,
+-  RenderedQuickReply, ResponseBucket, Role, SendMessageRequest, SessionOut, SimEvent,
+-  SimGuest, SmsConsentStatus, StaffPatch, StaffUserOut, StayOut, StayStatus,
+-  UnreadCount, UserOut, WorkOrderBrief, WorkOrderDetail, WorkOrderEventOut,
+-  WorkOrderEventType, WorkOrderListQuery, WorkOrderOut, WorkOrderPatch,
+-  WorkOrderPrefill, WorkOrderStatus, WorkOrderType,
++  ConversationPatch, ConversationStatus, ConversationSummary,
++  CreateNoteRequest, CreateStaffRequest, CreateWorkOrder, DayBucket,
++  DeliveryStatus, DepartmentBucket, DepartmentIn, DepartmentOut,
++  DepartmentPatch, DepartmentType, Direction, DraftPromptOut,
++  DraftPromptStatus, GuestDetail, GuestOut, GuestThread, GuestThreadMessage,
++  HourBucket, ListQuery, LocationType, LoginRequest, MembershipOut,
++  MessageOut, NoteOut, NotificationOut, Overview, PreviewRequest, Priority,
++  PropertySettingsOut, PropertySettingsPatch, QuickReplyIn, QuickReplyOut,
++  QuickReplyPatch, RenderRequest, RenderedQuickReply, ResponseBucket, Role,
++  SendMessageRequest, SessionOut, SimEvent, SimGuest, SmsConsentStatus,
++  StaffPatch, StaffUserOut, StayOut, StayStatus, UnreadCount, UserOut,
++  WorkOrderBrief, WorkOrderDetail, WorkOrderEventOut, WorkOrderEventType,
++  WorkOrderListQuery, WorkOrderOut, WorkOrderPatch, WorkOrderPrefill,
++  WorkOrderStatus, WorkOrderType,
+ } from './types.generated'

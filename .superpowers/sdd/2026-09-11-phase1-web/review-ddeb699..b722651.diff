@@ -1,0 +1,844 @@
+# Review package: ddeb699..b722651
+
+## Commits
+b722651 test(web): the settings mock must refuse a null name, as the server does
+ee5b9fa fix(web): four minors from the A3 review — copy, an inert assertion, a stale banner
+8b750c8 fix(web): a delete confirmation must not outlive the record it was armed on
+
+## Files changed
+ web/src/features/admin/AssetsAdmin.test.tsx        | 76 ++++++++++++++++++++
+ web/src/features/admin/AssetsAdmin.tsx             |  1 +
+ web/src/features/admin/CategoriesAdmin.test.tsx    | 83 ++++++++++++++++++++++
+ web/src/features/admin/CategoriesAdmin.tsx         |  1 +
+ web/src/features/admin/DepartmentsAdmin.test.tsx   | 56 +++++++++++++--
+ web/src/features/admin/DepartmentsAdmin.tsx        | 31 +++++---
+ web/src/features/admin/EditPanel.tsx               | 34 +++++++++
+ .../features/admin/PropertySettingsAdmin.test.tsx  | 42 +++++++++++
+ web/src/features/admin/PropertySettingsAdmin.tsx   | 22 ++++--
+ web/src/features/admin/QuickRepliesAdmin.test.tsx  | 29 ++++++++
+ web/src/features/admin/QuickRepliesAdmin.tsx       |  1 +
+ web/src/features/admin/UsersAdmin.test.tsx         | 31 +++++++-
+ web/src/features/admin/UsersAdmin.tsx              |  1 +
+ 13 files changed, 386 insertions(+), 22 deletions(-)
+
+## Diff
+diff --git a/web/src/features/admin/AssetsAdmin.test.tsx b/web/src/features/admin/AssetsAdmin.test.tsx
+new file mode 100644
+index 0000000..5218222
+--- /dev/null
++++ b/web/src/features/admin/AssetsAdmin.test.tsx
+@@ -0,0 +1,76 @@
++import { screen, waitFor } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { SessionProvider } from '../../auth/SessionContext'
++import { aAsset, aDepartment } from '../../test/factories'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { AssetsAdmin } from './AssetsAdmin'
++
++const ASSETS = [
++  aAsset({ id: 'a-1', name: 'WiFi card', shortCode: 'wifi1' }),
++  aAsset({ id: 'a-2', name: 'Breakfast menu', shortCode: 'brek1', type: 'menu' }),
++]
++
++function json(body: unknown, status = 200): Response {
++  return new Response(JSON.stringify(body), {
++    status,
++    headers: { 'Content-Type': 'application/json' },
++  })
++}
++
++function serve() {
++  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
++    if (init?.method && init.method !== 'GET') return Promise.resolve(json(aAsset()))
++    if (String(input).includes('/departments')) return Promise.resolve(json([aDepartment()]))
++    return Promise.resolve(json(ASSETS))
++  })
++}
++
++function mount() {
++  return renderWithProviders(
++    <SessionProvider>
++      <AssetsAdmin />
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'admin' }), route: '/app/admin/assets' },
++  )
++}
++
++describe('AssetsAdmin — the delete confirmation is scoped to one record', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++    serve()
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('disarms when another row is opened', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi card'))
++    await user.click(screen.getByRole('button', { name: 'Delete' }))
++    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
++
++    await user.click(screen.getByText('Breakfast menu'))
++    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Breakfast menu'))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
++  })
++
++  it('disarms across a New asset, which hides the delete controls without dismissing them', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi card'))
++    await user.click(screen.getByRole('button', { name: 'Delete' }))
++
++    // The delete row vanishes because `onDelete` is undefined for an unsaved record. Nothing on
++    // screen says the arming survived it.
++    await user.click(screen.getByRole('button', { name: /new asset/i }))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
++
++    await user.click(screen.getByText('Breakfast menu'))
++    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Breakfast menu'))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++  })
++})
+diff --git a/web/src/features/admin/AssetsAdmin.tsx b/web/src/features/admin/AssetsAdmin.tsx
+index 0be4f88..58e307a 100644
+--- a/web/src/features/admin/AssetsAdmin.tsx
++++ b/web/src/features/admin/AssetsAdmin.tsx
+@@ -108,20 +108,21 @@ export function AssetsAdmin() {
+           ) : (
+             <div className="rounded-card border border-border2 bg-surface">
+               <AdminTable columns={columns} rows={rows} selectedId={selected?.id ?? null} onSelect={open} />
+             </div>
+           )}
+         </div>
+       </div>
+ 
+       {draft ? (
+         <EditPanel
++          subjectId={draftId ?? 'new'}
+           title={draft.id ? 'Edit asset' : 'New asset'}
+           subtitle={selected ? `${selected.sendCount} sends` : undefined}
+           saving={pending}
+           error={failure}
+           onSave={save}
+           onCancel={() => {
+             setDraft(null)
+             setSelected(null)
+           }}
+           onDelete={
+diff --git a/web/src/features/admin/CategoriesAdmin.test.tsx b/web/src/features/admin/CategoriesAdmin.test.tsx
+new file mode 100644
+index 0000000..e3646d0
+--- /dev/null
++++ b/web/src/features/admin/CategoriesAdmin.test.tsx
+@@ -0,0 +1,83 @@
++import { screen, waitFor } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import type { CategoryOut } from '../../api/types'
++import { SessionProvider } from '../../auth/SessionContext'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { CategoriesAdmin } from './CategoriesAdmin'
++
++// Rows are addressed by `cell` role, not by text: once the panel is open its Parent select lists
++// every category, so a bare text query matches the <option> as well as the table cell.
++
++const CATEGORIES: CategoryOut[] = [
++  { id: 'c-1', name: 'Maintenance', parentId: null, active: true, children: [] },
++  { id: 'c-2', name: 'Housekeeping request', parentId: null, active: true, children: [] },
++]
++
++function json(body: unknown, status = 200): Response {
++  return new Response(JSON.stringify(body), {
++    status,
++    headers: { 'Content-Type': 'application/json' },
++  })
++}
++
++function serve() {
++  vi.mocked(fetch).mockImplementation((_input: RequestInfo | URL, init?: RequestInit) =>
++    Promise.resolve(
++      init?.method && init.method !== 'GET' ? json(CATEGORIES[0]) : json(CATEGORIES),
++    ),
++  )
++}
++
++function mount() {
++  return renderWithProviders(
++    <SessionProvider>
++      <CategoriesAdmin />
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'admin' }), route: '/app/admin/categories' },
++  )
++}
++
++describe('CategoriesAdmin — the delete confirmation is scoped to one record', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++    serve()
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  // This screen refuses a delete with a 409 while the category is still referenced
++  // (server/app/domain/categories.py), so arming Delete and then moving on is the normal flow,
++  // not an unusual one.
++  it('disarms when another row is opened', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('Maintenance'))
++    await user.click(screen.getByRole('button', { name: 'Delete' }))
++    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
++
++    await user.click(screen.getByRole('cell', { name: 'Housekeeping request' }))
++    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Housekeeping request'))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
++  })
++
++  it('disarms across a New category, which hides the delete controls without dismissing them', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('Maintenance'))
++    await user.click(screen.getByRole('button', { name: 'Delete' }))
++
++    // `onDelete` is undefined for a record that does not exist yet, so the whole delete row
++    // disappears and the admin reasonably reads that as the confirmation having been dismissed.
++    await user.click(screen.getByRole('button', { name: /new category/i }))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
++
++    // It must not come back armed on the next saved record the admin opens.
++    await user.click(screen.getByRole('cell', { name: 'Housekeeping request' }))
++    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Housekeeping request'))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++  })
++})
+diff --git a/web/src/features/admin/CategoriesAdmin.tsx b/web/src/features/admin/CategoriesAdmin.tsx
+index 59ce50d..c51b0b5 100644
+--- a/web/src/features/admin/CategoriesAdmin.tsx
++++ b/web/src/features/admin/CategoriesAdmin.tsx
+@@ -90,20 +90,21 @@ export function CategoriesAdmin() {
+           ) : (
+             <div className="rounded-card border border-border2 bg-surface">
+               <AdminTable columns={columns} rows={rows} selectedId={selected?.id ?? null} onSelect={open} />
+             </div>
+           )}
+         </div>
+       </div>
+ 
+       {draft ? (
+         <EditPanel
++          subjectId={draftId ?? 'new'}
+           title={draft.id ? 'Edit category' : 'New category'}
+           saving={pending}
+           error={failure}
+           onSave={save}
+           onCancel={() => {
+             setDraft(null)
+             setSelected(null)
+           }}
+           onDelete={
+             draftId
+diff --git a/web/src/features/admin/DepartmentsAdmin.test.tsx b/web/src/features/admin/DepartmentsAdmin.test.tsx
+index d83f66a..d113647 100644
+--- a/web/src/features/admin/DepartmentsAdmin.test.tsx
++++ b/web/src/features/admin/DepartmentsAdmin.test.tsx
+@@ -48,24 +48,31 @@ describe('DepartmentsAdmin', () => {
+   beforeEach(() => {
+     vi.stubGlobal('fetch', vi.fn())
+     serve()
+   })
+   afterEach(() => {
+     vi.unstubAllGlobals()
+   })
+ 
+   it('lists departments with a human type label, not the raw enum value', async () => {
+     mount()
+-    expect(await screen.findByText('Maintenance')).toBeInTheDocument()
+-    expect(screen.getByText('Maintenance')).toBeInTheDocument() // the type of the row above
+-    expect(screen.getByText('Front desk')).toBeInTheDocument()
++    // Name in column 1, the *labelled* type in column 2. The fixture names are deliberately unlike
++    // their own type labels, so each assertion can only pass for the reason it states — the
++    // previous version re-asserted the name here and could never have failed for the type.
++    await screen.findByText('Maintenance')
++    const rows = screen.getAllByRole('row').slice(1) as HTMLTableRowElement[]
++    const [maintenance, reception] = rows
++    expect(maintenance!.cells[0]).toHaveTextContent('Maintenance')
++    expect(maintenance!.cells[1]).toHaveTextContent('Engineering')
++    expect(reception!.cells[1]).toHaveTextContent('Front desk')
+     expect(screen.queryByText('front_desk')).not.toBeInTheDocument()
++    expect(screen.queryByText('engineering')).not.toBeInTheDocument()
+   })
+ 
+   it('creates a department, defaulting the type to other rather than to a routing role', async () => {
+     const user = userEvent.setup()
+     mount()
+     await user.click(await screen.findByRole('button', { name: /new department/i }))
+     await user.type(screen.getByLabelText('Name'), 'Spa')
+     await user.click(screen.getByRole('button', { name: 'Save' }))
+ 
+     const [url, init] = writes('POST')[0]!
+@@ -140,20 +147,40 @@ describe('DepartmentsAdmin', () => {
+     await user.click(screen.getByRole('button', { name: 'Delete' }))
+     await user.click(screen.getByRole('button', { name: 'Confirm' }))
+ 
+     // Verbatim: the server wrote it for an admin to read, and it is the only thing on screen
+     // that says which of the five referencing tables is holding the department.
+     expect(await screen.findByRole('alert')).toHaveTextContent(conflict)
+     // The panel must stay open — the escape hatch it points at is the Active box inside it.
+     expect(screen.getByLabelText('Active')).toBeInTheDocument()
+   })
+ 
++  it('drops the refused-delete banner once the admin starts following its advice', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('Maintenance'))
++    serve((_url, init) =>
++      init?.method === 'DELETE'
++        ? json({ error: { code: 'CONFLICT', message: 'Reassign the work orders … first, or ' +
++                                   'deactivate the department instead' } }, 409)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Delete' }))
++    await user.click(screen.getByRole('button', { name: 'Confirm' }))
++    await screen.findByRole('alert')
++
++    // Unchecking Active is precisely what the refusal told them to do. Leaving a complaint about
++    // deleting on screen while they do it describes an action the panel is no longer performing.
++    await user.click(screen.getByLabelText('Active'))
++    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
++  })
++
+   it('pins a field-level 400 to the input that caused it', async () => {
+     const user = userEvent.setup()
+     mount()
+     await user.click(await screen.findByText('Maintenance'))
+     serve((_url, init) =>
+       init?.method === 'PATCH'
+         ? json({ error: { code: 'VALIDATION_FAILED', message: 'Invalid request body',
+                           details: [{ loc: ['name'], msg: 'String should have at most 100 characters',
+                                       type: 'string_too_long' }] } }, 400)
+         : null,
+@@ -184,27 +211,44 @@ describe('DepartmentsAdmin', () => {
+ 
+   it('does not carry an armed delete confirmation over to the next row', async () => {
+     const user = userEvent.setup()
+     mount()
+     await user.click(await screen.findByText('Maintenance'))
+     await user.click(screen.getByRole('button', { name: 'Delete' }))
+     expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+ 
+     await user.click(screen.getByText('Reception'))
+     await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Reception'))
+-    // Reception's panel must not open one click away from deleting Reception. This is the reason
+-    // the panel is keyed on the record: its confirmation lives in EditPanel's own state and the
+-    // panel is never unmounted between rows.
++    // Reception's panel must not open one click away from deleting Reception. EditPanel disarms
++    // on a change of `subjectId`; its confirmation is local state and the panel is never
++    // unmounted between rows, so nothing else would clear it.
+     expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+   })
+ 
++  it('does not carry it across a New department, which hides the delete controls', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('Maintenance'))
++    await user.click(screen.getByRole('button', { name: 'Delete' }))
++
++    // The worse of the two routes: `onDelete` is undefined for an unsaved record, so the whole
++    // delete row disappears and the UI actively signals that the arming is gone. It is not.
++    await user.click(screen.getByRole('button', { name: /new department/i }))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
++
++    await user.click(screen.getByText('Reception'))
++    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Reception'))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++  })
++
+   it('shows escalation as a column but offers no control for it (D81)', async () => {
+     const user = userEvent.setup()
+     mount()
+     // Displayed, because removing it would regress what already shipped...
+     expect(await screen.findByText('20 min')).toBeInTheDocument()
+     await user.click(screen.getByText('Maintenance'))
+     await screen.findByLabelText('Name')
+     // ...and not editable, because nothing in the codebase computes with it: the SLA that is
+     // enforced is the property-level slaMinutes. A control that changed nothing would be worse.
+     expect(screen.queryByLabelText(/escalation/i)).not.toBeInTheDocument()
+diff --git a/web/src/features/admin/DepartmentsAdmin.tsx b/web/src/features/admin/DepartmentsAdmin.tsx
+index 75984b1..759478f 100644
+--- a/web/src/features/admin/DepartmentsAdmin.tsx
++++ b/web/src/features/admin/DepartmentsAdmin.tsx
+@@ -85,20 +85,34 @@ export function DepartmentsAdmin() {
+     patch.reset()
+     remove.reset()
+   }
+ 
+   function close() {
+     clearFailures()
+     setDraft(null)
+     setSelected(null)
+   }
+ 
++  /**
++   * Editing a field is the admin acting on the refusal, so the refusal stops being the news.
++   *
++   * The delete guard's message tells them to clear Active instead; leaving the 409 banner up while
++   * they do exactly that shows a complaint about deleting over a panel that is now about saving.
++   * Only the delete failure is cleared — a create/patch failure is pinned to the field the admin
++   * is still fixing, and clearing that on the first keystroke would take the field error with it.
++   */
++  function edit(change: Partial<Draft>) {
++    if (!draft) return
++    if (remove.error) remove.reset()
++    setDraft({ ...draft, ...change })
++  }
++
+   function open(department: DepartmentOut) {
+     clearFailures()
+     setSelected(department)
+     setDraft({
+       id: department.id,
+       name: department.name,
+       type: department.type,
+       active: department.active,
+     })
+   }
+@@ -145,53 +159,50 @@ export function DepartmentsAdmin() {
+                 selectedId={selected?.id ?? null}
+                 onSelect={open}
+               />
+             </div>
+           )}
+         </div>
+       </div>
+ 
+       {draft ? (
+         <EditPanel
+-          // Remount per subject. EditPanel holds its delete confirmation in local state, and the
+-          // panel does not unmount when the admin clicks from one row to the next — so a Delete
+-          // pressed on a department the guard then refuses leaves "Confirm" armed over the NEXT
+-          // row the admin opens, one click from deleting something they never asked about. The
+-          // key is scoped to this screen; the same carry-over exists on the other four panels and
+-          // is recorded rather than fixed here.
+-          key={draftId ?? 'new'}
++          // EditPanel disarms its own delete confirmation when this changes, which matters most
++          // here: the delete guard refuses routinely, so an admin arms Delete, is refused, and
++          // moves to another row as a matter of course.
++          subjectId={draftId ?? 'new'}
+           title={draft.id ? 'Edit department' : 'New department'}
+           saving={pending}
+           error={failure}
+           onSave={save}
+           onCancel={close}
+           onDelete={draftId ? () => remove.mutate({ id: draftId }, { onSuccess: close }) : undefined}
+         >
+           <div>
+             <label className={LABEL} htmlFor="dept-name">Name</label>
+             <Input id="dept-name" value={draft.name} maxLength={100}
+-                   onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
++                   onChange={(e) => edit({ name: e.target.value })} />
+             <FieldError message={fields.name} />
+           </div>
+           <div>
+             <label className={LABEL} htmlFor="dept-type">Type</label>
+             <select id="dept-type" className={SELECT} value={draft.type}
+-                    onChange={(e) => setDraft({ ...draft, type: e.target.value as DepartmentType })}>
++                    onChange={(e) => edit({ type: e.target.value as DepartmentType })}>
+               {(Object.keys(TYPE_LABELS) as DepartmentType[]).map((type) => (
+                 <option key={type} value={type}>{TYPE_LABELS[type]}</option>
+               ))}
+             </select>
+             <FieldError message={fields.type} />
+           </div>
+           <label className="flex items-center gap-2 text-sm">
+             <input type="checkbox" checked={draft.active}
+-                   onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />
++                   onChange={(e) => edit({ active: e.target.checked })} />
+             Active
+           </label>
+           {/* The escape hatch the delete guard's message points at: a department that is still
+               referenced cannot be deleted, but it can be switched off so nothing picks it. */}
+           <p className="text-xs text-text3">
+             A department that is still in use cannot be deleted. Clear Active instead — it then
+             stops appearing in the pickers without disturbing what already references it.
+           </p>
+         </EditPanel>
+       ) : null}
+diff --git a/web/src/features/admin/EditPanel.tsx b/web/src/features/admin/EditPanel.tsx
+index 9327524..285659b 100644
+--- a/web/src/features/admin/EditPanel.tsx
++++ b/web/src/features/admin/EditPanel.tsx
+@@ -1,33 +1,67 @@
+ import { useState, type ReactNode } from 'react'
+ import { Button } from '../../components/ui'
+ 
++/**
++ * `subjectId` is required, and it is the only reason this component can be trusted with a
++ * destructive control.
++ *
++ * The panel is rendered as `{draft ? <EditPanel …/> : null}` on every admin screen, and every
++ * `open()` replaces the draft without passing through `null` — so the element type and position
++ * are unchanged, React reconciles instead of remounting, and `confirming` survives a change of
++ * subject. Left alone, a Delete armed on one record stays armed over the next record the admin
++ * opens, one click from deleting something they never asked about. The refusal paths make that
++ * routine rather than rare: Departments and resolution categories both answer a delete with a 409
++ * while the record is referenced, so an admin is *expected* to arm, be refused, and move on.
++ *
++ * The nastier route is the one that looks safe. Arm the confirmation, then press "New …": the
++ * delete controls disappear, because `onDelete` is undefined for a record that does not exist yet,
++ * and the admin reasonably reads that as the confirmation having been dismissed. It has not.
++ * Opening any saved record brings it back, armed.
++ *
++ * Resetting here rather than with a `key` at each call site is deliberate. A key is an invisible
++ * convention that nothing enforces and every future screen must remember, and it throws away the
++ * whole panel subtree — scroll position and any child state with it — to clear one boolean. A
++ * required prop is checked by the compiler.
++ */
+ export function EditPanel({
++  subjectId,
+   title,
+   subtitle,
+   children,
+   onSave,
+   onDelete,
+   onCancel,
+   saving,
+   error,
+ }: {
++  /** Identifies the record on screen. Any change disarms a pending delete confirmation. */
++  subjectId: string
+   title: string
+   subtitle?: string
+   children: ReactNode
+   onSave: () => void
+   onDelete?: () => void
+   onCancel: () => void
+   saving?: boolean
+   error?: string | null
+ }) {
+   const [confirming, setConfirming] = useState(false)
++  const [armedFor, setArmedFor] = useState(subjectId)
++
++  // Render-phase reset (React's documented "adjusting state when a prop changes"), not an effect:
++  // an effect would leave one committed frame in which Confirm is on screen for the new subject,
++  // and that frame is exactly long enough to click.
++  if (subjectId !== armedFor) {
++    setArmedFor(subjectId)
++    setConfirming(false)
++  }
+ 
+   return (
+     <aside className="w-[340px] flex-none overflow-y-auto border-l border-border bg-bg2 p-4">
+       <header className="mb-3">
+         <h2 className="text-sm font-bold">{title}</h2>
+         {subtitle ? <p className="text-xs text-text3">{subtitle}</p> : null}
+       </header>
+ 
+       {error ? (
+         <p role="alert" className="mb-3 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
+diff --git a/web/src/features/admin/PropertySettingsAdmin.test.tsx b/web/src/features/admin/PropertySettingsAdmin.test.tsx
+index 3222e65..79f2165 100644
+--- a/web/src/features/admin/PropertySettingsAdmin.test.tsx
++++ b/web/src/features/admin/PropertySettingsAdmin.test.tsx
+@@ -108,20 +108,62 @@ describe('PropertySettingsAdmin', () => {
+   })
+ 
+   it('clears a nullable field to null rather than to an empty string', async () => {
+     const user = userEvent.setup()
+     mount()
+     await user.clear(await screen.findByLabelText('Address'))
+     await user.click(screen.getByRole('button', { name: 'Save' }))
+     expect(JSON.parse(String(patched()[0]![1]!.body)).address).toBeNull()
+   })
+ 
++  it('clears a REQUIRED box to null too, so the admin reads copy rather than a raw regex', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.clear(await screen.findByLabelText('Currency'))
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: currency',
++                          details: { currency: 'required' } } }, 400)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++
++    // `""` fails in Pydantic and the admin reads "String should match pattern ^[A-Za-z]{3}$".
++    // `null` reaches patch_changes instead, which answers `required` — a code the shared map
++    // already words. The server half of this is pinned by
++    // server/tests/test_property_settings.py::test_patch_settings_rejects_an_explicit_null_on_a_required_field,
++    // which asserts {"currency": null} -> 400 details {"currency": "required"} for real.
++    expect(JSON.parse(String(patched()[0]![1]!.body)).currency).toBeNull()
++    const message = await screen.findByText('This field is required.')
++    expect(message.parentElement).toContainElement(screen.getByLabelText('Currency'))
++  })
++
++  it('clears an emptied name to null as well, not to an empty string', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.clear(await screen.findByLabelText('Property name'))
++    // The real server refuses this (`name` is NOT NULL) and never echoes a null name back, so the
++    // mock must refuse it too — a 200 here would make the form render `value={null}` in a state
++    // production cannot reach.
++    serve((_url, init) =>
++      init?.method === 'PATCH'
++        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: name',
++                          details: { name: 'required' } } }, 400)
++        : null,
++    )
++    await user.click(screen.getByRole('button', { name: 'Save' }))
++
++    expect(JSON.parse(String(patched()[0]![1]!.body)).name).toBeNull()
++    const message = await screen.findByText('This field is required.')
++    expect(message.parentElement).toContainElement(screen.getByLabelText('Property name'))
++  })
++
+   it('offers the stored zone as a real option even when the browser list omits it', async () => {
+     const original = Intl.supportedValuesOf
+     // A browser with no supportedValuesOf falls back to a short list, and this zone is
+     // deliberately not on it. Without the stored value being forced in, the select would render
+     // showing its first option while the server still held Antarctica/Troll — and the next save
+     // would quietly move the property to a different time zone nobody asked for.
+     Object.defineProperty(Intl, 'supportedValuesOf', { value: undefined, configurable: true })
+     serve((_url, init) =>
+       init?.method ? null : json({ ...SETTINGS, timezone: 'Antarctica/Troll' }),
+     )
+diff --git a/web/src/features/admin/PropertySettingsAdmin.tsx b/web/src/features/admin/PropertySettingsAdmin.tsx
+index 717af7a..064e41f 100644
+--- a/web/src/features/admin/PropertySettingsAdmin.tsx
++++ b/web/src/features/admin/PropertySettingsAdmin.tsx
+@@ -22,22 +22,24 @@ const HINT = 'mt-1 text-xs text-text3'
+  * absent from this list is still storable — it just cannot be picked from a browser this old.
+  */
+ const FALLBACK_ZONES = [
+   'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+   'America/Toronto', 'Europe/London', 'Europe/Dublin', 'Europe/Lisbon', 'Europe/Paris',
+   'Europe/Berlin', 'Europe/Madrid', 'Europe/Rome', 'Asia/Dubai', 'Asia/Singapore',
+   'Asia/Tokyo', 'Australia/Sydney',
+ ]
+ 
+ /**
+- * `timezone` is validated server-side against IANA zones and a typo is a 422 the admin cannot act
+- * on, so it is a picker rather than a text box.
++ * `timezone` is validated server-side against IANA zones and a typo is refused, so it is a picker
++ * rather than a text box. (A **400**, not a 422: `normalize_timezone` raises `ValidationFailed`,
++ * whose `status` is 400 — server/app/errors.py. Nothing here branches on the status, but the
++ * wrong number in a comment is how a `status === 422` branch that never fires gets written.)
+  *
+  * The stored value is always included even when the list does not carry it. Without that, a zone
+  * this browser has never heard of would leave the select showing its *first* option while the
+  * server still held the real one — and the next save would silently move the property to a
+  * different time zone nobody asked for.
+  */
+ function timezoneOptions(current: string): string[] {
+   let zones: string[] = []
+   try {
+     zones = Intl.supportedValuesOf?.('timeZone') ?? []
+@@ -74,30 +76,40 @@ function draftFrom(s: PropertySettingsOut): Draft {
+     brand: s.brand ?? '',
+     currency: s.currency,
+     logoUrl: s.logoUrl ?? '',
+     primaryColor: s.primaryColor ?? '',
+     slaMinutes: String(s.slaMinutes),
+     autoResolveHours: String(s.autoResolveHours),
+     helpText: s.helpText ?? '',
+   }
+ }
+ 
+-/** An emptied nullable box clears the column; `""` would store an empty string instead of null. */
++/**
++ * An emptied box sends `null`, never `""`.
++ *
++ * For a nullable column that is the difference between clearing it and storing an empty string.
++ * For the two REQUIRED text fields — `name` and `currency`, both `nullable=False` on `Property` —
++ * it decides which error the admin reads: `""` fails in Pydantic and reports its own wording, so
++ * an emptied Currency box answered with the raw `String should match pattern ^[A-Za-z]{3}$`. Sent
++ * as `null` it reaches `patch_changes` instead, which raises the `required` reason code that the
++ * shared normaliser already words as "This field is required." Nothing is lost: the server still
++ * refuses the edit either way, and still names the field.
++ */
+ const orNull = (value: string) => (value.trim() === '' ? null : value)
+ /** An emptied required number sends null, which the server answers with "required" per field. */
+ const orNullNumber = (value: string) => (value.trim() === '' ? null : Number(value))
+ 
+ function patchFrom(draft: Draft): PropertySettingsPatch {
+   return {
+-    name: draft.name,
++    name: orNull(draft.name),
+     timezone: draft.timezone,
+-    currency: draft.currency,
++    currency: orNull(draft.currency),
+     address: orNull(draft.address),
+     phone: orNull(draft.phone),
+     smsNumber: orNull(draft.smsNumber),
+     brand: orNull(draft.brand),
+     logoUrl: orNull(draft.logoUrl),
+     primaryColor: orNull(draft.primaryColor),
+     slaMinutes: orNullNumber(draft.slaMinutes),
+     autoResolveHours: orNullNumber(draft.autoResolveHours),
+     helpText: orNull(draft.helpText),
+   }
+diff --git a/web/src/features/admin/QuickRepliesAdmin.test.tsx b/web/src/features/admin/QuickRepliesAdmin.test.tsx
+index 1e287a5..2ca5819 100644
+--- a/web/src/features/admin/QuickRepliesAdmin.test.tsx
++++ b/web/src/features/admin/QuickRepliesAdmin.test.tsx
+@@ -525,11 +525,40 @@ describe('QuickRepliesAdmin', () => {
+   it('caps the body at the 1600 characters the server accepts (F4)', async () => {
+     const user = userEvent.setup()
+     mount()
+     await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
+     const body = await screen.findByLabelText('Body')
+     await user.click(body)
+     await user.paste('x'.repeat(1700))
+     // Past 1600 the preview answers the generic "Invalid request body", which never says why.
+     expect((body as HTMLTextAreaElement).value).toHaveLength(1600)
+   })
++  // This screen's delete has no server-side guard at all, so a misfire here is immediate and
++  // unrecoverable — the strongest case in the product for the confirmation being scoped.
++  it('does not carry an armed delete confirmation to another reply', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi details'))
++    await user.click(screen.getByRole('button', { name: 'Delete' }))
++    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
++
++    await user.click(screen.getByText('Airport shuttle'))
++    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('Airport shuttle'))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
++  })
++
++  it('does not carry it across a New quick reply, which hides the delete controls', async () => {
++    const user = userEvent.setup()
++    mount()
++    await user.click(await screen.findByText('WiFi details'))
++    await user.click(screen.getByRole('button', { name: 'Delete' }))
++
++    await user.click(screen.getByRole('button', { name: /new quick reply/i }))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
++
++    await user.click(screen.getByText('Airport shuttle'))
++    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('Airport shuttle'))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++  })
+ })
+diff --git a/web/src/features/admin/QuickRepliesAdmin.tsx b/web/src/features/admin/QuickRepliesAdmin.tsx
+index 6be3d9a..da0ca45 100644
+--- a/web/src/features/admin/QuickRepliesAdmin.tsx
++++ b/web/src/features/admin/QuickRepliesAdmin.tsx
+@@ -189,20 +189,21 @@ export function QuickRepliesAdmin() {
+           ) : (
+             <div className="rounded-card border border-border2 bg-surface">
+               <AdminTable columns={columns} rows={rows} selectedId={selected?.id ?? null} onSelect={open} />
+             </div>
+           )}
+         </div>
+       </div>
+ 
+       {draft ? (
+         <EditPanel
++          subjectId={draftId ?? 'new'}
+           title={draft.id ? 'Edit quick reply' : 'New quick reply'}
+           subtitle={selected ? `${selected.usageCount} uses` : undefined}
+           saving={pending}
+           error={failure}
+           onSave={save}
+           onCancel={close}
+           onDelete={draftId ? () => remove.mutate({ id: draftId }, { onSuccess: close }) : undefined}
+         >
+           <div className="grid grid-cols-2 gap-3">
+             <div>
+diff --git a/web/src/features/admin/UsersAdmin.test.tsx b/web/src/features/admin/UsersAdmin.test.tsx
+index e1130e8..4f6a516 100644
+--- a/web/src/features/admin/UsersAdmin.test.tsx
++++ b/web/src/features/admin/UsersAdmin.test.tsx
+@@ -1,11 +1,11 @@
+-import { screen } from '@testing-library/react'
++import { screen, waitFor } from '@testing-library/react'
+ import userEvent from '@testing-library/user-event'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import { SessionProvider } from '../../auth/SessionContext'
+ import { aDepartment, aStaffUser } from '../../test/factories'
+ import { renderWithProviders, sessionFixture } from '../../test/harness'
+ import { UsersAdmin } from './UsersAdmin'
+ 
+ const STAFF = [
+   aStaffUser({ id: 'u-ava', firstName: 'Ava', lastName: 'Nolan', role: 'agent' }),
+   aStaffUser({
+@@ -101,11 +101,40 @@ describe('UsersAdmin', () => {
+     })
+   })
+ 
+   it('will not create a user without an email', async () => {
+     mount()
+     await userEvent.click(await screen.findByRole('button', { name: /new user/i }))
+     await userEvent.type(screen.getByLabelText('First name'), 'Nia')
+     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+     expect(vi.mocked(fetch).mock.calls.some(([, i]) => i?.method === 'POST')).toBe(false)
+   })
++  // EditPanel's delete confirmation is local state and the panel is never unmounted between
++  // records, so without a subject-scoped reset an arming survives the change of subject.
++  it('does not carry an armed delete confirmation to another user', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('Ava Nolan'))
++    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
++    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
++
++    await userEvent.click(screen.getByText('Eli Engineer'))
++    await waitFor(() => expect(screen.getByLabelText('Role')).toHaveValue('dept_staff'))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
++  })
++
++  it('does not carry it across a New user, which hides the delete controls without dismissing them', async () => {
++    mount()
++    await userEvent.click(await screen.findByText('Ava Nolan'))
++    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
++
++    // `onDelete` is undefined for an unsaved record, so the delete row disappears entirely and
++    // the admin reasonably believes the confirmation is gone with it.
++    await userEvent.click(screen.getByRole('button', { name: /new user/i }))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
++
++    await userEvent.click(screen.getByText('Eli Engineer'))
++    await waitFor(() => expect(screen.getByLabelText('Role')).toHaveValue('dept_staff'))
++    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
++  })
+ })
+diff --git a/web/src/features/admin/UsersAdmin.tsx b/web/src/features/admin/UsersAdmin.tsx
+index 762ed70..1662d00 100644
+--- a/web/src/features/admin/UsersAdmin.tsx
++++ b/web/src/features/admin/UsersAdmin.tsx
+@@ -121,20 +121,21 @@ export function UsersAdmin() {
+           ) : (
+             <div className="rounded-card border border-border2 bg-surface">
+               <AdminTable columns={columns} rows={rows} selectedId={selected?.id ?? null} onSelect={open} />
+             </div>
+           )}
+         </div>
+       </div>
+ 
+       {draft ? (
+         <EditPanel
++          subjectId={draftId ?? 'new'}
+           title={draft.id ? 'Edit user' : 'New user'}
+           saving={pending}
+           error={failure}
+           onSave={save}
+           onCancel={() => {
+             setDraft(null)
+             setSelected(null)
+           }}
+           onDelete={
+             draftId

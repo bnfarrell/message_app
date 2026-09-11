@@ -1,0 +1,49 @@
+# Review package: 6e82824..e796486
+
+## Commits
+e796486 fix(web): gitignore playwright.config.d.ts and bound the light palette's token set
+
+## Files changed
+ web/.gitignore            | 2 +-
+ web/src/index.css.test.ts | 7 +++++--
+ 2 files changed, 6 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/web/.gitignore b/web/.gitignore
+index 63fd323..dc9d4a2 100644
+--- a/web/.gitignore
++++ b/web/.gitignore
+@@ -1,8 +1,8 @@
+ node_modules/
+ dist/
+ playwright-report/
+ test-results/
+ .env
+ .env.local
+ *.tsbuildinfo
+-vite.config.d.ts
++/*.config.d.ts
+diff --git a/web/src/index.css.test.ts b/web/src/index.css.test.ts
+index 025843b..8a9f2cd 100644
+--- a/web/src/index.css.test.ts
++++ b/web/src/index.css.test.ts
+@@ -32,14 +32,17 @@ describe('design tokens', () => {
+   })
+ 
+   it('pins the approved accent and danger values in both palettes', () => {
+     expect(block(':root')).toContain('--accent: #f0b323')
+     expect(block("[data-theme='light']")).toContain('--accent: #f0b323')
+     expect(block(':root')).toContain('--danger: #ff5d5d')
+     expect(block("[data-theme='light']")).toContain('--danger: #dc2626')
+   })
+ 
+   it('has 45 tokens and no more, so a stray colour cannot sneak in', () => {
+-    const declared = new Set([...block(':root').matchAll(/--([a-zA-Z0-9]+):/g)].map((m) => m[1]))
+-    expect([...declared].sort()).toEqual([...TOKENS].sort())
++    const declaredTokens = (selector: string) =>
++      [...new Set([...block(selector).matchAll(/--([a-zA-Z0-9]+):/g)].map((m) => m[1]))].sort()
++
++    expect(declaredTokens(':root')).toEqual([...TOKENS].sort())
++    expect(declaredTokens("[data-theme='light']")).toEqual([...TOKENS].sort())
+   })
+ })

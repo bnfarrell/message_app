@@ -1,0 +1,115 @@
+# Review package: 22aff26..71a9445
+
+## Commits
+71a9445 fix(server): silence alembic path_separator warning; strengthen enum and UTCDateTime tests
+
+## Files changed
+ server/alembic.ini          |  1 +
+ server/tests/test_models.py | 42 +++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 42 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/server/alembic.ini b/server/alembic.ini
+index 4864ea7..aed281f 100644
+--- a/server/alembic.ini
++++ b/server/alembic.ini
+@@ -1,13 +1,14 @@
+ [alembic]
+ script_location = alembic
+ prepend_sys_path = .
++path_separator = os
+ file_template = %%(rev)s_%%(slug)s
+ 
+ [loggers]
+ keys = root,sqlalchemy,alembic
+ 
+ [handlers]
+ keys = console
+ 
+ [formatters]
+ keys = generic
+diff --git a/server/tests/test_models.py b/server/tests/test_models.py
+index 317524c..6f5b22d 100644
+--- a/server/tests/test_models.py
++++ b/server/tests/test_models.py
+@@ -1,18 +1,20 @@
+ from datetime import datetime, timezone
++from enum import StrEnum
+ 
+ import pytest
+-from sqlalchemy import inspect, text
++from sqlalchemy import Column, MetaData, String, Table, inspect, text
+ from sqlalchemy.exc import StatementError
+ 
+ from app.db import Database, run_migrations
+ from app.models import Conversation, Guest, Property
++from app.models.core import enum_type
+ from app.schemas.enums import ConversationStatus, SmsConsentStatus
+ 
+ EXPECTED_TABLES = {
+     "property", "user_account", "property_membership", "department", "guest", "stay",
+     "conversation", "message", "internal_note", "resolution_category", "work_order",
+     "work_order_event", "draft_prompt", "quick_reply", "digital_asset", "user_session",
+     "job", "notification", "audit_log", "pms_event", "alembic_version",
+ }
+ 
+ 
+@@ -54,20 +56,58 @@ def test_enum_values_are_stored_as_values_and_validated(db_url):
+     with database.engine.connect() as conn:
+         raw = conn.execute(text("SELECT status FROM conversation")).scalar()
+         assert raw == "open"
+     with pytest.raises(StatementError):
+         with database.session() as db:
+             db.add(Conversation(property_id=p.id, guest_id=g.id, status="bogus"))
+             db.flush()
+     database.engine.dispose()
+ 
+ 
++def test_enum_stores_value_not_name(db_url):
++    """Every app enum member has name == value, which can't distinguish value-storage
++    from name-storage. Use a throwaway enum/table where they differ to prove it."""
++    run_migrations(db_url)
++    database = Database(db_url)
++
++    class _T(StrEnum):
++        a_b = "a-b"
++
++    metadata = MetaData()
++    table = Table(
++        "_test_enum_value",
++        metadata,
++        Column("id", String(36), primary_key=True),
++        Column("val", enum_type(_T), nullable=False),
++    )
++    metadata.create_all(database.engine)
++    with database.engine.begin() as conn:
++        conn.execute(table.insert().values(id="1", val=_T.a_b))
++    with database.engine.connect() as conn:
++        raw = conn.execute(text("SELECT val FROM _test_enum_value")).scalar()
++    assert raw == "a-b"
++    database.engine.dispose()
++
++
++def test_utc_datetime_rejects_naive(db_url):
++    run_migrations(db_url)
++    database = Database(db_url)
++    with pytest.raises(StatementError):
++        with database.session() as db:
++            p = Property(
++                name="Test", code="TST", timezone="UTC", created_at=datetime(2026, 1, 1)
++            )
++            db.add(p)
++            db.flush()
++    database.engine.dispose()
++
++
+ def test_utc_datetime_round_trips_aware(db_url):
+     run_migrations(db_url)
+     database = Database(db_url)
+     with database.session() as db:
+         p = Property(name="Test", code="TST", timezone="UTC")
+         db.add(p)
+     with database.session() as db:
+         loaded = db.get(Property, p.id)
+         assert loaded.created_at.tzinfo is not None
+         assert loaded.created_at.utcoffset().total_seconds() == 0

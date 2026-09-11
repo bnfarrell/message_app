@@ -1,0 +1,392 @@
+# Review package: d870b63..c64c1b6
+
+## Commits
+c64c1b6 fix(server): persist consent-rejection audit after rollback, not on a nested session; fix asset-link length and SLA-clear guards in send()
+ec9c9e0 docs(plan): reconcile Task 12 interface line with its own step code
+1cf1118 docs(plan): correct the stale record_inbound interface line
+
+## Files changed
+ docs/superpowers/plans/2026-09-10-phase1-server.md |  4 +-
+ server/app/db.py                                   | 10 +++-
+ server/app/domain/consent.py                       |  7 +--
+ server/app/domain/messages.py                      | 45 ++++++++--------
+ server/app/errors.py                               | 13 ++++-
+ server/tests/test_send.py                          | 63 ++++++++++++++++++++++
+ 6 files changed, 112 insertions(+), 30 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-09-10-phase1-server.md b/docs/superpowers/plans/2026-09-10-phase1-server.md
+index 9d156ae..c5c7e15 100644
+--- a/docs/superpowers/plans/2026-09-10-phase1-server.md
++++ b/docs/superpowers/plans/2026-09-10-phase1-server.md
+@@ -4213,21 +4213,21 @@ git commit -m "feat(server): guests, in-house stay lookup, TCPA consent keywords
+ 
+ ---
+ 
+ ### Task 11: Conversations domain, the send path, the inbound path, and the SMS webhook (§11.1 #1, #2, #5)
+ 
+ **Files:**
+ - Create: `server/app/domain/conversations.py`, `server/app/channels/inbound.py`, `server/app/api/hooks.py`, `server/tests/test_inbound.py`, `server/tests/test_send.py`
+ - Modify: `server/app/domain/messages.py` (add `send`, `record_inbound`), `server/app/schemas/conversations.py` (add conversation shapes), `server/app/__init__.py`, `server/tests/factories.py` (add `inbound(client, fx, from_phone, body, to=None)` helper)
+ 
+ **Interfaces:**
+-- Produces: `conversations.find_or_create_for_guest(db, property_id, guest, stay=None) -> tuple[Conversation, bool]` (reopens archived); `conversations.get(db, property_id, conversation_id) -> Conversation` (404); `conversations.sla_minutes(db, property_id) -> int`; `conversations.auto_resolve_hours(db, property_id) -> int`; `messages.send(db, property_id, conversation_id, body, *, author_user_id, author_type=AuthorType.staff, digital_asset_id=None, draft_prompt_id=None, allow_opt_out_confirmation=False, ip=None, user_agent=None) -> Message`; `messages.record_inbound(db, property_id, conversation, body, provider_message_id, *, redacted) -> Message`; `inbound.handle(db, property_id, msg: InboundMessage) -> InboundResult(conversation, message, created_conversation, keyword)`; `POST /api/hooks/sms/inbound` (form-encoded Twilio fields, `X-Mock-Secret`); `ConversationSummary`, `GuestOut`, `StayOut` schemas. Test helper `inbound(client, fx, from_phone, body, to=None) -> Response`.
++- Produces: `conversations.find_or_create_for_guest(db, property_id, guest, stay=None) -> tuple[Conversation, bool]` (reopens archived); `conversations.get(db, property_id, conversation_id) -> Conversation` (404); `conversations.sla_minutes(db, property_id) -> int`; `conversations.auto_resolve_hours(db, property_id) -> int`; `messages.send(db, property_id, conversation_id, body, *, author_user_id, author_type=AuthorType.staff, digital_asset_id=None, draft_prompt_id=None, allow_opt_out_confirmation=False, ip=None, user_agent=None) -> Message`; `messages.record_inbound(db, property_id, conversation, body, provider_message_id, *, start_sla=True) -> Message` (redaction is computed internally; corrected during Task 11 — the old `*, redacted` wording contradicted this task's own Step 5); `inbound.handle(db, property_id, msg: InboundMessage) -> InboundResult(conversation, message, created_conversation, keyword)`; `POST /api/hooks/sms/inbound` (form-encoded Twilio fields, `X-Mock-Secret`); `ConversationSummary`, `GuestOut`, `StayOut` schemas. Test helper `inbound(client, fx, from_phone, body, to=None) -> Response`.
+ 
+ - [ ] **Step 1: Write the failing tests**
+ 
+ Add to `server/tests/factories.py`:
+ ```python
+ def inbound(client, fx, from_phone: str, body: str, to: str | None = None, sid: str | None = None):
+     import uuid
+ 
+     return client.post(
+         "/api/hooks/sms/inbound",
+@@ -4826,21 +4826,21 @@ git commit -m "feat(server): conversations, the consent-enforced send path, inbo
+ 
+ ---
+ 
+ ### Task 12: Conversations API — list with filters, detail, notes, assign/archive/snooze, retry (§11.1 #4, #10)
+ 
+ **Files:**
+ - Create: `server/app/domain/notes.py`, `server/tests/test_conversations_api.py`, `server/tests/test_note_leakage.py`
+ - Modify: `server/app/domain/conversations.py` (list, detail, patch), `server/app/schemas/conversations.py` (detail shapes), `server/app/api/conversations.py` (all routes)
+ 
+ **Interfaces:**
+-- Produces: `conversations.list(db, property_id, *, filter: str, viewer_user_id, viewer_role, viewer_department_id, dept: str | None, limit=50, offset=0) -> list[ConversationSummary]` where `filter ∈ {all, mine, unassigned, overdue, resolved, archived}`; `conversations.detail(db, property_id, conversation_id) -> ConversationDetail`; `conversations.patch(db, property_id, conversation_id, actor_user_id, changes: ConversationPatch) -> Conversation`; `conversations.guest_thread(db, property_id, phone) -> GuestThread`; `notes.create(db, property_id, conversation_id, author_user_id, body) -> InternalNote` (extracts `@first_name` mentions → notifications); `notes.list(db, property_id, conversation_id) -> list[NoteOut]`. Schemas: `NoteOut`, `WorkOrderBrief`, `DraftPromptOut`, `ConversationDetail` (strict), `GuestThread` + `GuestThreadMessage` (strict, no note field), `ConversationPatch`, `CreateNoteRequest`, `ListQuery`. Routes: `GET conversations`, `GET conversations/<id>`, `POST conversations/<id>/messages`, `POST conversations/<id>/messages/<mid>/retry`, `POST conversations/<id>/notes`, `PATCH conversations/<id>`, `POST conversations/<id>/draft-prompts/<pid>/dismiss` (the dismiss route lands in Task 15 when `draft_prompts` exists — list it here so the blueprint is complete, but implement in 15).
++- Produces: `conversations.list(db, property_id, *, filter: str, viewer_user_id, viewer_role, viewer_department_id, dept: str | None, limit=50, offset=0) -> list[ConversationSummary]` where `filter ∈ {all, mine, unassigned, overdue, resolved, archived, snoozed}`; `conversations.detail(db, property_id, conversation_id) -> ConversationDetail`; `conversations.patch(db, property_id, conversation_id, actor_user_id, changes: ConversationPatch, *, can_archive: bool) -> Conversation`; `conversations.guest_thread(db, property_id, phone) -> GuestThread`; `notes.create(db, property_id, conversation_id, author_user_id, body) -> InternalNote` (extracts `@first_name` mentions → notifications); `notes.list_for(db, property_id, conversation_id) -> list[NoteOut]`. Schemas: `NoteOut`, `WorkOrderBrief`, `DraftPromptOut`, `ConversationDetail` (strict), `GuestThread` + `GuestThreadMessage` (strict, no note field), `ConversationPatch`, `CreateNoteRequest`, `ListQuery`. Routes: `GET conversations`, `GET conversations/<id>`, `POST conversations/<id>/messages`, `POST conversations/<id>/messages/<mid>/retry`, `POST conversations/<id>/notes`, `PATCH conversations/<id>`, `POST conversations/<id>/draft-prompts/<pid>/dismiss` (the dismiss route lands in Task 15 when `draft_prompts` exists — list it here so the blueprint is complete, but implement in 15).
+ 
+ - [ ] **Step 1: Write the failing tests**
+ 
+ `server/tests/test_conversations_api.py`:
+ ```python
+ from datetime import timedelta
+ 
+ from sqlalchemy import select
+ 
+ from app import clock
+diff --git a/server/app/db.py b/server/app/db.py
+index 4c9c945..acacd93 100644
+--- a/server/app/db.py
++++ b/server/app/db.py
+@@ -62,22 +62,30 @@ class Database:
+         self.SessionLocal = sessionmaker(bind=self.engine, expire_on_commit=False)
+ 
+     @contextmanager
+     def session(self) -> Iterator[Session]:
+         db = self.SessionLocal()
+         events: list = []
+         try:
+             yield db
+             db.commit()
+             events = db.info.pop("events", [])
+-        except Exception:
++        except Exception as exc:
+             db.rollback()
++            # The rollback above has already released any write lock this session held, so a
++            # pending audit write (e.g. ConsentError.audit_write) can safely land on a brand-new
++            # connection here — never on the still-open `db` above, which is what deadlocked it.
++            audit_write = getattr(exc, "audit_write", None)
++            if audit_write is not None:
++                with self.SessionLocal() as audit_db:
++                    audit_write(audit_db)
++                    audit_db.commit()
+             raise
+         finally:
+             db.close()
+         if events:
+             from app.realtime.broadcast import deliver
+ 
+             for ev in events:
+                 deliver(ev)
+ 
+ 
+diff --git a/server/app/domain/consent.py b/server/app/domain/consent.py
+index 747f823..f1493eb 100644
+--- a/server/app/domain/consent.py
++++ b/server/app/domain/consent.py
+@@ -1,14 +1,14 @@
+ """TCPA consent (design.md §9.1). assert_can_send() is called from exactly one place: messages.send()."""
+ from __future__ import annotations
+ 
+-from typing import Literal
++from typing import Callable, Literal
+ 
+ from sqlalchemy.orm import Session
+ 
+ from app import clock
+ from app.domain import audit
+ from app.errors import ConsentError
+ from app.models import Guest
+ from app.schemas.enums import SmsConsentStatus
+ 
+ STOP_WORDS = {"stop", "stopall", "unsubscribe", "cancel", "end", "quit"}
+@@ -46,13 +46,14 @@ def _set(db: Session, guest: Guest, status: SmsConsentStatus, source: str) -> No
+ 
+ 
+ def opt_out(db: Session, guest: Guest, source: str) -> None:
+     _set(db, guest, SmsConsentStatus.opted_out, source)
+ 
+ 
+ def opt_in(db: Session, guest: Guest, source: str) -> None:
+     _set(db, guest, SmsConsentStatus.opted_in, source)
+ 
+ 
+-def assert_can_send(guest: Guest, *, allow_opt_out_confirmation: bool = False) -> None:
++def assert_can_send(guest: Guest, *, allow_opt_out_confirmation: bool = False,
++                    audit_write: Callable[[Session], None] | None = None) -> None:
+     if guest.sms_consent_status == SmsConsentStatus.opted_out and not allow_opt_out_confirmation:
+-        raise ConsentError("Guest has opted out of SMS")
++        raise ConsentError("Guest has opted out of SMS", audit_write=audit_write)
+diff --git a/server/app/domain/messages.py b/server/app/domain/messages.py
+index a1d29fd..951a762 100644
+--- a/server/app/domain/messages.py
++++ b/server/app/domain/messages.py
+@@ -1,35 +1,27 @@
+ from __future__ import annotations
+ 
+ from datetime import timedelta
+ 
+ from sqlalchemy import select
+ from sqlalchemy.orm import Session
+ 
+ from app import clock
+-from app.db import get_db
+ from app.domain import audit, consent
+ from app.domain import conversations as conv_domain
+ from app.domain.redaction import redact
+ from app.errors import Conflict, NotFound, ValidationFailed
+ from app.models import Conversation, DigitalAsset, Guest, Message, WorkOrder
+ from app.queue import jobs
+ from app.realtime.broadcast import queue_event
+ from app.schemas.conversations import MessageOut
+-from app.schemas.enums import (
+-    AuthorType,
+-    Channel,
+-    DeliveryStatus,
+-    Direction,
+-    DraftPromptStatus,
+-    SmsConsentStatus,
+-)
++from app.schemas.enums import AuthorType, Channel, DeliveryStatus, Direction, DraftPromptStatus
+ 
+ 
+ def _get(db: Session, property_id: str, message_id: str) -> Message:
+     m = db.scalar(select(Message).where(Message.id == message_id, Message.property_id == property_id))
+     if m is None:
+         raise NotFound("Message not found")
+     return m
+ 
+ 
+ # The trusted boundary for the forward-only invariant: queued -> sent -> delivered may only move
+@@ -81,54 +73,61 @@ MAX_BODY = 1600
+ 
+ def send(db: Session, property_id: str, conversation_id: str, body: str, *,
+          author_user_id: str | None, author_type: AuthorType = AuthorType.staff,
+          digital_asset_id: str | None = None, draft_prompt_id: str | None = None,
+          allow_opt_out_confirmation: bool = False, ip: str | None = None,
+          user_agent: str | None = None) -> Message:
+     """THE outbound path. Every message to a guest goes through here (design.md §9.1)."""
+     body = (body or "").strip()
+     if not body:
+         raise ValidationFailed("Message body is empty")
+-    if len(body) > MAX_BODY:
+-        raise ValidationFailed(f"Message body exceeds {MAX_BODY} characters")
+ 
+     conv = conv_domain.get(db, property_id, conversation_id)
+     guest = db.get(Guest, conv.guest_id)
+-    if guest.sms_consent_status == SmsConsentStatus.opted_out and not allow_opt_out_confirmation:
+-        # The caller's session will roll back when ConsentError propagates, so the audit row gets its own
+-        # session. Nothing has been written in `db` yet at this point, so SQLite WAL allows the second writer.
+-        with get_db().session() as audit_db:
+-            audit.record(audit_db, property_id, author_user_id, "message.rejected_opted_out", "conversation",
+-                         conv.id, after={"body_length": len(body)}, ip=ip, user_agent=user_agent)
+-    consent.assert_can_send(guest, allow_opt_out_confirmation=allow_opt_out_confirmation)
++
++    def _audit_rejection(audit_db: Session) -> None:
++        # Called by Database.session() on a fresh connection, strictly after the caller's own
++        # session has rolled back — never here, inline, on `db`: at this point the caller may
++        # already have flushed other rows (e.g. inbound.handle's guest/conversation/message), and
++        # a nested write here would contend for the same write lock and deadlock/504 instead of
++        # cleanly 422ing (see review finding for Task 11 fix round 1).
++        audit.record(audit_db, property_id, author_user_id, "message.rejected_opted_out",
++                     "conversation", conv.id, after={"body_length": len(body)},
++                     ip=ip, user_agent=user_agent)
++
++    consent.assert_can_send(guest, allow_opt_out_confirmation=allow_opt_out_confirmation,
++                            audit_write=_audit_rejection)
+ 
+     if digital_asset_id:
+         asset = db.scalar(select(DigitalAsset).where(DigitalAsset.id == digital_asset_id,
+                                                      DigitalAsset.property_id == property_id))
+         if asset is None:
+             raise ValidationFailed("Unknown digital asset")
+         body = f"{body} /a/{asset.short_code}"
+         asset.send_count += 1
+ 
++    if len(body) > MAX_BODY:
++        raise ValidationFailed(f"Message body exceeds {MAX_BODY} characters")
++
+     now = clock.now()
+     m = Message(conversation_id=conv.id, property_id=property_id, direction=Direction.outbound,
+                 author_type=author_type, author_user_id=author_user_id, channel=Channel.sms,
+                 body=body, digital_asset_id=digital_asset_id, delivery_status=DeliveryStatus.queued,
+                 sent_at=now)
+     db.add(m)
+ 
+     conv.last_staff_message_at = now
+-    conv.sla_due_at = None
+-    conv.sla_breach_notified_at = None
+-    if conv.first_response_seconds is None and conv.last_guest_message_at is not None \
+-            and author_type == AuthorType.staff:
+-        conv.first_response_seconds = int((now - conv.last_guest_message_at).total_seconds())
++    if author_type == AuthorType.staff:
++        conv.sla_due_at = None
++        conv.sla_breach_notified_at = None
++        if conv.first_response_seconds is None and conv.last_guest_message_at is not None:
++            conv.first_response_seconds = int((now - conv.last_guest_message_at).total_seconds())
+ 
+     if draft_prompt_id:
+         from app.models import DraftPrompt
+ 
+         dp = db.scalar(select(DraftPrompt).where(DraftPrompt.id == draft_prompt_id,
+                                                  DraftPrompt.property_id == property_id,
+                                                  DraftPrompt.conversation_id == conv.id))
+         if dp is not None and dp.status == DraftPromptStatus.pending:
+             dp.status = DraftPromptStatus.sent
+             dp.resolved_at = now
+diff --git a/server/app/errors.py b/server/app/errors.py
+index fc78c38..6a8e94c 100644
+--- a/server/app/errors.py
++++ b/server/app/errors.py
+@@ -1,16 +1,17 @@
+ from __future__ import annotations
+ 
+-from typing import Any
++from typing import Any, Callable
+ 
+ from flask import Flask, jsonify
+ from pydantic import ValidationError
++from sqlalchemy.orm import Session
+ from werkzeug.exceptions import HTTPException
+ 
+ 
+ class AppError(Exception):
+     status = 400
+     code = "BAD_REQUEST"
+ 
+     def __init__(self, message: str | None = None, *, details: Any = None, code: str | None = None):
+         if code:
+             self.code = code
+@@ -49,23 +50,33 @@ class Conflict(AppError):
+     status = 409
+     code = "CONFLICT"
+ 
+ 
+ class TransitionError(AppError):
+     status = 409
+     code = "INVALID_TRANSITION"
+ 
+ 
+ class ConsentError(AppError):
++    """Raised by consent.assert_can_send(). May carry `audit_write`: a callback that persists the
++    compliance audit row on a fresh connection once the caller's own session has rolled back
++    (see Database.session() in app.db) — never on the caller's own still-open session, which may
++    already hold a write lock a nested write would deadlock against."""
++
+     status = 422
+     code = "CONSENT_OPTED_OUT"
+ 
++    def __init__(self, message: str | None = None, *, details: Any = None, code: str | None = None,
++                 audit_write: Callable[[Session], None] | None = None):
++        super().__init__(message, details=details, code=code)
++        self.audit_write = audit_write
++
+ 
+ class RateLimited(AppError):
+     status = 429
+     code = "RATE_LIMITED"
+ 
+ 
+ def register_error_handlers(app: Flask) -> None:
+     @app.errorhandler(AppError)
+     def _app_error(e: AppError):
+         return jsonify(e.to_body()), e.status
+diff --git a/server/tests/test_send.py b/server/tests/test_send.py
+index a61cfae..7330a20 100644
+--- a/server/tests/test_send.py
++++ b/server/tests/test_send.py
+@@ -56,10 +56,73 @@ def test_first_response_is_recorded_only_once(app, fx, client, database):
+ 
+ def test_send_rejects_over_length(app, fx, client, database):
+     import pytest
+ 
+     from app.errors import ValidationFailed
+ 
+     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "one")
+     cid = _conversation_id(database, fx)
+     with database.session() as db, pytest.raises(ValidationFailed):
+         messages.send(db, fx.property_a.id, cid, "x" * 1601, author_user_id=fx.agent_a.id)
++
++
++def test_send_rejects_when_digital_asset_link_pushes_body_over_length(app, fx, client, database):
++    """The short link is appended before the length is enforced, not after (review finding 2)."""
++    import pytest
++
++    from app.errors import ValidationFailed
++    from app.models import DigitalAsset
++
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "one")
++    cid = _conversation_id(database, fx)
++    with database.session() as db:
++        asset = DigitalAsset(property_id=fx.property_a.id, name="Spa Menu",
++                             url="https://example.test/spa", short_code="spa1")
++        db.add(asset)
++        db.flush()
++        asset_id = asset.id
++    body = "x" * (messages.MAX_BODY - 5)  # + " /a/spa1" (8 chars) pushes just over MAX_BODY
++    with database.session() as db, pytest.raises(ValidationFailed):
++        messages.send(db, fx.property_a.id, cid, body, author_user_id=fx.agent_a.id,
++                      digital_asset_id=asset_id)
++
++
++def test_system_send_does_not_clear_sla_or_record_first_response(app, fx, client, database):
++    """Only a staff reply should satisfy the SLA clock or first-response timer (finding 3)."""
++    from app.schemas.enums import AuthorType
++
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
++    cid = _conversation_id(database, fx)
++    with database.session() as db:
++        assert db.get(Conversation, cid).sla_due_at is not None  # sanity: inbound started the SLA
++    with database.session() as db:
++        messages.send(db, fx.property_a.id, cid, "Automated heads up", author_user_id=None,
++                      author_type=AuthorType.system)
++        c = db.get(Conversation, cid)
++        assert c.sla_due_at is not None  # a system send must not silently satisfy a human SLA
++        assert c.first_response_seconds is None
++
++
++def test_send_audit_survives_a_dirty_caller_session(app, fx, database):
++    """Mimics a caller (e.g. inbound.handle) whose outer transaction already flushed rows before a
++    rejected send: the audit row must still be written, not deadlock the shared connection
++    (review finding 1)."""
++    import pytest
++
++    from app.domain import consent
++    from app.domain import conversations as conv_domain
++    from app.errors import ConsentError
++    from app.models import AuditLog, Guest
++
++    with pytest.raises(ConsentError) as ei:
++        with database.session() as db:
++            guest = db.get(Guest, fx.guest_inhouse_a.id)
++            consent.opt_out(db, guest, "sms_keyword")
++            conv, _ = conv_domain.find_or_create_for_guest(db, fx.property_a.id, guest)
++            messages.record_inbound(db, fx.property_a.id, conv, "already flushed on this session",
++                                    "SM-dirty")
++            messages.send(db, fx.property_a.id, conv.id, "Hello?", author_user_id=fx.agent_a.id)
++    assert ei.value.status == 422 and ei.value.code == "CONSENT_OPTED_OUT"
++    with database.session() as db:
++        assert db.scalar(select(Message).where(Message.direction == Direction.outbound)) is None
++        assert db.scalar(select(AuditLog).where(
++            AuditLog.action == "message.rejected_opted_out")) is not None

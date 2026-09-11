@@ -1,0 +1,273 @@
+# Review package: 554a950..8094d4f
+
+## Commits
+8094d4f fix(web): four review findings on restoration R1
+
+## Files changed
+ web/src/features/inbox/Composer.test.tsx     | 66 ++++++++++++++++++++++++++++
+ web/src/features/inbox/Composer.tsx          | 19 +++++++-
+ web/src/features/inbox/GuestPanel.test.tsx   | 14 ++++++
+ web/src/features/inbox/GuestPanel.tsx        |  6 ++-
+ web/src/features/inbox/QuickReplyPalette.tsx |  3 ++
+ 5 files changed, 106 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/web/src/features/inbox/Composer.test.tsx b/web/src/features/inbox/Composer.test.tsx
+index c680cb7..2a6b080 100644
+--- a/web/src/features/inbox/Composer.test.tsx
++++ b/web/src/features/inbox/Composer.test.tsx
+@@ -408,20 +408,86 @@ describe('Composer', () => {
+ 
+   it('keeps an existing draft when the Quick button opens the palette', async () => {
+     mount()
+     const box = await screen.findByRole('textbox')
+     await userEvent.type(box, 'Half a sentence')
+     await userEvent.click(screen.getByRole('button', { name: /quick/i }))
+     expect(await screen.findByTestId('qr-q-1')).toBeInTheDocument()
+     expect(box).toHaveValue('Half a sentence')
+   })
+ 
++  // Fix round 1: a forced-open palette has no term, so it never narrowed as you typed and
++  // its document-level Enter handler stayed armed. Pressing Enter for a newline picked the
++  // highlighted reply and replaced the whole draft with a template.
++  it('releases the forced palette as soon as you type, so Enter still makes a newline', async () => {
++    routes({ render: { body: 'A TEMPLATE THAT MUST NOT APPEAR', characters: 31, segments: 1 } })
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.click(screen.getByRole('button', { name: /quick/i }))
++    await screen.findByTestId('qr-q-1')
++    await userEvent.type(box, "Hi Sarah, I'll send someone up")
++    expect(screen.queryByTestId('qr-q-1')).not.toBeInTheDocument()
++    await userEvent.keyboard('{Enter}')
++    expect(box).toHaveValue("Hi Sarah, I'll send someone up\n")
++    expect(
++      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/render') && i?.method === 'POST'),
++    ).toBe(false)
++  })
++
++  it('does not leave the forced palette open over the box after a send', async () => {
++    routes({ render: { body: 'A TEMPLATE THAT MUST NOT APPEAR', characters: 31, segments: 1 } })
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.type(box, 'On our way')
++    await userEvent.click(screen.getByRole('button', { name: /quick/i }))
++    await userEvent.keyboard('{Control>}{Enter}{/Control}')
++    await waitFor(() => expect(box).toHaveValue(''))
++    expect(screen.queryByTestId('qr-q-1')).not.toBeInTheDocument()
++    // Ctrl+Enter means send, never "pick the highlighted reply": the palette's document
++    // listener must not also fire and repopulate the just-emptied box with a template.
++    expect(
++      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/render') && i?.method === 'POST'),
++    ).toBe(false)
++  })
++
++  // Fix round 1: the note branch of submit() left assetId and draftPromptId armed, so the
++  // next outbound message carried an attachment whose link was never in its body.
++  it('disarms a picked asset when the draft is posted as a note instead', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: /attach/i }))
++    await userEvent.click(await screen.findByRole('menuitem', { name: /WiFi card/ }))
++    const box = screen.getByRole('textbox')
++    await waitFor(() => expect((box as HTMLTextAreaElement).value).toContain('/a/wifi1'))
++    await userEvent.click(screen.getByRole('button', { name: 'Note' }))
++    await userEvent.click(screen.getByRole('button', { name: /add note/i }))
++    await waitFor(() => expect(notePosts()).toHaveLength(1))
++
++    await userEvent.click(screen.getByRole('button', { name: 'Reply' }))
++    await userEvent.type(screen.getByRole('textbox'), 'Someone is on the way')
++    await userEvent.keyboard('{Control>}{Enter}{/Control}')
++    const sent = vi
++      .mocked(fetch)
++      .mock.calls.find(([u, i]) => String(u).includes('/messages') && i?.method === 'POST')
++    expect(JSON.parse(String(sent![1]!.body))).toMatchObject({
++      body: 'Someone is on the way',
++      digitalAssetId: null,
++    })
++  })
++
++  // Textarea's only focus affordance is focus:border-accent (it sets focus:outline-none),
++  // and a plain one loses to the important !border-noteBorder that tints Note mode.
++  it('keeps a focus indicator in Note mode', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
++    expect(screen.getByRole('textbox').className).toContain('focus:!border-accent')
++  })
++
+   it('opens the work-order modal from the composer', async () => {
+     mount()
+     await userEvent.click(await screen.findByRole('button', { name: /work order/i }))
+     expect(await screen.findByRole('dialog')).toHaveTextContent(/create work order/i)
+   })
+ 
+   it('orders the composer actions Quick · Asset · Work order', async () => {
+     mount()
+     await screen.findByRole('textbox')
+     const labels = screen
+diff --git a/web/src/features/inbox/Composer.tsx b/web/src/features/inbox/Composer.tsx
+index 7d5ae63..65d9e3d 100644
+--- a/web/src/features/inbox/Composer.tsx
++++ b/web/src/features/inbox/Composer.tsx
+@@ -67,23 +67,30 @@ export function Composer({
+   const segments = segmentCount(body)
+   const characters = charCount(body)
+   const optedOut = conversation.guest.smsConsentStatus === 'opted_out'
+   const noteMode = mode === 'note'
+   const pending = noteMode ? addNote.isPending : send.isPending
+   const error = noteMode ? addNote.error : send.error
+ 
+   function submit() {
+     const trimmed = body.trim()
+     if (!trimmed || pending) return
++    // Otherwise a palette forced open over a draft that was never typed into (a prompt
++    // draft, an asset link) would still be open over the emptied box afterwards.
++    setPaletteForced(false)
+     if (noteMode) {
+       addNote.mutate({ body: trimmed }, { onError: () => setBody(trimmed) })
+       setBody('')
++      // Both are outbound-SMS attribution and neither travelled with the note, so leaving
++      // them armed would attach them to whatever is sent next instead.
++      setAssetId(null)
++      setDraftPromptId(null)
+       return
+     }
+     // A quick reply still resolving (or one that failed) must never let the raw
+     // /shortcut text reach a guest — block the send until it settles.
+     if (render.isPending) return
+     send.mutate(
+       {
+         body: trimmed,
+         digitalAssetId: assetId,
+         draftPromptId,
+@@ -173,24 +180,34 @@ export function Composer({
+ 
+         <Textarea
+           ref={box}
+           rows={3}
+           value={body}
+           placeholder={
+             noteMode ? 'Internal note — not sent to the guest' : 'Type a reply, or / for a quick reply'
+           }
+           // `cn` concatenates, it does not resolve Tailwind conflicts, and the palette's
+           // own source order otherwise lets Textarea's bg-surface2/text-text win here.
+-          className={noteMode ? '!border-noteBorder !bg-noteBg !text-noteText' : undefined}
++          // focus:!border-accent must be important too: Textarea's only focus affordance is
++          // that border (it sets focus:outline-none), and a plain one loses to !border-noteBorder.
++          className={
++            noteMode
++              ? '!border-noteBorder focus:!border-accent !bg-noteBg !text-noteText'
++              : undefined
++          }
+           onChange={(event) => {
+             setBody(event.target.value)
+             setPaletteDismissed(false)
++            // A forced-open palette has no term, so it never narrows as you type and its
++            // document-level Enter handler would swallow a newline and overwrite the draft
++            // with a template. Typing releases it; the '/' path re-opens on its own terms.
++            setPaletteForced(false)
+           }}
+           onFocus={() => setPresence(conversationId, 'composing')}
+           onBlur={() => setPresence(conversationId, 'viewing')}
+           onKeyDown={(event) => {
+             if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+               event.preventDefault()
+               submit()
+             }
+           }}
+         />
+diff --git a/web/src/features/inbox/GuestPanel.test.tsx b/web/src/features/inbox/GuestPanel.test.tsx
+index 6f81a1f..4f9030e 100644
+--- a/web/src/features/inbox/GuestPanel.test.tsx
++++ b/web/src/features/inbox/GuestPanel.test.tsx
+@@ -101,19 +101,33 @@ describe('GuestPanel', () => {
+     expect(await screen.findByText('Previous stays')).toBeInTheDocument()
+     await waitFor(() => expect(screen.getByText('Previous stays').parentElement).toHaveTextContent('None'))
+   })
+ 
+   it('says None for a first-time guest', async () => {
+     serveStays([])
+     mount()
+     await waitFor(() => expect(screen.getByText('Previous stays').parentElement).toHaveTextContent('None'))
+   })
+ 
++  // Fix round 1: a failed lookup rendered "None", which is the answer for a first-time
++  // guest — the opposite of "we do not know".
++  it('says so when the stay history cannot be loaded, rather than None', async () => {
++    vi.mocked(fetch).mockResolvedValue(
++      new Response(JSON.stringify({ error: { code: 'SERVER_ERROR', message: 'boom' } }), {
++        status: 500,
++        headers: { 'Content-Type': 'application/json' },
++      }),
++    )
++    mount()
++    expect(await screen.findByText('Stay history unavailable')).toBeInTheDocument()
++    expect(screen.getByText('Previous stays').parentElement).not.toHaveTextContent('None')
++  })
++
+   // GET /guests/<id> is gated server-side on view_all_conversations, which dept_staff
+   // lacks — showing the section would only produce a 403.
+   it('hides the section, and asks for nothing, for a role without view_all_conversations', async () => {
+     mount(aConversationDetail(), 'dept_staff')
+     await screen.findByText('Sarah Chen')
+     expect(screen.queryByText('Previous stays')).not.toBeInTheDocument()
+     expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('/guests/'))).toBe(false)
+   })
+ })
+diff --git a/web/src/features/inbox/GuestPanel.tsx b/web/src/features/inbox/GuestPanel.tsx
+index 35f62a0..50d830d 100644
+--- a/web/src/features/inbox/GuestPanel.tsx
++++ b/web/src/features/inbox/GuestPanel.tsx
+@@ -135,21 +135,25 @@ export function GuestPanel({ conversation }: { conversation: ConversationDetail
+               <li key={note.id} className="rounded border border-noteBorder bg-noteBg p-2 text-xs text-noteText">
+                 {note.body}
+               </li>
+             ))}
+           </ul>
+         )}
+       </Section>
+ 
+       {canSeeHistory ? (
+         <Section title="Previous stays">
+-          {guestDetail.isPending ? null : previousStays.length === 0 ? (
++          {/* The only fallible section in this panel: everything else renders from props.
++              A failed lookup must not read as "first-time guest" — the two are opposites. */}
++          {guestDetail.error ? (
++            <p className="text-xs text-dangerText">Stay history unavailable</p>
++          ) : guestDetail.isPending ? null : previousStays.length === 0 ? (
+             <p className="text-xs text-text3">None</p>
+           ) : (
+             <ul className="flex flex-col gap-1.5">
+               {previousStays.map((s) => (
+                 <li key={s.id} className="font-mono text-xs text-text2">
+                   {stayLine(s)}
+                 </li>
+               ))}
+             </ul>
+           )}
+diff --git a/web/src/features/inbox/QuickReplyPalette.tsx b/web/src/features/inbox/QuickReplyPalette.tsx
+index 22a50d6..53c851b 100644
+--- a/web/src/features/inbox/QuickReplyPalette.tsx
++++ b/web/src/features/inbox/QuickReplyPalette.tsx
+@@ -46,20 +46,23 @@ export function QuickReplyPalette({
+     if (matches.length === 0) return
+ 
+     function onKeyDown(event: KeyboardEvent) {
+       if (event.key === 'ArrowDown') {
+         event.preventDefault()
+         setIndex((i) => Math.min(i + 1, matches.length - 1))
+       } else if (event.key === 'ArrowUp') {
+         event.preventDefault()
+         setIndex((i) => Math.max(i - 1, 0))
+       } else if (event.key === 'Enter') {
++        // Ctrl/Cmd+Enter is the composer's send. Picking as well would fire a render whose
++        // result lands in the box the send just emptied, as a template nobody asked for.
++        if (event.ctrlKey || event.metaKey) return
+         const picked = matches[index]
+         if (picked) {
+           event.preventDefault()
+           onPick(picked)
+         }
+       } else if (event.key === 'Escape') {
+         event.preventDefault()
+         onClose()
+       }
+     }

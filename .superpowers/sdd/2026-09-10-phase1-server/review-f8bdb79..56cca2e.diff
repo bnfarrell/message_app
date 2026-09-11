@@ -1,0 +1,655 @@
+# Review package: f8bdb79..56cca2e
+
+## Commits
+56cca2e feat(server): work order state machine, prefill from conversation, events, closed-loop draft prompt
+02e85eb fix(server): close viewer-scope bypass on send-message and retry routes too
+
+## Files changed
+ server/app/api/conversations.py        |   5 +-
+ server/app/domain/draft_prompts.py     |  55 ++++++++
+ server/app/domain/work_orders.py       | 243 +++++++++++++++++++++++++++++++++
+ server/app/schemas/work_orders.py      |  92 +++++++++++++
+ server/tests/test_conversations_api.py |   6 +-
+ server/tests/test_work_orders.py       | 150 ++++++++++++++++++++
+ 6 files changed, 548 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/server/app/api/conversations.py b/server/app/api/conversations.py
+index 4db3c06..c0ffdf4 100644
+--- a/server/app/api/conversations.py
++++ b/server/app/api/conversations.py
+@@ -40,33 +40,36 @@ def get_conversation(property_id: str, conversation_id: str):
+ 
+ 
+ @bp.post("/<conversation_id>/messages")
+ @require_auth
+ @require_property
+ @require_capability("reply")
+ def send_message(property_id: str, conversation_id: str):
+     body = parse_body(SendMessageRequest)
+     ip, ua = client_meta()
+     with db_session() as db:
++        c = conversations.get(db, g.property_id, conversation_id)
++        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+         m = messages.send(db, g.property_id, conversation_id, body.body, author_user_id=g.user.id,
+                           digital_asset_id=body.digital_asset_id, draft_prompt_id=body.draft_prompt_id,
+                           ip=ip, user_agent=ua)
+         return ok(MessageOut.model_validate(m), 201)
+ 
+ 
+ @bp.post("/<conversation_id>/messages/<message_id>/retry")
+ @require_auth
+ @require_property
+ @require_capability("reply")
+ def retry_message(property_id: str, conversation_id: str, message_id: str):
+     with db_session() as db:
+-        conversations.get(db, g.property_id, conversation_id)
++        c = conversations.get(db, g.property_id, conversation_id)
++        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+         target = db.scalar(select(Message).where(Message.id == message_id,
+                                                   Message.property_id == g.property_id))
+         if target is None or target.conversation_id != conversation_id:
+             raise NotFound("Message not found")
+         m = messages.retry(db, g.property_id, message_id)
+         return ok(MessageOut.model_validate(m))
+ 
+ 
+ @bp.post("/<conversation_id>/notes")
+ @require_auth
+diff --git a/server/app/domain/draft_prompts.py b/server/app/domain/draft_prompts.py
+new file mode 100644
+index 0000000..b837710
+--- /dev/null
++++ b/server/app/domain/draft_prompts.py
+@@ -0,0 +1,55 @@
++from __future__ import annotations
++
++from sqlalchemy import select
++from sqlalchemy.orm import Session
++
++from app import clock
++from app.domain import audit
++from app.errors import NotFound
++from app.models import Conversation, DraftPrompt, Guest, Stay, WorkOrder
++from app.realtime.broadcast import queue_event
++from app.schemas.enums import DraftPromptStatus
++
++
++def draft_body(guest_first_name: str | None, room: str | None, title: str) -> str:
++    name = guest_first_name or "there"
++    where = f" in {room}" if room else ""
++    return (f"Hi {name} — our team has taken care of \"{title.lower()}\"{where}. "
++            f"Please text us if anything still isn't right.")
++
++
++def create_for_completion(db: Session, wo: WorkOrder) -> DraftPrompt | None:
++    """design.md §6.4: the highest-value twenty lines. Never sends; only proposes."""
++    if not wo.source_conversation_id:
++        return None
++    conv = db.get(Conversation, wo.source_conversation_id)
++    if conv is None:
++        return None
++    existing = db.scalar(select(DraftPrompt).where(DraftPrompt.work_order_id == wo.id,
++                                                   DraftPrompt.status == DraftPromptStatus.pending))
++    if existing:
++        return existing
++    guest = db.get(Guest, conv.guest_id)
++    stay = db.get(Stay, conv.stay_id) if conv.stay_id else None
++    room = stay.room_number if stay else wo.location_ref
++    dp = DraftPrompt(property_id=wo.property_id, conversation_id=conv.id, work_order_id=wo.id,
++                     body=draft_body(guest.first_name, room, wo.title), status=DraftPromptStatus.pending)
++    db.add(dp)
++    db.flush()
++    queue_event(db, wo.property_id, "draft_prompt.created",
++                {"id": dp.id, "conversationId": conv.id, "workOrderId": wo.id, "body": dp.body})
++    return dp
++
++
++def dismiss(db: Session, property_id: str, conversation_id: str, prompt_id: str, actor_user_id: str) -> DraftPrompt:
++    dp = db.scalar(select(DraftPrompt).where(DraftPrompt.id == prompt_id, DraftPrompt.property_id == property_id,
++                                             DraftPrompt.conversation_id == conversation_id))
++    if dp is None:
++        raise NotFound("Prompt not found")
++    if dp.status == DraftPromptStatus.pending:
++        dp.status = DraftPromptStatus.dismissed
++        dp.resolved_at = clock.now()
++        dp.resolved_by_user_id = actor_user_id
++        audit.record(db, property_id, actor_user_id, "draft_prompt.dismissed", "draft_prompt", dp.id)
++        queue_event(db, property_id, "conversation.updated", {"id": conversation_id})
++    return dp
+diff --git a/server/app/domain/work_orders.py b/server/app/domain/work_orders.py
+new file mode 100644
+index 0000000..19485d2
+--- /dev/null
++++ b/server/app/domain/work_orders.py
+@@ -0,0 +1,243 @@
++from __future__ import annotations
++
++from sqlalchemy import select
++from sqlalchemy.orm import Session
++
++from app import clock
++from app.domain import audit, draft_prompts, notifications
++from app.domain import conversations as conv_domain
++from app.errors import NotFound, TransitionError, ValidationFailed
++from app.models import (Conversation, Department, Guest, Message, PropertyMembership, Stay, UserAccount,
++                        WorkOrder, WorkOrderEvent)
++from app.realtime.broadcast import queue_event
++from app.schemas.enums import (DepartmentType, Direction, LocationType, Priority, WorkOrderEventType,
++                               WorkOrderStatus, WorkOrderType)
++from app.schemas.work_orders import (CreateWorkOrder, WorkOrderDetail, WorkOrderEventOut, WorkOrderOut,
++                                     WorkOrderPrefill)
++
++S = WorkOrderStatus
++TRANSITIONS: dict[WorkOrderStatus, set[WorkOrderStatus]] = {
++    S.open: {S.assigned, S.in_progress, S.cancelled},
++    S.assigned: {S.in_progress, S.open, S.cancelled},
++    S.in_progress: {S.blocked, S.complete, S.cancelled},
++    S.blocked: {S.in_progress, S.cancelled},
++    S.complete: {S.verified, S.in_progress},
++    S.verified: set(),
++    S.cancelled: set(),
++}
++OPEN_STATUSES = [S.open, S.assigned, S.in_progress, S.blocked, S.complete]
++
++DEPARTMENT_KEYWORDS: dict[str, tuple[str, ...]] = {
++    "engineering": ("ac", "a/c", "air", "heat", "hvac", "hot", "cold", "leak", "toilet", "shower", "drain",
++                    "light", "bulb", "tv", "remote", "wifi", "door", "lock", "broken", "not working",
++                    "elevator", "noise", "outlet", "plug"),
++    "housekeeping": ("towel", "towels", "pillow", "sheets", "linen", "clean", "dirty", "trash", "vacuum",
++                     "amenities", "shampoo", "soap", "toilet paper", "housekeeping", "turndown"),
++    "front_desk": ("checkout", "check out", "check-in", "late", "early", "bill", "folio", "charge",
++                   "reservation", "key", "parking", "valet", "wake", "luggage"),
++}
++TYPE_FOR_DEPARTMENT = {"engineering": WorkOrderType.maintenance, "housekeeping": WorkOrderType.housekeeping,
++                       "front_desk": WorkOrderType.guest_request}
++
++
++def assert_transition(from_: WorkOrderStatus, to: WorkOrderStatus) -> None:
++    if to not in TRANSITIONS.get(from_, set()):
++        raise TransitionError(f"Cannot move a work order from {from_.value} to {to.value}")
++
++
++def guess_department_type(text: str) -> str | None:
++    import re
++
++    t = text.lower()
++    scores = {dept: sum(1 for kw in kws if re.search(rf"\b{re.escape(kw)}\b", t))
++              for dept, kws in DEPARTMENT_KEYWORDS.items()}  # word boundaries: "ac" must not match "back"
++    best = max(scores, key=scores.get)
++    return best if scores[best] > 0 else None
++
++
++def get(db: Session, property_id: str, work_order_id: str) -> WorkOrder:
++    wo = db.scalar(select(WorkOrder).where(WorkOrder.id == work_order_id, WorkOrder.property_id == property_id))
++    if wo is None:
++        raise NotFound("Work order not found")
++    return wo
++
++
++def _event(db: Session, wo: WorkOrder, user_id: str | None, type: WorkOrderEventType,
++           from_value: str | None = None, to_value: str | None = None, comment: str | None = None) -> None:
++    db.add(WorkOrderEvent(work_order_id=wo.id, property_id=wo.property_id, user_id=user_id, type=type,
++                          from_value=from_value, to_value=to_value, comment=comment))
++
++
++def _emit(db: Session, wo: WorkOrder, type: str) -> None:
++    queue_event(db, wo.property_id, type, WorkOrderOut.model_validate(wo).model_dump(mode="json", by_alias=True))
++
++
++def _validate_refs(db: Session, property_id: str, department_id: str | None, assigned_user_id: str | None) -> None:
++    if department_id and not db.scalar(select(Department.id).where(Department.id == department_id,
++                                                                    Department.property_id == property_id)):
++        raise ValidationFailed("Unknown department")
++    if assigned_user_id and not db.scalar(select(PropertyMembership.id).where(
++            PropertyMembership.property_id == property_id, PropertyMembership.user_id == assigned_user_id)):
++        raise ValidationFailed("Assignee is not a member of this property")
++
++
++def create(db: Session, property_id: str, actor_user_id: str, data: CreateWorkOrder) -> WorkOrder:
++    _validate_refs(db, property_id, data.department_id, data.assigned_user_id)
++    if data.source_conversation_id:
++        conv_domain.get(db, property_id, data.source_conversation_id)
++    wo = WorkOrder(property_id=property_id, title=data.title.strip(), description=data.description, type=data.type,
++                   priority=data.priority, location_type=data.location_type, location_ref=data.location_ref,
++                   department_id=data.department_id, assigned_user_id=data.assigned_user_id,
++                   reported_by_user_id=actor_user_id, source_conversation_id=data.source_conversation_id,
++                   source_message_id=data.source_message_id, due_at=data.due_at,
++                   status=S.assigned if data.assigned_user_id else S.open)
++    db.add(wo)
++    db.flush()
++    _event(db, wo, actor_user_id, WorkOrderEventType.created, to_value=wo.status.value)
++    if wo.assigned_user_id:
++        notifications.create(db, property_id, wo.assigned_user_id, "work_order.assigned",
++                             f"Assigned: {wo.title}", body=wo.location_ref, entity_type="work_order", entity_id=wo.id)
++    elif wo.department_id:
++        notifications.notify_user_or_department(db, property_id, user_id=None, department_id=wo.department_id,
++                                                type="work_order.created", title=f"New work order: {wo.title}",
++                                                body=wo.location_ref, entity_type="work_order", entity_id=wo.id)
++    audit.record(db, property_id, actor_user_id, "work_order.created", "work_order", wo.id,
++                 after={"title": wo.title, "source_conversation_id": wo.source_conversation_id})
++    _emit(db, wo, "work_order.created")
++    if wo.source_conversation_id:
++        queue_event(db, property_id, "conversation.updated", {"id": wo.source_conversation_id})
++    return wo
++
++
++def prefill_from_conversation(db: Session, property_id: str, conversation_id: str) -> WorkOrderPrefill:
++    conv = conv_domain.get(db, property_id, conversation_id)
++    guest = db.get(Guest, conv.guest_id)
++    stay = db.get(Stay, conv.stay_id) if conv.stay_id else None
++    inbound = db.scalars(select(Message).where(Message.conversation_id == conv.id, Message.direction == Direction.inbound)
++                         .order_by(Message.sent_at.desc()).limit(3)).all()
++    last = inbound[0] if inbound else None
++    title = (last.body.strip().splitlines()[0][:120] if last else "Guest request")
++    description = "\n".join(m.body for m in reversed(inbound))
++    dept_type = guess_department_type(description)
++    dept_id = None
++    if dept_type:
++        dept_id = db.scalar(select(Department.id).where(Department.property_id == property_id,
++                                                        Department.type == DepartmentType(dept_type)))
++    name = f"{guest.first_name or ''} {guest.last_name or ''}".strip() or None
++    return WorkOrderPrefill(
++        title=title, description=description, type=TYPE_FOR_DEPARTMENT.get(dept_type, WorkOrderType.guest_request),
++        priority=Priority.normal, location_type=LocationType.room if stay else LocationType.other,
++        location_ref=stay.room_number if stay else None, department_id=dept_id, guest_name=name,
++        source_conversation_id=conv.id, source_message_id=last.id if last else None)
++
++
++def transition(db: Session, property_id: str, work_order_id: str, actor_user_id: str, to: WorkOrderStatus,
++               comment: str | None = None) -> WorkOrder:
++    wo = get(db, property_id, work_order_id)
++    assert_transition(wo.status, to)
++    now = clock.now()
++    frm = wo.status
++    wo.status = to
++    if to == S.in_progress and wo.started_at is None:
++        wo.started_at = now
++    if to == S.complete:
++        wo.completed_at = now
++    if to == S.verified:
++        wo.verified_at = now
++    if wo.assigned_user_id == actor_user_id and wo.acknowledged_at is None:
++        wo.acknowledged_at = now
++    db.flush()
++    _event(db, wo, actor_user_id, WorkOrderEventType.status_changed, from_value=frm.value, to_value=to.value,
++           comment=comment)
++    audit.record(db, property_id, actor_user_id, "work_order.transition", "work_order", wo.id,
++                 before={"status": frm.value}, after={"status": to.value})
++    _emit(db, wo, "work_order.updated")
++    if to == S.complete:
++        draft_prompts.create_for_completion(db, wo)
++    if wo.source_conversation_id:
++        queue_event(db, property_id, "conversation.updated", {"id": wo.source_conversation_id})
++    return wo
++
++
++def assign(db: Session, property_id: str, work_order_id: str, actor_user_id: str, *,
++           user_id: str | None = None, department_id: str | None = None, clear: bool = False) -> WorkOrder:
++    wo = get(db, property_id, work_order_id)
++    _validate_refs(db, property_id, department_id, user_id)
++    before = wo.assigned_user_id
++    if clear:
++        wo.assigned_user_id = None
++        if wo.status == S.assigned:
++            wo.status = S.open
++    if department_id:
++        wo.department_id = department_id
++    if user_id:
++        wo.assigned_user_id = user_id
++        wo.acknowledged_at = None
++        if wo.status == S.open:
++            wo.status = S.assigned
++        if user_id != actor_user_id:
++            notifications.create(db, property_id, user_id, "work_order.assigned", f"Assigned: {wo.title}",
++                                 body=wo.location_ref, entity_type="work_order", entity_id=wo.id)
++    db.flush()
++    _event(db, wo, actor_user_id, WorkOrderEventType.assigned, from_value=before, to_value=wo.assigned_user_id)
++    _emit(db, wo, "work_order.updated")
++    return wo
++
++
++def comment(db: Session, property_id: str, work_order_id: str, actor_user_id: str, text: str) -> WorkOrder:
++    wo = get(db, property_id, work_order_id)
++    _event(db, wo, actor_user_id, WorkOrderEventType.commented, comment=text.strip())
++    wo.updated_at = clock.now()
++    _emit(db, wo, "work_order.updated")
++    return wo
++
++
++def set_priority(db: Session, property_id: str, work_order_id: str, actor_user_id: str, priority: Priority) -> WorkOrder:
++    wo = get(db, property_id, work_order_id)
++    before = wo.priority
++    wo.priority = priority
++    _event(db, wo, actor_user_id, WorkOrderEventType.priority_changed, from_value=before.value, to_value=priority.value)
++    _emit(db, wo, "work_order.updated")
++    return wo
++
++
++def list(db: Session, property_id: str, *, status: str | None = None, type: WorkOrderType | None = None,
++         dept: str | None = None, assignee: str | None = None, mine_user_id: str | None = None,
++         include_closed: bool = False) -> list[WorkOrderOut]:
++    # `from __future__ import annotations` keeps this annotation lazy, and the def statement binds the
++    # module-level name `list` only after the signature is built, so the annotation means builtins.list.
++    q = select(WorkOrder).where(WorkOrder.property_id == property_id)
++    if status:
++        q = q.where(WorkOrder.status.in_([S(s) for s in status.split(",") if s]))
++    elif not include_closed:
++        q = q.where(WorkOrder.status.in_(OPEN_STATUSES))
++    if type:
++        q = q.where(WorkOrder.type == type)
++    if dept:
++        q = q.where(WorkOrder.department_id == dept)
++    if assignee:
++        q = q.where(WorkOrder.assigned_user_id == assignee)
++    if mine_user_id:
++        q = q.where(WorkOrder.assigned_user_id == mine_user_id)
++    rows = db.scalars(q.order_by(WorkOrder.created_at.desc())).all()
++    return [WorkOrderOut.model_validate(w) for w in rows]
++
++
++def detail(db: Session, property_id: str, work_order_id: str) -> WorkOrderDetail:
++    wo = get(db, property_id, work_order_id)
++    rows = db.execute(select(WorkOrderEvent, UserAccount).outerjoin(UserAccount, UserAccount.id == WorkOrderEvent.user_id)
++                      .where(WorkOrderEvent.work_order_id == wo.id).order_by(WorkOrderEvent.created_at)).all()
++    guest_name = room = None
++    if wo.source_conversation_id:
++        conv = db.get(Conversation, wo.source_conversation_id)
++        if conv:
++            g = db.get(Guest, conv.guest_id)
++            guest_name = f"{g.first_name or ''} {g.last_name or ''}".strip() or g.phone_e164
++            st = db.get(Stay, conv.stay_id) if conv.stay_id else None
++            room = st.room_number if st else None
++    base = WorkOrderOut.model_validate(wo).model_dump()
++    return WorkOrderDetail(**base, guest_name=guest_name, room_number=room or wo.location_ref,
++                           events=[WorkOrderEventOut(id=e.id, user_id=e.user_id,
++                                                     user_name=f"{u.first_name} {u.last_name}" if u else None,
++                                                     type=e.type, from_value=e.from_value, to_value=e.to_value,
++                                                     comment=e.comment, created_at=e.created_at) for e, u in rows])
+diff --git a/server/app/schemas/work_orders.py b/server/app/schemas/work_orders.py
+new file mode 100644
+index 0000000..a7b5dae
+--- /dev/null
++++ b/server/app/schemas/work_orders.py
+@@ -0,0 +1,92 @@
++from datetime import datetime
++
++from pydantic import Field
++
++from app.schemas.common import CamelModel
++from app.schemas.enums import LocationType, Priority, WorkOrderEventType, WorkOrderStatus, WorkOrderType
++
++
++class CreateWorkOrder(CamelModel):
++    title: str = Field(min_length=1, max_length=200)
++    description: str | None = None
++    type: WorkOrderType = WorkOrderType.maintenance
++    priority: Priority = Priority.normal
++    location_type: LocationType = LocationType.room
++    location_ref: str | None = None
++    department_id: str | None = None
++    assigned_user_id: str | None = None
++    due_at: datetime | None = None
++    source_conversation_id: str | None = None
++    source_message_id: str | None = None
++
++
++class WorkOrderPatch(CamelModel):
++    status: WorkOrderStatus | None = None
++    assigned_user_id: str | None = None
++    department_id: str | None = None
++    priority: Priority | None = None
++    comment: str | None = Field(default=None, max_length=2000)
++    clear_assignee: bool = False
++
++
++class WorkOrderOut(CamelModel):
++    id: str
++    title: str
++    description: str | None = None
++    type: WorkOrderType
++    priority: Priority
++    status: WorkOrderStatus
++    location_type: LocationType
++    location_ref: str | None = None
++    department_id: str | None = None
++    assigned_user_id: str | None = None
++    reported_by_user_id: str | None = None
++    source_conversation_id: str | None = None
++    source_message_id: str | None = None
++    due_at: datetime | None = None
++    started_at: datetime | None = None
++    completed_at: datetime | None = None
++    verified_at: datetime | None = None
++    guest_notified_at: datetime | None = None
++    acknowledged_at: datetime | None = None
++    created_at: datetime
++    updated_at: datetime
++
++
++class WorkOrderEventOut(CamelModel):
++    id: str
++    user_id: str | None = None
++    user_name: str | None = None
++    type: WorkOrderEventType
++    from_value: str | None = None
++    to_value: str | None = None
++    comment: str | None = None
++    created_at: datetime
++
++
++class WorkOrderDetail(WorkOrderOut):
++    events: list[WorkOrderEventOut]
++    guest_name: str | None = None
++    room_number: str | None = None
++
++
++class WorkOrderPrefill(CamelModel):
++    title: str
++    description: str
++    type: WorkOrderType
++    priority: Priority
++    location_type: LocationType
++    location_ref: str | None = None
++    department_id: str | None = None
++    guest_name: str | None = None
++    source_conversation_id: str
++    source_message_id: str | None = None
++
++
++class WorkOrderListQuery(CamelModel):
++    status: str | None = None          # comma-separated
++    type: WorkOrderType | None = None
++    dept: str | None = None
++    assignee: str | None = None
++    mine: bool = False
++    include_closed: bool = False
+diff --git a/server/tests/test_conversations_api.py b/server/tests/test_conversations_api.py
+index 27eb1b5..841e681 100644
+--- a/server/tests/test_conversations_api.py
++++ b/server/tests/test_conversations_api.py
+@@ -54,24 +54,26 @@ def test_filters_mine_unassigned_overdue_resolved_archived(app, fx, client, data
+ 
+ def test_dept_staff_sees_only_their_department_or_own_conversations(app, fx, client, database, login):
+     inbound(client, fx, fx.guest_nostay_a.phone_e164, "one")
+     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "two")
+     diego, sarah = _cid(database, fx.guest_nostay_a.id), _cid(database, fx.guest_inhouse_a.id)
+     agent = login("agent@hvh.test")
+     agent.patch(f"{_base(fx)}/{sarah}", json={"assignedDepartmentId": fx.dept_engineering.id})
+     eng = login("engineer@hvh.test")
+     assert {r["id"] for r in eng.get(_base(fx)).get_json()} == {sarah}
+     assert eng.get(f"{_base(fx)}/{diego}").status_code == 403
+-    # A conversation invisible via GET must stay invisible through every other route too —
+-    # an empty PATCH or a note-create must not become a side door to read or touch it.
++    # A conversation invisible via GET must stay invisible through every other route too — an empty
++    # PATCH, a note-create, sending a message, or retrying one must not become a side door to it.
+     assert eng.patch(f"{_base(fx)}/{diego}", json={}).status_code == 403
+     assert eng.post(f"{_base(fx)}/{diego}/notes", json={"body": "peeking"}).status_code == 403
++    assert eng.post(f"{_base(fx)}/{diego}/messages", json={"body": "should not send"}).status_code == 403
++    assert eng.post(f"{_base(fx)}/{diego}/messages/00000000-0000-0000-0000-000000000000/retry").status_code == 403
+ 
+ 
+ def test_dept_staff_without_department_sees_only_own_assigned(app, fx, client, database, login):
+     """A dept_staff membership with no department must never widen to the whole unassigned queue."""
+     from app.auth.passwords import hash_password
+     from app.models import PropertyMembership, UserAccount
+     from app.schemas.enums import Role
+     from tests.fixtures import PASSWORD
+ 
+     with database.session() as db:
+diff --git a/server/tests/test_work_orders.py b/server/tests/test_work_orders.py
+new file mode 100644
+index 0000000..cfe2630
+--- /dev/null
++++ b/server/tests/test_work_orders.py
+@@ -0,0 +1,150 @@
++import pytest
++from sqlalchemy import select
++
++from app import clock
++from app.domain import work_orders
++from app.errors import TransitionError
++from app.models import Conversation, DraftPrompt, Message, Notification, WorkOrderEvent
++from app.schemas.enums import Direction, DraftPromptStatus, Priority, WorkOrderStatus, WorkOrderType
++from app.schemas.work_orders import CreateWorkOrder
++from tests.factories import inbound
++
++
++def _cid(database, guest_id):
++    with database.session() as db:
++        return db.scalar(select(Conversation.id).where(Conversation.guest_id == guest_id))
++
++
++@pytest.mark.parametrize("frm,to,ok", [
++    ("open", "assigned", True), ("open", "in_progress", True), ("open", "cancelled", True),
++    ("open", "complete", False), ("assigned", "in_progress", True), ("assigned", "open", True),
++    ("in_progress", "blocked", True), ("in_progress", "complete", True), ("blocked", "in_progress", True),
++    ("blocked", "complete", False), ("complete", "verified", True), ("complete", "in_progress", True),
++    ("verified", "open", False), ("cancelled", "open", False),
++])
++def test_transition_matrix(frm, to, ok):
++    if ok:
++        work_orders.assert_transition(WorkOrderStatus(frm), WorkOrderStatus(to))
++    else:
++        with pytest.raises(TransitionError):
++            work_orders.assert_transition(WorkOrderStatus(frm), WorkOrderStatus(to))
++
++
++def test_prefill_from_conversation(app, fx, client, database):
++    """§11.1 #6 (prefill half)"""
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "Hi there")
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "The AC in our room isn't working at all")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    with database.session() as db:
++        p = work_orders.prefill_from_conversation(db, fx.property_a.id, cid)
++    assert p.title == "The AC in our room isn't working at all"
++    assert "Hi there" in p.description and "AC" in p.description
++    assert p.location_ref == "412" and p.guest_name == "Sarah Chen"
++    assert p.department_id == fx.dept_engineering.id and p.type == WorkOrderType.maintenance
++    assert p.source_conversation_id == cid and p.source_message_id is not None
++
++
++def test_create_from_conversation_stores_source_and_notifies_department(app, fx, client, database, events):
++    """§11.1 #6 (create half)"""
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    with database.session() as db:
++        wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
++            title="AC not cooling", description="Guest reports warm room", type=WorkOrderType.maintenance,
++            priority=Priority.urgent, location_ref="412", department_id=fx.dept_engineering.id,
++            source_conversation_id=cid))
++        assert wo.status == WorkOrderStatus.open and wo.source_conversation_id == cid
++        ev = db.scalars(select(WorkOrderEvent).where(WorkOrderEvent.work_order_id == wo.id)).all()
++        assert [e.type.value for e in ev] == ["created"]
++        targets = sorted(n.user_id for n in db.scalars(select(Notification).where(Notification.type == "work_order.created")).all())
++        assert targets == sorted([fx.engineer_a.id, fx.supervisor_a.id])
++    assert any(e.type == "work_order.created" for e in events)
++
++
++def test_create_with_assignee_starts_assigned(app, fx, database):
++    with database.session() as db:
++        wo = work_orders.create(db, fx.property_a.id, fx.supervisor_a.id, CreateWorkOrder(
++            title="Toilet running", type=WorkOrderType.maintenance, location_ref="221",
++            department_id=fx.dept_engineering.id, assigned_user_id=fx.engineer_a.id))
++        assert wo.status == WorkOrderStatus.assigned and wo.assigned_user_id == fx.engineer_a.id
++        n = db.scalar(select(Notification).where(Notification.type == "work_order.assigned"))
++        assert n.user_id == fx.engineer_a.id
++
++
++def test_complete_creates_unsent_editable_draft_prompt(app, fx, client, database, events):
++    """§11.1 #7"""
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    with database.session() as db:
++        wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
++            title="AC not cooling", type=WorkOrderType.maintenance, location_ref="412",
++            department_id=fx.dept_engineering.id, source_conversation_id=cid))
++        wo_id = wo.id
++        msgs_before = len(db.scalars(select(Message)).all())
++    with database.session() as db:
++        work_orders.transition(db, fx.property_a.id, wo_id, fx.engineer_a.id, WorkOrderStatus.in_progress)
++    clock.advance(minutes=14)
++    with database.session() as db:
++        wo = work_orders.transition(db, fx.property_a.id, wo_id, fx.engineer_a.id, WorkOrderStatus.complete,
++                                    comment="Cleared condensate line")
++        assert wo.completed_at == clock.now() and wo.started_at is not None
++        prompts = db.scalars(select(DraftPrompt).where(DraftPrompt.conversation_id == cid)).all()
++        assert len(prompts) == 1 and prompts[0].status == DraftPromptStatus.pending
++        assert "Sarah" in prompts[0].body and "412" in prompts[0].body
++        assert len(db.scalars(select(Message)).all()) == msgs_before  # nothing was sent
++        types = [e.type.value for e in db.scalars(select(WorkOrderEvent).where(WorkOrderEvent.work_order_id == wo_id)
++                                                   .order_by(WorkOrderEvent.created_at)).all()]
++        assert types == ["created", "status_changed", "status_changed"]
++    assert any(e.type == "draft_prompt.created" for e in events)
++    assert any(e.type == "work_order.updated" for e in events)
++
++
++def test_complete_without_source_conversation_creates_no_prompt(app, fx, database):
++    with database.session() as db:
++        wo = work_orders.create(db, fx.property_a.id, fx.supervisor_a.id, CreateWorkOrder(
++            title="Hallway light", type=WorkOrderType.maintenance, location_ref="5F"))
++        work_orders.transition(db, fx.property_a.id, wo.id, fx.supervisor_a.id, WorkOrderStatus.in_progress)
++        work_orders.transition(db, fx.property_a.id, wo.id, fx.supervisor_a.id, WorkOrderStatus.complete)
++        assert db.scalars(select(DraftPrompt)).all() == []
++
++
++def test_sending_the_draft_marks_prompt_sent_and_guest_notified(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    with database.session() as db:
++        wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
++            title="AC not cooling", type=WorkOrderType.maintenance, location_ref="412",
++            department_id=fx.dept_engineering.id, source_conversation_id=cid))
++        wo_id = wo.id
++        work_orders.transition(db, fx.property_a.id, wo_id, fx.engineer_a.id, WorkOrderStatus.in_progress)
++        work_orders.transition(db, fx.property_a.id, wo_id, fx.engineer_a.id, WorkOrderStatus.complete)
++        pid = db.scalar(select(DraftPrompt.id).where(DraftPrompt.conversation_id == cid))
++    c = login("agent@hvh.test")
++    d = c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()
++    assert d["draftPrompts"][0]["id"] == pid and d["draftPrompts"][0]["workOrderTitle"] == "AC not cooling"
++    res = c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages",
++                 json={"body": "Hi Sarah — fixed!", "draftPromptId": pid})
++    assert res.status_code == 201
++    with database.session() as db:
++        assert db.get(DraftPrompt, pid).status == DraftPromptStatus.sent
++        from app.models import WorkOrder
++
++        assert db.get(WorkOrder, wo_id).guest_notified_at is not None
++    assert c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()["draftPrompts"] == []
++
++
++def test_invalid_transition_is_409_and_audited(app, fx, database):
++    with database.session() as db:
++        wo = work_orders.create(db, fx.property_a.id, fx.supervisor_a.id, CreateWorkOrder(
++            title="x", type=WorkOrderType.other, location_ref="lobby"))
++        with pytest.raises(TransitionError):
++            work_orders.transition(db, fx.property_a.id, wo.id, fx.supervisor_a.id, WorkOrderStatus.complete)
++
++
++def test_department_keyword_guess():
++    from app.domain.work_orders import guess_department_type
++
++    assert guess_department_type("the ac is broken and it's hot") == "engineering"
++    assert guess_department_type("could we get extra towels and pillows") == "housekeeping"
++    assert guess_department_type("late checkout please") == "front_desk"
++    assert guess_department_type("hello") is None

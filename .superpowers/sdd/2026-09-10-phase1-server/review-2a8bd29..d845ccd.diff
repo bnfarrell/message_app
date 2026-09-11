@@ -1,0 +1,264 @@
+# Review package: 2a8bd29..d845ccd
+
+## Commits
+d845ccd fix(server): task 16 review round 1 — TOCTOU on short_code/shortcut, error-contract on retry exhaustion, unguarded category FK, missing viewer-scope and authz coverage
+
+## Files changed
+ server/app/domain/assets.py        | 23 +++++++++++++-----
+ server/app/domain/categories.py    |  4 +++-
+ server/app/domain/quick_replies.py | 19 ++++++++++++---
+ server/tests/test_content.py       | 49 ++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 85 insertions(+), 10 deletions(-)
+
+## Diff
+diff --git a/server/app/domain/assets.py b/server/app/domain/assets.py
+index 2b85fae..5d0788c 100644
+--- a/server/app/domain/assets.py
++++ b/server/app/domain/assets.py
+@@ -1,31 +1,32 @@
+ from __future__ import annotations
+ 
+ import secrets
+ 
+ from sqlalchemy import select
++from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
+ 
+-from app.errors import NotFound
++from app.errors import Conflict, NotFound
+ from app.models import DigitalAsset
+ from app.schemas.content import AssetIn, AssetOut, AssetPatch
+ 
+ ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"  # no 0/o/1/l/i
+ MAX_SHORT_CODE_ATTEMPTS = 20
+ 
+ 
+ def new_short_code(db: Session) -> str:
+     for _ in range(MAX_SHORT_CODE_ATTEMPTS):
+         code = "".join(secrets.choice(ALPHABET) for _ in range(6))
+         if not db.scalar(select(DigitalAsset.id).where(DigitalAsset.short_code == code)):
+             return code
+-    raise RuntimeError(f"Could not generate a unique short code after {MAX_SHORT_CODE_ATTEMPTS} attempts")
++    raise Conflict(f"Could not generate a unique short code after {MAX_SHORT_CODE_ATTEMPTS} tries")
+ 
+ 
+ def list(db: Session, property_id: str, include_inactive: bool = False) -> list[AssetOut]:
+     stmt = select(DigitalAsset).where(DigitalAsset.property_id == property_id)
+     if not include_inactive:
+         stmt = stmt.where(DigitalAsset.active.is_(True))
+     return [AssetOut.model_validate(a) for a in db.scalars(stmt.order_by(DigitalAsset.name)).all()]
+ 
+ 
+ def get(db: Session, property_id: str, asset_id: str) -> DigitalAsset:
+@@ -33,24 +34,34 @@ def get(db: Session, property_id: str, asset_id: str) -> DigitalAsset:
+     if a is None:
+         raise NotFound("Asset not found")
+     return a
+ 
+ 
+ def get_by_short_code(db: Session, short_code: str) -> DigitalAsset | None:
+     return db.scalar(select(DigitalAsset).where(DigitalAsset.short_code == short_code, DigitalAsset.active.is_(True)))
+ 
+ 
+ def create(db: Session, property_id: str, data: AssetIn) -> DigitalAsset:
+-    a = DigitalAsset(property_id=property_id, short_code=new_short_code(db), **data.model_dump())
+-    db.add(a)
+-    db.flush()
+-    return a
++    # SELECT-then-INSERT on short_code races under concurrent creates; the DB's unique
++    # constraint is the real guard, so catch its violation and retry with a fresh code rather
++    # than let a collision surface as an unhandled IntegrityError (see Task 16 review round 1).
++    for _ in range(MAX_SHORT_CODE_ATTEMPTS):
++        a = DigitalAsset(property_id=property_id, short_code=new_short_code(db),
++                         **data.model_dump())
++        try:
++            with db.begin_nested():
++                db.add(a)
++                db.flush()
++        except IntegrityError:
++            continue
++        return a
++    raise Conflict(f"Could not generate a unique short code after {MAX_SHORT_CODE_ATTEMPTS} tries")
+ 
+ 
+ def update(db: Session, property_id: str, asset_id: str, data: AssetPatch) -> DigitalAsset:
+     a = get(db, property_id, asset_id)
+     for k, v in data.model_dump(exclude_unset=True).items():
+         setattr(a, k, v)
+     db.flush()
+     return a
+ 
+ 
+diff --git a/server/app/domain/categories.py b/server/app/domain/categories.py
+index c669328..6268a40 100644
+--- a/server/app/domain/categories.py
++++ b/server/app/domain/categories.py
+@@ -1,17 +1,17 @@
+ from __future__ import annotations
+ 
+ from sqlalchemy import select
+ from sqlalchemy.orm import Session
+ 
+ from app.errors import Conflict, NotFound
+-from app.models import ResolutionCategory
++from app.models import Conversation, ResolutionCategory
+ from app.schemas.content import CategoryIn, CategoryOut, CategoryPatch
+ 
+ 
+ def list_tree(db: Session, property_id: str) -> list[CategoryOut]:
+     rows = db.scalars(select(ResolutionCategory).where(ResolutionCategory.property_id == property_id)
+                       .order_by(ResolutionCategory.name)).all()
+     nodes = {r.id: CategoryOut(id=r.id, name=r.name, parent_id=r.parent_id, active=r.active, children=[]) for r in rows}
+     roots: list[CategoryOut] = []
+     for r in rows:
+         (nodes[r.parent_id].children if r.parent_id in nodes else roots).append(nodes[r.id])
+@@ -40,11 +40,13 @@ def update(db: Session, property_id: str, category_id: str, data: CategoryPatch)
+     for k, v in data.model_dump(exclude_unset=True).items():
+         setattr(c, k, v)
+     db.flush()
+     return c
+ 
+ 
+ def delete(db: Session, property_id: str, category_id: str) -> None:
+     c = get(db, property_id, category_id)
+     if db.scalar(select(ResolutionCategory.id).where(ResolutionCategory.parent_id == c.id)):
+         raise Conflict("Delete or move the child categories first")
++    if db.scalar(select(Conversation.id).where(Conversation.resolution_category_id == c.id)):
++        raise Conflict("Reassign the conversations using this category first")
+     db.delete(c)
+diff --git a/server/app/domain/quick_replies.py b/server/app/domain/quick_replies.py
+index fdfc5c0..a6f2e2f 100644
+--- a/server/app/domain/quick_replies.py
++++ b/server/app/domain/quick_replies.py
+@@ -1,15 +1,16 @@
+ from __future__ import annotations
+ 
+ import re
+ 
+ from sqlalchemy import func, or_, select
++from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
+ 
+ from app.domain import conversations as conv_domain
+ from app.domain.sms import segment_count
+ from app.errors import Conflict, NotFound
+ from app.models import Guest, Property, QuickReply, Stay, UserAccount
+ from app.schemas.content import QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderedQuickReply
+ 
+ VARIABLES = ("guest_first_name", "room_number", "property_name", "agent_first_name", "departure_date")
+ FALLBACKS = {
+@@ -57,35 +58,47 @@ def get(db: Session, property_id: str, quick_reply_id: str) -> QuickReply:
+ 
+ def _assert_shortcut_free(db: Session, property_id: str, shortcut: str, exclude_id: str | None = None) -> None:
+     stmt = select(QuickReply.id).where(QuickReply.property_id == property_id, QuickReply.shortcut == shortcut)
+     if exclude_id:
+         stmt = stmt.where(QuickReply.id != exclude_id)
+     if db.scalar(stmt):
+         raise Conflict(f"Shortcut {shortcut} is already in use")
+ 
+ 
+ def create(db: Session, property_id: str, data: QuickReplyIn) -> QuickReply:
++    # The pre-check below narrows the common case to a clean 409, but two requests can still race
++    # between the check and the insert; the DB's unique constraint is the real guard, so catch its
++    # violation too rather than let a collision surface as an unhandled IntegrityError (see Task 16
++    # review round 1, matching the app.domain.guests.find_or_create_by_phone remedy).
+     _assert_shortcut_free(db, property_id, data.shortcut)
+     r = QuickReply(property_id=property_id, **data.model_dump())
+-    db.add(r)
+-    db.flush()
++    try:
++        with db.begin_nested():
++            db.add(r)
++            db.flush()
++    except IntegrityError:
++        raise Conflict(f"Shortcut {data.shortcut} is already in use") from None
+     return r
+ 
+ 
+ def update(db: Session, property_id: str, quick_reply_id: str, data: QuickReplyPatch) -> QuickReply:
+     r = get(db, property_id, quick_reply_id)
+     changes = data.model_dump(exclude_unset=True)
+     if "shortcut" in changes and changes["shortcut"]:
+         _assert_shortcut_free(db, property_id, changes["shortcut"], exclude_id=r.id)
+     for k, v in changes.items():
+         setattr(r, k, v)
+-    db.flush()
++    try:
++        with db.begin_nested():
++            db.flush()
++    except IntegrityError:
++        raise Conflict(f"Shortcut {changes.get('shortcut')} is already in use") from None
+     return r
+ 
+ 
+ def delete(db: Session, property_id: str, quick_reply_id: str) -> None:
+     db.delete(get(db, property_id, quick_reply_id))
+ 
+ 
+ def context_for_conversation(db: Session, property_id: str, conversation_id: str, agent_user_id: str | None) -> dict:
+     conv = conv_domain.get(db, property_id, conversation_id)
+     guest = db.get(Guest, conv.guest_id)
+diff --git a/server/tests/test_content.py b/server/tests/test_content.py
+index fd1b376..e1c26b9 100644
+--- a/server/tests/test_content.py
++++ b/server/tests/test_content.py
+@@ -61,10 +61,59 @@ def test_resolution_categories_tree(app, fx, client, login):
+     base = f"/api/p/{fx.property_a.id}/resolution-categories"
+     admin = login("admin@hvh.test")
+     parent = admin.post(base, json={"name": "Maintenance"}).get_json()
+     child = admin.post(base, json={"name": "HVAC", "parentId": parent["id"]}).get_json()
+     tree = admin.get(base).get_json()
+     assert tree[0]["name"] == "Maintenance" and tree[0]["children"][0]["id"] == child["id"]
+     assert admin.patch(f"{base}/{child['id']}", json={"name": "HVAC / AC"}).get_json()["name"] == "HVAC / AC"
+     assert admin.delete(f"{base}/{parent['id']}").status_code == 409  # has children
+     assert admin.delete(f"{base}/{child['id']}").status_code == 204
+     assert admin.delete(f"{base}/{parent['id']}").status_code == 204
++
++
++def test_render_quick_reply_respects_viewer_scope(app, fx, client, database, login):
++    """A dept_staff caller must not be able to render a quick reply against a conversation outside
++    their department — the same viewer check that gates GET/PATCH/notes/messages on conversations
++    (see test_dept_staff_sees_only_their_department_or_own_conversations) must also gate render."""
++    base = f"/api/p/{fx.property_a.id}/quick-replies"
++    admin = login("admin@hvh.test")
++    qr = admin.post(base, json={"shortcut": "/ac", "title": "AC", "body": "On it."}).get_json()
++    inbound(client, fx, fx.guest_nostay_a.phone_e164, "hi")
++    cid = _cid(database, fx.guest_nostay_a.id)  # unassigned: invisible to any dept_staff
++    eng = login("engineer@hvh.test")
++    assert eng.post(f"{base}/{qr['id']}/render", json={"conversationId": cid}).status_code == 403
++
++
++def test_assets_require_manage_admin(app, fx, client, login):
++    base = f"/api/p/{fx.property_a.id}/assets"
++    admin = login("admin@hvh.test")
++    a = admin.post(base, json={"name": "Map", "type": "map", "url": "https://example.test/map.pdf"}).get_json()
++    agent = login("agent@hvh.test")
++    resp = agent.post(base, json={"name": "x", "type": "link", "url": "https://example.test/x"})
++    assert resp.status_code == 403
++    assert agent.patch(f"{base}/{a['id']}", json={"name": "y"}).status_code == 403
++    assert agent.delete(f"{base}/{a['id']}").status_code == 403
++
++
++def test_resolution_categories_require_manage_admin(app, fx, client, login):
++    base = f"/api/p/{fx.property_a.id}/resolution-categories"
++    admin = login("admin@hvh.test")
++    c = admin.post(base, json={"name": "Plumbing"}).get_json()
++    agent = login("agent@hvh.test")
++    assert agent.post(base, json={"name": "x"}).status_code == 403
++    assert agent.patch(f"{base}/{c['id']}", json={"name": "y"}).status_code == 403
++    assert agent.delete(f"{base}/{c['id']}").status_code == 403
++
++
++def test_resolution_category_delete_blocked_by_conversation_reference(app, fx, client, database,
++                                                                       login):
++    """A category still referenced by a conversation's resolution_category_id (FK, no ondelete)
++    must be rejected with a clean 409, not an unhandled IntegrityError/500."""
++    base = f"/api/p/{fx.property_a.id}/resolution-categories"
++    admin = login("admin@hvh.test")
++    cat = admin.post(base, json={"name": "Noise complaint"}).get_json()
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "loud neighbors")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    resp = admin.patch(f"/api/p/{fx.property_a.id}/conversations/{cid}",
++                       json={"status": "archived", "resolutionCategoryId": cat["id"]})
++    assert resp.status_code == 200
++    assert admin.delete(f"{base}/{cat['id']}").status_code == 409

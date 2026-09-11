@@ -1,0 +1,341 @@
+# Review package: 54d49c8..2a8bd29
+
+## Commits
+2a8bd29 fix(server): close viewer-scope gap on work-order prefill/create and quick-reply render via conversations.get_for_viewer
+
+## Files changed
+ server/app/api/conversations.py      | 24 ++++++++++++------------
+ server/app/api/quick_replies.py      |  4 ++--
+ server/app/api/work_orders.py        |  7 ++++++-
+ server/app/domain/conversations.py   | 10 ++++++++++
+ server/tests/test_isolation.py       | 26 ++++++++++++++++++++++++++
+ server/tests/test_work_orders_api.py | 29 +++++++++++++++++++++++++++++
+ 6 files changed, 85 insertions(+), 15 deletions(-)
+
+## Diff
+diff --git a/server/app/api/conversations.py b/server/app/api/conversations.py
+index 93ef220..94232b7 100644
+--- a/server/app/api/conversations.py
++++ b/server/app/api/conversations.py
+@@ -27,85 +27,85 @@ def list_conversations(property_id: str):
+     with db_session() as db:
+         return ok(conversations.list(db, g.property_id, filter=q.filter, dept=q.dept, limit=q.limit,
+                                      offset=q.offset, **_viewer()))
+ 
+ 
+ @bp.get("/<conversation_id>")
+ @require_auth
+ @require_property
+ def get_conversation(property_id: str, conversation_id: str):
+     with db_session() as db:
+-        c = conversations.get(db, g.property_id, conversation_id)
+-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
++        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
++                                     g.user.id, g.membership.department_id)
+         return ok(conversations.detail(db, g.property_id, conversation_id))
+ 
+ 
+ @bp.post("/<conversation_id>/messages")
+ @require_auth
+ @require_property
+ @require_capability("reply")
+ def send_message(property_id: str, conversation_id: str):
+     body = parse_body(SendMessageRequest)
+     ip, ua = client_meta()
+     with db_session() as db:
+-        c = conversations.get(db, g.property_id, conversation_id)
+-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
++        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
++                                     g.user.id, g.membership.department_id)
+         m = messages.send(db, g.property_id, conversation_id, body.body, author_user_id=g.user.id,
+                           digital_asset_id=body.digital_asset_id, draft_prompt_id=body.draft_prompt_id,
+                           ip=ip, user_agent=ua)
+         return ok(MessageOut.model_validate(m), 201)
+ 
+ 
+ @bp.post("/<conversation_id>/messages/<message_id>/retry")
+ @require_auth
+ @require_property
+ @require_capability("reply")
+ def retry_message(property_id: str, conversation_id: str, message_id: str):
+     with db_session() as db:
+-        c = conversations.get(db, g.property_id, conversation_id)
+-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
++        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
++                                     g.user.id, g.membership.department_id)
+         target = db.scalar(select(Message).where(Message.id == message_id,
+                                                   Message.property_id == g.property_id))
+         if target is None or target.conversation_id != conversation_id:
+             raise NotFound("Message not found")
+         m = messages.retry(db, g.property_id, message_id)
+         return ok(MessageOut.model_validate(m))
+ 
+ 
+ @bp.post("/<conversation_id>/notes")
+ @require_auth
+ @require_property
+ @require_capability("add_note")
+ def add_note(property_id: str, conversation_id: str):
+     body = parse_body(CreateNoteRequest)
+     with db_session() as db:
+-        c = conversations.get(db, g.property_id, conversation_id)
+-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
++        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
++                                     g.user.id, g.membership.department_id)
+         n = notes.create(db, g.property_id, conversation_id, g.user.id, body.body)
+         out = [x for x in notes.list_for(db, g.property_id, conversation_id) if x.id == n.id][0]
+         return ok(out, 201)
+ 
+ 
+ @bp.patch("/<conversation_id>")
+ @require_auth
+ @require_property
+ @require_capability("assign")
+ def patch_conversation(property_id: str, conversation_id: str):
+     changes = parse_body(ConversationPatch)
+     with db_session() as db:
+-        c = conversations.get(db, g.property_id, conversation_id)
+-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
++        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
++                                     g.user.id, g.membership.department_id)
+         conversations.patch(db, g.property_id, conversation_id, g.user.id, changes,
+                             can_archive=has_capability(g.membership.role, "archive"))
+         return ok(conversations.detail(db, g.property_id, conversation_id))
+ 
+ 
+ @bp.post("/<conversation_id>/draft-prompts/<prompt_id>/dismiss")
+ @require_auth
+ @require_property
+ @require_capability("reply")
+ def dismiss_prompt(property_id: str, conversation_id: str, prompt_id: str):
+     with db_session() as db:
+-        c = conversations.get(db, g.property_id, conversation_id)
+-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
++        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
++                                     g.user.id, g.membership.department_id)
+         draft_prompts.dismiss(db, g.property_id, conversation_id, prompt_id, g.user.id)
+     return no_content()
+diff --git a/server/app/api/quick_replies.py b/server/app/api/quick_replies.py
+index 7788b19..7ba70f4 100644
+--- a/server/app/api/quick_replies.py
++++ b/server/app/api/quick_replies.py
+@@ -45,13 +45,13 @@ def delete_quick_reply(property_id: str, quick_reply_id: str):
+     return no_content()
+ 
+ 
+ @bp.post("/<quick_reply_id>/render")
+ @require_auth
+ @require_property
+ @require_capability("reply")
+ def render_quick_reply(property_id: str, quick_reply_id: str):
+     body = parse_body(RenderRequest)
+     with db_session() as db:
+-        c = conversations.get(db, g.property_id, body.conversation_id)
+-        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
++        conversations.get_for_viewer(db, g.property_id, body.conversation_id, g.membership.role,
++                                     g.user.id, g.membership.department_id)
+         return ok(quick_replies.render(db, g.property_id, quick_reply_id, body.conversation_id, g.user.id))
+diff --git a/server/app/api/work_orders.py b/server/app/api/work_orders.py
+index 4d113b6..4157e8a 100644
+--- a/server/app/api/work_orders.py
++++ b/server/app/api/work_orders.py
+@@ -1,16 +1,16 @@
+ from flask import Blueprint, g, request
+ 
+ from app.api._util import db_session, ok, parse_body, parse_query
+ from app.auth.decorators import require_auth, require_capability, require_property
+ from app.auth.permissions import has_capability
+-from app.domain import work_orders
++from app.domain import conversations, work_orders
+ from app.errors import Forbidden, ValidationFailed
+ from app.schemas.enums import WorkOrderStatus
+ from app.schemas.work_orders import CreateWorkOrder, WorkOrderListQuery, WorkOrderOut, WorkOrderPatch
+ 
+ bp = Blueprint("work_orders", __name__, url_prefix="/api/p/<property_id>/work-orders")
+ CLOSING = {WorkOrderStatus.complete, WorkOrderStatus.verified, WorkOrderStatus.cancelled}
+ 
+ 
+ @bp.get("")
+ @require_auth
+@@ -25,30 +25,35 @@ def list_work_orders(property_id: str):
+ 
+ @bp.get("/prefill")
+ @require_auth
+ @require_property
+ @require_capability("create_work_order")
+ def prefill(property_id: str):
+     conversation_id = request.args.get("conversationId")
+     if not conversation_id:
+         raise ValidationFailed("conversationId is required")
+     with db_session() as db:
++        conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
++                                     g.user.id, g.membership.department_id)
+         return ok(work_orders.prefill_from_conversation(db, g.property_id, conversation_id))
+ 
+ 
+ @bp.post("")
+ @require_auth
+ @require_property
+ @require_capability("create_work_order")
+ def create_work_order(property_id: str):
+     data = parse_body(CreateWorkOrder)
+     with db_session() as db:
++        if data.source_conversation_id:
++            conversations.get_for_viewer(db, g.property_id, data.source_conversation_id,
++                                         g.membership.role, g.user.id, g.membership.department_id)
+         wo = work_orders.create(db, g.property_id, g.user.id, data)
+         return ok(WorkOrderOut.model_validate(wo), 201)
+ 
+ 
+ @bp.get("/<work_order_id>")
+ @require_auth
+ @require_property
+ def get_work_order(property_id: str, work_order_id: str):
+     with db_session() as db:
+         return ok(work_orders.detail(db, g.property_id, work_order_id))
+diff --git a/server/app/domain/conversations.py b/server/app/domain/conversations.py
+index efb652e..edfa467 100644
+--- a/server/app/domain/conversations.py
++++ b/server/app/domain/conversations.py
+@@ -184,20 +184,30 @@ def _summary(db: Session, c: Conversation) -> ConversationSummary:
+ 
+ 
+ def assert_viewer_can_see(c: Conversation, viewer_role: Role, viewer_user_id: str,
+                           viewer_department_id: str | None) -> None:
+     if viewer_role == Role.dept_staff and not (
+         c.assigned_user_id == viewer_user_id or c.assigned_department_id == viewer_department_id
+     ):
+         raise Forbidden("This conversation belongs to another department")
+ 
+ 
++def get_for_viewer(db: Session, property_id: str, conversation_id: str, viewer_role: Role,
++                   viewer_user_id: str, viewer_department_id: str | None) -> Conversation:
++    """`get` plus `assert_viewer_can_see` in one call, so a route cannot resolve a conversation
++    without also checking whether its caller is allowed to see it (see Task 12/15 review history:
++    this pairing was missed on seven routes across three tasks before this helper existed)."""
++    c = get(db, property_id, conversation_id)
++    assert_viewer_can_see(c, viewer_role, viewer_user_id, viewer_department_id)
++    return c
++
++
+ def detail(db: Session, property_id: str, conversation_id: str) -> ConversationDetail:
+     from app.domain import notes as notes_domain
+ 
+     c = get(db, property_id, conversation_id)
+     msgs = db.scalars(select(Message).where(Message.conversation_id == c.id).order_by(Message.sent_at)).all()
+     wos = db.scalars(select(WorkOrder).where(WorkOrder.source_conversation_id == c.id)
+                      .order_by(WorkOrder.created_at.desc())).all()
+     prompts = db.execute(select(DraftPrompt, WorkOrder.title).join(WorkOrder, WorkOrder.id == DraftPrompt.work_order_id)
+                          .where(DraftPrompt.conversation_id == c.id, DraftPrompt.status == DraftPromptStatus.pending)
+                          .order_by(DraftPrompt.created_at)).all()
+diff --git a/server/tests/test_isolation.py b/server/tests/test_isolation.py
+index 883f756..652ce98 100644
+--- a/server/tests/test_isolation.py
++++ b/server/tests/test_isolation.py
+@@ -1,15 +1,16 @@
+ """design.md §11.1 #9: a member of Property A gets 403 on every Property B resource.
+ 
+ Enumerates every rule under /api/p/<property_id> so new routes are covered automatically.
+ """
+ import re
++from pathlib import Path
+ 
+ SKIP_METHODS = {"HEAD", "OPTIONS"}
+ DUMMY_ID = "00000000-0000-0000-0000-000000000000"
+ 
+ 
+ def property_rules(app):
+     for rule in app.url_map.iter_rules():
+         if rule.rule.startswith("/api/p/<property_id>"):
+             for method in sorted(rule.methods - SKIP_METHODS):
+                 yield rule, method
+@@ -42,10 +43,35 @@ def test_admin_of_a_is_not_403_on_own_property(app, fx, login):
+         res = c.open(build_path(rule, fx.property_a.id), method=method, json={})
+         if res.status_code == 403:
+             failures.append((method, rule.rule))
+     assert not failures, f"admin blocked on own property: {failures}"
+ 
+ 
+ def test_anonymous_gets_401_on_every_property_route(app, fx, client):
+     for rule, method in property_rules(app):
+         res = client.open(build_path(rule, fx.property_a.id), method=method, json={})
+         assert res.status_code == 401, (method, rule.rule, res.status_code)
++
++
++def test_no_route_resolves_a_conversation_without_a_viewer_check():
++    """`conversations.get()` is property-scoped but not viewer-scoped: it never checks whether
++    the caller's role/department is allowed to see the conversation it returns. That pairing
++    (`get` + `assert_viewer_can_see`) was missed on seven different routes across three tasks
++    before `conversations.get_for_viewer()` existed to do both in one call — most recently on
++    `work-orders/prefill` and `POST work-orders` (Task 15 review round 1), which read or link a
++    conversation a dept_staff caller has no business seeing.
++
++    This is a source-level check rather than a route walk: the conversation id arrives in three
++    different shapes across these routes (URL segment, `?conversationId=` query param, and a
++    `conversationId` request-body field), so no generic route enumeration can reliably drive all
++    three and a walk with a blind spot is worse than none. If this test starts failing, you have
++    added a route (or restored old code) that calls `conversations.get(` directly — change it to
++    `conversations.get_for_viewer(db, property_id, conversation_id, role, user_id, department_id)`
++    instead, so the viewer check cannot be forgotten again.
++    """
++    api_dir = Path(__file__).resolve().parent.parent / "app" / "api"
++    offenders = []
++    for path in sorted(api_dir.glob("*.py")):
++        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
++            if re.search(r"\bconversations\.get\(", line):
++                offenders.append(f"{path.name}:{lineno}")
++    assert not offenders, f"call conversations.get_for_viewer(...) instead: {offenders}"
+diff --git a/server/tests/test_work_orders_api.py b/server/tests/test_work_orders_api.py
+index b300a13..376815c 100644
+--- a/server/tests/test_work_orders_api.py
++++ b/server/tests/test_work_orders_api.py
+@@ -53,20 +53,49 @@ def test_list_filters(app, fx, client, database, login):
+     sup.patch(f"{base}/{b['id']}", json={"status": "cancelled"})
+     ids = lambda r: {w["id"] for w in r.get_json()}  # noqa: E731
+     assert ids(sup.get(base)) == {a["id"]}
+     assert ids(sup.get(base + "?includeClosed=true")) == {a["id"], b["id"]}
+     assert ids(sup.get(base + "?status=cancelled")) == {b["id"]}
+     eng = login("engineer@hvh.test")
+     assert ids(eng.get(base + "?mine=true")) == {a["id"]}
+     assert ids(sup.get(base + f"?dept={fx.dept_housekeeping.id}&includeClosed=true")) == {b["id"]}
+ 
+ 
++def test_prefill_and_create_reject_out_of_department_dept_staff(app, fx, client, database, login):
++    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "The AC in our room isn't working")
++    cid = _cid(database, fx.guest_inhouse_a.id)
++    base = f"/api/p/{fx.property_a.id}/work-orders"
++    agent = login("agent@hvh.test")
++    agent.patch(f"/api/p/{fx.property_a.id}/conversations/{cid}",
++                json={"assignedDepartmentId": fx.dept_engineering.id})
++    hk = login("housekeeper@hvh.test")  # dept_staff, housekeeping — not engineering
++    assert hk.get(f"{base}/prefill?conversationId={cid}").status_code == 403
++    assert hk.post(base, json={"title": "AC", "type": "maintenance", "locationRef": "412",
++                               "sourceConversationId": cid}).status_code == 403
++    eng = login("engineer@hvh.test")  # dept_staff, engineering — can see it
++    assert eng.get(f"{base}/prefill?conversationId={cid}").status_code == 200
++
++
++def test_patch_priority_department_reassignment_and_clear_assignee(app, fx, client, database, login):
++    base = f"/api/p/{fx.property_a.id}/work-orders"
++    sup = login("supervisor@hvh.test")
++    wo = sup.post(base, json={"title": "Fridge", "type": "maintenance", "locationRef": "5",
++                              "assignedUserId": fx.engineer_a.id}).get_json()
++    assert wo["status"] == "assigned"
++    p1 = sup.patch(f"{base}/{wo['id']}", json={"priority": "urgent"}).get_json()
++    assert p1["priority"] == "urgent"
++    p2 = sup.patch(f"{base}/{wo['id']}", json={"departmentId": fx.dept_housekeeping.id}).get_json()
++    assert p2["departmentId"] == fx.dept_housekeeping.id and p2["assignedUserId"] == fx.engineer_a.id
++    p3 = sup.patch(f"{base}/{wo['id']}", json={"clearAssignee": True}).get_json()
++    assert p3["assignedUserId"] is None and p3["status"] == "open"
++
++
+ def test_dismiss_draft_prompt(app, fx, client, database, login):
+     from app.domain import work_orders
+     from app.schemas.enums import WorkOrderStatus, WorkOrderType
+     from app.schemas.work_orders import CreateWorkOrder
+ 
+     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+     cid = _cid(database, fx.guest_inhouse_a.id)
+     with database.session() as db:
+         wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
+             title="AC", type=WorkOrderType.maintenance, locationRef="412", sourceConversationId=cid))

@@ -1,0 +1,1002 @@
+# Review package: c3380f0..a9fbcc3
+
+## Commits
+a9fbcc3 feat(web): composer with quick replies, assets, segment counter and optimistic send
+
+## Files changed
+ web/src/api/hooks/content.ts                      |  46 ++++
+ web/src/api/hooks/conversations.ts                |  92 +++++++-
+ web/src/components/ui/Textarea.tsx                |  29 +--
+ web/src/features/inbox/AssetPicker.tsx            |  35 +++
+ web/src/features/inbox/Composer.test.tsx          | 257 ++++++++++++++++++++++
+ web/src/features/inbox/Composer.tsx               | 164 ++++++++++++++
+ web/src/features/inbox/ConversationView.tsx       |  12 +-
+ web/src/features/inbox/QuickReplyPalette.test.tsx | 111 ++++++++++
+ web/src/features/inbox/QuickReplyPalette.tsx      |  97 ++++++++
+ 9 files changed, 827 insertions(+), 16 deletions(-)
+
+## Diff
+diff --git a/web/src/api/hooks/content.ts b/web/src/api/hooks/content.ts
+new file mode 100644
+index 0000000..0f126fa
+--- /dev/null
++++ b/web/src/api/hooks/content.ts
+@@ -0,0 +1,46 @@
++import { useMutation, useQuery } from '@tanstack/react-query'
++import { useSession } from '../../auth/SessionContext'
++import { ApiError, api, propertyPath } from '../client'
++import { qk } from '../queryKeys'
++import type { AssetOut, CategoryOut, QuickReplyOut, RenderedQuickReply } from '../types'
++
++export function useQuickReplies(q?: string) {
++  const { propertyId } = useSession()
++  return useQuery<QuickReplyOut[], ApiError>({
++    queryKey: qk.quickReplies(propertyId, q),
++    queryFn: () =>
++      api<QuickReplyOut[]>(
++        propertyPath(propertyId, `quick-replies${q ? `?q=${encodeURIComponent(q)}` : ''}`),
++      ),
++    staleTime: 60_000,
++  })
++}
++
++export function useRenderQuickReply() {
++  const { propertyId } = useSession()
++  return useMutation<RenderedQuickReply, ApiError, { id: string; conversationId: string }>({
++    mutationFn: ({ id, conversationId }) =>
++      api<RenderedQuickReply>(propertyPath(propertyId, `quick-replies/${id}/render`), {
++        method: 'POST',
++        json: { conversationId },
++      }),
++  })
++}
++
++export function useAssets() {
++  const { propertyId } = useSession()
++  return useQuery<AssetOut[], ApiError>({
++    queryKey: qk.assets(propertyId),
++    queryFn: () => api<AssetOut[]>(propertyPath(propertyId, 'assets')),
++    staleTime: 60_000,
++  })
++}
++
++export function useCategories() {
++  const { propertyId } = useSession()
++  return useQuery<CategoryOut[], ApiError>({
++    queryKey: qk.categories(propertyId),
++    queryFn: () => api<CategoryOut[]>(propertyPath(propertyId, 'resolution-categories')),
++    staleTime: 5 * 60_000,
++  })
++}
+diff --git a/web/src/api/hooks/conversations.ts b/web/src/api/hooks/conversations.ts
+index f29b9d4..2ad715c 100644
+--- a/web/src/api/hooks/conversations.ts
++++ b/web/src/api/hooks/conversations.ts
+@@ -1,15 +1,22 @@
+ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+ import { useSession } from '../../auth/SessionContext'
+ import { ApiError, api, propertyPath } from '../client'
+ import { qk } from '../queryKeys'
+-import type { ConversationDetail, ConversationPatch, ConversationSummary, NoteOut } from '../types'
++import type {
++  ConversationDetail,
++  ConversationPatch,
++  ConversationSummary,
++  MessageOut,
++  NoteOut,
++  SendMessageRequest,
++} from '../types'
+ 
+ export type ConversationFilter =
+   | 'all'
+   | 'mine'
+   | 'unassigned'
+   | 'overdue'
+   | 'snoozed'
+   | 'resolved'
+   | 'archived'
+ 
+@@ -68,10 +75,93 @@ export function usePatchConversation(conversationId: string) {
+         method: 'PATCH',
+         json: patch,
+       }),
+     onSuccess: () => {
+       // Assignment, status and snooze all change which filters this belongs to.
+       void client.invalidateQueries({ queryKey: qk.conversation(propertyId, conversationId) })
+       void client.invalidateQueries({ queryKey: qk.conversationsAll(propertyId) })
+     },
+   })
+ }
++
++let optimisticCounter = 0
++
++export function useSendMessage(conversationId: string) {
++  const { propertyId, user } = useSession()
++  const client = useQueryClient()
++  const key = qk.conversation(propertyId, conversationId)
++
++  return useMutation<MessageOut, ApiError, SendMessageRequest, { optimisticId: string }>({
++    mutationFn: (body) =>
++      api<MessageOut>(propertyPath(propertyId, `conversations/${conversationId}/messages`), {
++        method: 'POST',
++        json: body,
++      }),
++    onMutate: async (body) => {
++      await client.cancelQueries({ queryKey: key })
++      const optimisticId = `optimistic-${++optimisticCounter}`
++      client.setQueryData<ConversationDetail>(key, (current) =>
++        current
++          ? {
++              ...current,
++              messages: [
++                ...current.messages,
++                {
++                  id: optimisticId,
++                  conversationId,
++                  direction: 'outbound',
++                  channel: current.channelPrimary,
++                  authorType: 'staff',
++                  authorUserId: user.id,
++                  body: body.body,
++                  deliveryStatus: 'queued',
++                  sentAt: null,
++                  deliveredAt: null,
++                  providerErrorCode: null,
++                  providerErrorMessage: null,
++                  digitalAssetId: body.digitalAssetId ?? null,
++                  redacted: false,
++                },
++              ],
++            }
++          : current,
++      )
++      return { optimisticId }
++    },
++    onSuccess: (real, _body, context) => {
++      client.setQueryData<ConversationDetail>(key, (current) =>
++        current
++          ? {
++              ...current,
++              messages: current.messages.map((m) => (m.id === context?.optimisticId ? real : m)),
++            }
++          : current,
++      )
++    },
++    onError: (_error, _body, context) => {
++      // A rejected send creates no server row (§6) — drop the bubble rather than leave a ghost.
++      client.setQueryData<ConversationDetail>(key, (current) =>
++        current
++          ? { ...current, messages: current.messages.filter((m) => m.id !== context?.optimisticId) }
++          : current,
++      )
++    },
++    onSettled: () => {
++      void client.invalidateQueries({ queryKey: qk.conversationsAll(propertyId) })
++    },
++  })
++}
++
++export function useRetryMessage(conversationId: string) {
++  const { propertyId } = useSession()
++  const client = useQueryClient()
++  return useMutation<MessageOut, ApiError, { messageId: string }>({
++    mutationFn: ({ messageId }) =>
++      api<MessageOut>(
++        propertyPath(propertyId, `conversations/${conversationId}/messages/${messageId}/retry`),
++        { method: 'POST' },
++      ),
++    onSuccess: () => {
++      void client.invalidateQueries({ queryKey: qk.conversation(propertyId, conversationId) })
++    },
++  })
++}
+diff --git a/web/src/components/ui/Textarea.tsx b/web/src/components/ui/Textarea.tsx
+index 99274e4..dfc285e 100644
+--- a/web/src/components/ui/Textarea.tsx
++++ b/web/src/components/ui/Textarea.tsx
+@@ -1,15 +1,18 @@
+-import type { TextareaHTMLAttributes } from 'react'
++import { forwardRef, type TextareaHTMLAttributes } from 'react'
+ import { cn } from '../../lib/cn'
+ 
+-export function Textarea({ className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+-  return (
+-    <textarea
+-      {...rest}
+-      className={cn(
+-        'w-full rounded border border-border3 bg-surface2 p-3 text-sm leading-relaxed text-text',
+-        'placeholder:text-text4 focus:border-accent focus:outline-none',
+-        className,
+-      )}
+-    />
+-  )
+-}
++export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
++  function Textarea({ className, ...rest }, ref) {
++    return (
++      <textarea
++        {...rest}
++        ref={ref}
++        className={cn(
++          'w-full rounded border border-border3 bg-surface2 p-3 text-sm leading-relaxed text-text',
++          'placeholder:text-text4 focus:border-accent focus:outline-none',
++          className,
++        )}
++      />
++    )
++  },
++)
+diff --git a/web/src/features/inbox/AssetPicker.tsx b/web/src/features/inbox/AssetPicker.tsx
+new file mode 100644
+index 0000000..2b4412d
+--- /dev/null
++++ b/web/src/features/inbox/AssetPicker.tsx
+@@ -0,0 +1,35 @@
++import { useAssets } from '../../api/hooks/content'
++import type { AssetOut } from '../../api/types'
++import { Dropdown } from '../../components/ui'
++
++export function AssetPicker({ onPick }: { onPick: (asset: AssetOut) => void }) {
++  const { data: assets } = useAssets()
++  const available = (assets ?? []).filter((a) => a.active)
++
++  return (
++    <Dropdown label="Attach">
++      {(close) =>
++        available.length === 0 ? (
++          <p className="px-3 py-2 text-xs text-text3">No assets</p>
++        ) : (
++          <>
++            {available.map((asset) => (
++              <button
++                key={asset.id}
++                role="menuitem"
++                className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-surface2"
++                onClick={() => {
++                  close()
++                  onPick(asset)
++                }}
++              >
++                <span className="text-[13px] font-semibold">{asset.name}</span>
++                <span className="font-mono text-xs text-text3">/a/{asset.shortCode}</span>
++              </button>
++            ))}
++          </>
++        )
++      }
++    </Dropdown>
++  )
++}
+diff --git a/web/src/features/inbox/Composer.test.tsx b/web/src/features/inbox/Composer.test.tsx
+new file mode 100644
+index 0000000..fdc37b0
+--- /dev/null
++++ b/web/src/features/inbox/Composer.test.tsx
+@@ -0,0 +1,257 @@
++import { screen, waitFor } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { RealtimeProvider } from '../../api/ws'
++import { SessionProvider } from '../../auth/SessionContext'
++import { aAsset, aConversationDetail, aGuest, aMessage, aQuickReply } from '../../test/factories'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { Composer } from './Composer'
++
++function routes(overrides: Record<string, unknown> = {}) {
++  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
++    const url = String(input)
++    const method = init?.method ?? 'GET'
++    const table: Record<string, unknown> = {
++      'quick-replies': [aQuickReply()],
++      assets: [aAsset()],
++      departments: [],
++      users: [],
++      ...overrides,
++    }
++    if (url.includes('/messages') && method === 'POST') {
++      const body = JSON.parse(String(init?.body ?? '{}')) as { body: string }
++      return Promise.resolve(
++        new Response(
++          JSON.stringify(
++            (table['send'] as unknown) ??
++              aMessage({ id: 'm-real', direction: 'outbound', authorType: 'staff', body: body.body, deliveryStatus: 'queued' }),
++          ),
++          { status: 201, headers: { 'Content-Type': 'application/json' } },
++        ),
++      )
++    }
++    // '/render' is checked before the generic table lookup below: its URL
++    // (quick-replies/<id>/render) also contains 'quick-replies', which would otherwise
++    // match first and shadow this branch's override.
++    if (url.includes('/render') && method === 'POST') {
++      return Promise.resolve(
++        new Response(JSON.stringify(table['render'] ?? { body: '', characters: 0, segments: 0 }), {
++          status: 200,
++          headers: { 'Content-Type': 'application/json' },
++        }),
++      )
++    }
++    const key = Object.keys(table).find((k) => url.includes(k))
++    return Promise.resolve(
++      new Response(JSON.stringify(key ? table[key] : aConversationDetail()), {
++        status: 200,
++        headers: { 'Content-Type': 'application/json' },
++      }),
++    )
++  })
++}
++
++function mount(detail = aConversationDetail()) {
++  return renderWithProviders(
++    <SessionProvider>
++      <RealtimeProvider>
++        <Composer conversationId={detail.id} conversation={detail} />
++      </RealtimeProvider>
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'agent' }), route: `/app/inbox/${detail.id}` },
++  )
++}
++
++describe('Composer', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++    vi.stubGlobal(
++      'WebSocket',
++      class {
++        static OPEN = 1
++        readyState = 1
++        onopen: (() => void) | null = null
++        onmessage: unknown = null
++        onclose: unknown = null
++        send() {}
++        close() {}
++      } as unknown as typeof WebSocket,
++    )
++    routes()
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('shows no counter for an empty draft', async () => {
++    mount()
++    await screen.findByRole('textbox')
++    expect(screen.queryByTestId('segment-counter')).not.toBeInTheDocument()
++  })
++
++  it('counts characters and segments as you type', async () => {
++    mount()
++    await userEvent.type(await screen.findByRole('textbox'), 'Hello')
++    expect(screen.getByTestId('segment-counter')).toHaveTextContent('5 chars · 1 segment')
++  })
++
++  it('pluralises segments and warns at two', async () => {
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.click(box)
++    await userEvent.paste('a'.repeat(161))
++    const counter = screen.getByTestId('segment-counter')
++    expect(counter).toHaveTextContent('161 chars · 2 segments')
++    expect(counter.className).toContain('warnText')
++  })
++
++  it('turns red past four segments, where cost stops being incidental', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('textbox'))
++    await userEvent.paste('a'.repeat(800))
++    expect(screen.getByTestId('segment-counter').className).toContain('dangerText')
++  })
++
++  it('counts a non-GSM draft against the UCS-2 limit', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('textbox'))
++    await userEvent.paste('日'.repeat(71))
++    expect(screen.getByTestId('segment-counter')).toHaveTextContent('71 chars · 2 segments')
++  })
++
++  it('sends on Ctrl+Enter and clears the box', async () => {
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.type(box, 'On our way')
++    await userEvent.keyboard('{Control>}{Enter}{/Control}')
++    await waitFor(() => expect(box).toHaveValue(''))
++    const sent = vi.mocked(fetch).mock.calls.find(([u, i]) => String(u).includes('/messages') && i?.method === 'POST')
++    expect(JSON.parse(String(sent![1]!.body))).toMatchObject({ body: 'On our way' })
++  })
++
++  it('does not send on a plain Enter — that inserts a newline', async () => {
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.type(box, 'Line one{Enter}Line two')
++    expect(box).toHaveValue('Line one\nLine two')
++    expect(
++      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/messages') && i?.method === 'POST'),
++    ).toBe(false)
++  })
++
++  it('does not send an empty or whitespace-only draft', async () => {
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.type(box, '   ')
++    await userEvent.keyboard('{Control>}{Enter}{/Control}')
++    expect(
++      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/messages') && i?.method === 'POST'),
++    ).toBe(false)
++  })
++
++  it('opens the palette on / in an empty box', async () => {
++    mount()
++    await userEvent.type(await screen.findByRole('textbox'), '/')
++    expect(await screen.findByTestId('qr-q-1')).toBeInTheDocument()
++  })
++
++  it('does not open the palette on a / mid-sentence', async () => {
++    mount()
++    await userEvent.type(await screen.findByRole('textbox'), 'either/or')
++    expect(screen.queryByTestId('qr-q-1')).not.toBeInTheDocument()
++  })
++
++  it('closes the palette on Escape and keeps the typed text', async () => {
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.type(box, '/wi')
++    await screen.findByTestId('qr-q-1')
++    await userEvent.keyboard('{Escape}')
++    expect(screen.queryByTestId('qr-q-1')).not.toBeInTheDocument()
++    expect(box).toHaveValue('/wi')
++  })
++
++  it('inserts the server-rendered body, not the raw template', async () => {
++    routes({ render: { body: 'Hi Sarah — the network is Harbourview-Guest.', characters: 44, segments: 1 } })
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.type(box, '/wifi')
++    await userEvent.keyboard('{Enter}')
++    await waitFor(() => expect(box).toHaveValue('Hi Sarah — the network is Harbourview-Guest.'))
++    // jest-dom's toHaveValue in this version does a strict equality check and does not
++    // evaluate asymmetric matchers, so the substring check is made directly on .value.
++    expect((box as HTMLTextAreaElement).value).not.toContain('{{')
++  })
++
++  it('appends a short link when an asset is picked', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: /attach/i }))
++    await userEvent.click(await screen.findByRole('menuitem', { name: /WiFi card/ }))
++    await waitFor(() =>
++      expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toContain('/a/wifi1'),
++    )
++  })
++
++  it('shows the consent warning but stays enabled for an opted-out guest (§5.3)', async () => {
++    mount(aConversationDetail({ guest: aGuest({ smsConsentStatus: 'opted_out' }) }))
++    expect(await screen.findByText(/opted out of SMS/i)).toBeInTheDocument()
++    expect(screen.getByRole('textbox')).toBeEnabled()
++  })
++
++  it('restores the draft and shows the server reason when a send is rejected', async () => {
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.type(box, 'Please reply')
++    vi.mocked(fetch).mockResolvedValueOnce(
++      new Response(
++        JSON.stringify({ error: { code: 'CONSENT_OPTED_OUT', message: 'Guest has opted out of SMS' } }),
++        { status: 422, headers: { 'Content-Type': 'application/json' } },
++      ),
++    )
++    await userEvent.keyboard('{Control>}{Enter}{/Control}')
++    expect(await screen.findByRole('alert')).toHaveTextContent('Guest has opted out of SMS')
++    // The text must come back — the agent should not have to retype it.
++    await waitFor(() => expect(box).toHaveValue('Please reply'))
++  })
++
++  it('reports composing presence on focus and viewing on blur (§6.1)', async () => {
++    const frames: string[] = []
++    vi.stubGlobal(
++      'WebSocket',
++      class {
++        static OPEN = 1
++        readyState = 1
++        onopen: (() => void) | null = null
++        onmessage: unknown = null
++        onclose: unknown = null
++        send(data: string) {
++          frames.push(data)
++        }
++        close() {}
++      } as unknown as typeof WebSocket,
++    )
++    mount()
++    const box = await screen.findByRole('textbox')
++    await userEvent.click(box)
++    await waitFor(() => expect(frames.some((f) => f.includes('"state":"composing"'))).toBe(true))
++    await userEvent.tab()
++    await waitFor(() => expect(frames.some((f) => f.includes('"state":"viewing"'))).toBe(true))
++  })
++
++  // Added per the Task 14 dispatch: corporate holds view_all_conversations and add_note
++  // but not reply, so it must get a read-only thread rather than a composer the server
++  // would reject a send from.
++  it('renders nothing for a role without the reply capability', async () => {
++    const detail = aConversationDetail()
++    renderWithProviders(
++      <SessionProvider>
++        <RealtimeProvider>
++          <Composer conversationId={detail.id} conversation={detail} />
++        </RealtimeProvider>
++      </SessionProvider>,
++      { session: sessionFixture({ role: 'corporate' }), route: `/app/inbox/${detail.id}` },
++    )
++    await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument())
++    expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument()
++  })
++})
+diff --git a/web/src/features/inbox/Composer.tsx b/web/src/features/inbox/Composer.tsx
+new file mode 100644
+index 0000000..d53ac4b
+--- /dev/null
++++ b/web/src/features/inbox/Composer.tsx
+@@ -0,0 +1,164 @@
++import { useEffect, useRef, useState } from 'react'
++import { useQuickReplies, useRenderQuickReply } from '../../api/hooks/content'
++import { useSendMessage } from '../../api/hooks/conversations'
++import { useRealtime } from '../../api/ws'
++import { useSession } from '../../auth/SessionContext'
++import type { ConversationDetail } from '../../api/types'
++import { Button, Textarea } from '../../components/ui'
++import { cn } from '../../lib/cn'
++import { charCount, segmentCount } from '../../lib/segments'
++import { AssetPicker } from './AssetPicker'
++import { QuickReplyPalette } from './QuickReplyPalette'
++
++export function Composer({
++  conversationId,
++  conversation,
++  draftBody,
++  draftPromptId: draftPromptIdIn,
++  onDraftConsumed,
++}: {
++  conversationId: string
++  conversation: ConversationDetail
++  draftBody?: string
++  draftPromptId?: string | null
++  onDraftConsumed?: () => void
++}) {
++  const { can } = useSession()
++  const [body, setBody] = useState('')
++  const [assetId, setAssetId] = useState<string | null>(null)
++  const [draftPromptId, setDraftPromptId] = useState<string | null>(null)
++  // Escape hides the palette without touching the draft; typing again reopens it.
++  const [paletteDismissed, setPaletteDismissed] = useState(false)
++  const box = useRef<HTMLTextAreaElement>(null)
++  const send = useSendMessage(conversationId)
++  const { data: replies } = useQuickReplies()
++  const render = useRenderQuickReply()
++  const { setPresence } = useRealtime()
++
++  // A draft handed down from the prompt banner (Task 15) loads once, then clears.
++  // This must be an effect, not a render-phase setState — the latter loops.
++  useEffect(() => {
++    if (draftBody) {
++      setBody(draftBody)
++      setDraftPromptId(draftPromptIdIn ?? null)
++      box.current?.focus()
++      onDraftConsumed?.()
++    }
++  }, [draftBody, draftPromptIdIn, onDraftConsumed])
++
++  // The palette opens only when '/' starts the draft — 'either/or' must not trigger it.
++  const paletteOpen =
++    body.startsWith('/') && !body.includes(' ') && !body.includes('\n') && !paletteDismissed
++  const segments = segmentCount(body)
++  const characters = charCount(body)
++  const optedOut = conversation.guest.smsConsentStatus === 'opted_out'
++
++  function submit() {
++    const trimmed = body.trim()
++    if (!trimmed || send.isPending) return
++    send.mutate(
++      {
++        body: trimmed,
++        digitalAssetId: assetId,
++        draftPromptId,
++      },
++      {
++        onError: () => setBody(trimmed), // give the text back; retyping is the real cost
++      },
++    )
++    setBody('')
++    setAssetId(null)
++    setDraftPromptId(null)
++  }
++
++  // A role without `reply` (e.g. corporate) legitimately reaches the thread but must get
++  // it read-only — no textarea, no send button, no quick-reply palette. `add_note` is a
++  // separate capability and is not gated here.
++  if (!can('reply')) return null
++
++  return (
++    <div className="border-t border-border p-3">
++      {optedOut ? (
++        <p className="mb-2 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
++          This guest has opted out of SMS. A send will be rejected unless they text START.
++        </p>
++      ) : null}
++
++      {send.error ? (
++        <p role="alert" className="mb-2 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
++          {send.error.message}
++        </p>
++      ) : null}
++
++      <div className="relative">
++        {paletteOpen && replies ? (
++          <QuickReplyPalette
++            replies={replies}
++            term={body}
++            onClose={() => setPaletteDismissed(true)}
++            onPick={(reply) => {
++              // The server interpolates; we never substitute tokens client-side.
++              render.mutate(
++                { id: reply.id, conversationId },
++                {
++                  onSuccess: (rendered) => {
++                    setBody(rendered.body)
++                    box.current?.focus()
++                  },
++                },
++              )
++            }}
++          />
++        ) : null}
++
++        <Textarea
++          ref={box}
++          rows={3}
++          value={body}
++          placeholder="Type a reply, or / for a quick reply"
++          onChange={(event) => {
++            setBody(event.target.value)
++            setPaletteDismissed(false)
++          }}
++          onFocus={() => setPresence(conversationId, 'composing')}
++          onBlur={() => setPresence(conversationId, 'viewing')}
++          onKeyDown={(event) => {
++            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
++              event.preventDefault()
++              submit()
++            }
++          }}
++        />
++      </div>
++
++      <div className="mt-2 flex items-center gap-3">
++        <AssetPicker
++          onPick={(asset) => {
++            setAssetId(asset.id)
++            setBody((current) => `${current}${current ? ' ' : ''}${window.location.origin}/a/${asset.shortCode}`)
++          }}
++        />
++        {segments > 0 ? (
++          <span
++            data-testid="segment-counter"
++            className={cn(
++              'font-mono text-xs',
++              segments > 4 ? 'text-dangerText' : segments > 1 ? 'text-warnText' : 'text-text3',
++            )}
++          >
++            {characters} chars · {segments} segment{segments === 1 ? '' : 's'}
++          </span>
++        ) : null}
++        <Button
++          variant="primary"
++          className="ml-auto"
++          loading={send.isPending}
++          onClick={submit}
++          title="Ctrl+Enter"
++        >
++          Send
++        </Button>
++      </div>
++    </div>
++  )
++}
+diff --git a/web/src/features/inbox/ConversationView.tsx b/web/src/features/inbox/ConversationView.tsx
+index 765fe5e..8094e48 100644
+--- a/web/src/features/inbox/ConversationView.tsx
++++ b/web/src/features/inbox/ConversationView.tsx
+@@ -1,29 +1,31 @@
+ import { useEffect, useMemo } from 'react'
+-import { useConversation } from '../../api/hooks/conversations'
++import { useConversation, useRetryMessage } from '../../api/hooks/conversations'
+ import { useStaff } from '../../api/hooks/users'
+ import { useRealtime } from '../../api/ws'
+ import type { MessageOut, NoteOut } from '../../api/types'
+ import { EmptyState, Spinner } from '../../components/ui'
+ import { formatClock } from '../../lib/time'
++import { Composer } from './Composer'
+ import { ConversationHeader } from './ConversationHeader'
+ import { GuestPanel } from './GuestPanel'
+ import { MessageBubble } from './MessageBubble'
+ 
+ type Entry =
+   | { kind: 'message'; at: string; message: MessageOut }
+   | { kind: 'note'; at: string; note: NoteOut }
+ 
+ export function ConversationView({ conversationId }: { conversationId: string }) {
+   const { data, isPending, error } = useConversation(conversationId)
+   const { data: staff } = useStaff()
+   const { setPresence } = useRealtime()
++  const retry = useRetryMessage(conversationId)
+ 
+   // Tell everyone else we are on this conversation; clear it on the way out.
+   useEffect(() => {
+     setPresence(conversationId, 'viewing')
+     return () => setPresence(null, 'viewing')
+   }, [conversationId, setPresence])
+ 
+   const timeline = useMemo<Entry[]>(() => {
+     if (!data) return []
+     const entries: Entry[] = [
+@@ -55,35 +57,41 @@ export function ConversationView({ conversationId }: { conversationId: string })
+     <div className="flex h-full">
+       <div className="flex min-w-0 flex-1 flex-col">
+         <ConversationHeader conversation={data} />
+         <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+           {timeline.map((entry) =>
+             entry.kind === 'message' ? (
+               <MessageBubble
+                 key={entry.message.id}
+                 message={entry.message}
+                 authorName={nameFor(entry.message.authorUserId)}
++                onRetry={
++                  entry.message.deliveryStatus === 'failed' ||
++                  entry.message.deliveryStatus === 'undelivered'
++                    ? () => retry.mutate({ messageId: entry.message.id })
++                    : undefined
++                }
+               />
+             ) : (
+               <div
+                 key={entry.note.id}
+                 data-testid="note"
+                 className="rounded-card border border-noteBorder bg-noteBg px-3.5 py-3 text-sm text-noteText"
+               >
+                 <p className="mb-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
+                   <span className="text-noteIcon">●</span>
+                   Internal
+                   <span className="font-normal text-noteText/70">
+                     {entry.note.authorName} · {formatClock(entry.note.createdAt)}
+                   </span>
+                 </p>
+                 {entry.note.body}
+               </div>
+             ),
+           )}
+         </div>
+-        {/* Task 14 mounts the Composer here. */}
++        <Composer conversationId={conversationId} conversation={data} />
+       </div>
+       <GuestPanel conversation={data} />
+     </div>
+   )
+ }
+diff --git a/web/src/features/inbox/QuickReplyPalette.test.tsx b/web/src/features/inbox/QuickReplyPalette.test.tsx
+new file mode 100644
+index 0000000..96fb941
+--- /dev/null
++++ b/web/src/features/inbox/QuickReplyPalette.test.tsx
+@@ -0,0 +1,111 @@
++import { screen } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { describe, expect, it, vi } from 'vitest'
++import { aQuickReply } from '../../test/factories'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { SessionProvider } from '../../auth/SessionContext'
++import { QuickReplyPalette, filterQuickReplies } from './QuickReplyPalette'
++
++const REPLIES = [
++  aQuickReply({ id: 'q1', shortcut: '/wifi', title: 'WiFi details', body: 'The network is Harbourview-Guest.' }),
++  aQuickReply({ id: 'q2', shortcut: '/checkout', title: 'Checkout time', body: 'Checkout is 11 AM.' }),
++  aQuickReply({ id: 'q3', shortcut: '/late', title: 'Late checkout granted', body: 'Your checkout is extended to 2 PM.' }),
++  aQuickReply({ id: 'q4', shortcut: '/towels', title: 'Towels on the way', body: 'Fresh towels are on their way.' }),
++]
++
++describe('filterQuickReplies', () => {
++  it('returns everything for an empty term', () => {
++    expect(filterQuickReplies(REPLIES, '')).toHaveLength(4)
++  })
++
++  it('matches a shortcut prefix', () => {
++    expect(filterQuickReplies(REPLIES, 'wi').map((r) => r.id)).toEqual(['q1'])
++  })
++
++  it('matches a shortcut prefix with the slash typed', () => {
++    expect(filterQuickReplies(REPLIES, '/wi').map((r) => r.id)).toEqual(['q1'])
++  })
++
++  it('matches a word in the body, not only the shortcut (§5.3)', () => {
++    expect(filterQuickReplies(REPLIES, 'harbourview-guest').map((r) => r.id)).toEqual(['q1'])
++  })
++
++  it('matches a word in the title', () => {
++    expect(filterQuickReplies(REPLIES, 'granted').map((r) => r.id)).toEqual(['q3'])
++  })
++
++  it('is case-insensitive', () => {
++    expect(filterQuickReplies(REPLIES, 'WIFI').map((r) => r.id)).toEqual(['q1'])
++  })
++
++  it('sorts shortcut-prefix matches before body matches', () => {
++    // '/late' matches by shortcut; '/checkout' matches 'late' nowhere, but
++    // 'Late checkout granted' body mentions checkout — so both can match 'checkout'.
++    const ids = filterQuickReplies(REPLIES, 'checkout').map((r) => r.id)
++    expect(ids[0]).toBe('q2')
++    expect(ids).toContain('q3')
++  })
++
++  it('returns nothing when nothing matches', () => {
++    expect(filterQuickReplies(REPLIES, 'helicopter')).toEqual([])
++  })
++
++  it('ignores inactive replies — a paused reply must not be offered', () => {
++    const withPaused = [...REPLIES, aQuickReply({ id: 'q5', shortcut: '/shuttle', active: false })]
++    expect(filterQuickReplies(withPaused, 'shuttle')).toEqual([])
++  })
++})
++
++describe('QuickReplyPalette', () => {
++  function mount(onPick = vi.fn()) {
++    renderWithProviders(
++      <SessionProvider>
++        <QuickReplyPalette replies={REPLIES} term="" onPick={onPick} onClose={vi.fn()} />
++      </SessionProvider>,
++      { session: sessionFixture({ role: 'agent' }) },
++    )
++    return onPick
++  }
++
++  it('lists each reply with its shortcut and title', async () => {
++    mount()
++    expect(await screen.findByText('/wifi')).toBeInTheDocument()
++    expect(screen.getByText('WiFi details')).toBeInTheDocument()
++  })
++
++  it('selects the first item by default', async () => {
++    mount()
++    expect(await screen.findByTestId('qr-q1')).toHaveAttribute('aria-selected', 'true')
++  })
++
++  it('moves the selection with the arrow keys', async () => {
++    mount()
++    await screen.findByTestId('qr-q1')
++    await userEvent.keyboard('{ArrowDown}')
++    expect(screen.getByTestId('qr-q2')).toHaveAttribute('aria-selected', 'true')
++    await userEvent.keyboard('{ArrowUp}')
++    expect(screen.getByTestId('qr-q1')).toHaveAttribute('aria-selected', 'true')
++  })
++
++  it('does not move above the first or below the last item', async () => {
++    mount()
++    await screen.findByTestId('qr-q1')
++    await userEvent.keyboard('{ArrowUp}')
++    expect(screen.getByTestId('qr-q1')).toHaveAttribute('aria-selected', 'true')
++    await userEvent.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}')
++    expect(screen.getByTestId('qr-q4')).toHaveAttribute('aria-selected', 'true')
++  })
++
++  it('picks the selected reply on Enter', async () => {
++    const onPick = mount()
++    await screen.findByTestId('qr-q1')
++    await userEvent.keyboard('{ArrowDown}{Enter}')
++    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'q2' }))
++  })
++
++  it('picks on click', async () => {
++    const onPick = mount()
++    await userEvent.click(await screen.findByTestId('qr-q3'))
++    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'q3' }))
++  })
++})
+diff --git a/web/src/features/inbox/QuickReplyPalette.tsx b/web/src/features/inbox/QuickReplyPalette.tsx
+new file mode 100644
+index 0000000..c3b2183
+--- /dev/null
++++ b/web/src/features/inbox/QuickReplyPalette.tsx
+@@ -0,0 +1,97 @@
++import { useEffect, useState } from 'react'
++import type { QuickReplyOut } from '../../api/types'
++import { cn } from '../../lib/cn'
++
++/** §5.3: filter by shortcut and body. Shortcut-prefix matches rank first. */
++export function filterQuickReplies(replies: QuickReplyOut[], term: string): QuickReplyOut[] {
++  const active = replies.filter((r) => r.active)
++  const needle = term.trim().toLowerCase().replace(/^\//, '')
++  if (!needle) return active
++
++  const byShortcut: QuickReplyOut[] = []
++  const byText: QuickReplyOut[] = []
++  for (const reply of active) {
++    if (reply.shortcut.toLowerCase().replace(/^\//, '').startsWith(needle)) byShortcut.push(reply)
++    else if (
++      reply.title.toLowerCase().includes(needle) ||
++      reply.body.toLowerCase().includes(needle)
++    )
++      byText.push(reply)
++  }
++  return [...byShortcut, ...byText]
++}
++
++export function QuickReplyPalette({
++  replies,
++  term,
++  onPick,
++  onClose,
++}: {
++  replies: QuickReplyOut[]
++  term: string
++  onPick: (reply: QuickReplyOut) => void
++  onClose: () => void
++}) {
++  const matches = filterQuickReplies(replies, term)
++  const [index, setIndex] = useState(0)
++
++  // A new term means a new list; keep the cursor in range rather than off the end.
++  useEffect(() => {
++    setIndex(0)
++  }, [term])
++
++  useEffect(() => {
++    function onKeyDown(event: KeyboardEvent) {
++      if (event.key === 'ArrowDown') {
++        event.preventDefault()
++        setIndex((i) => Math.min(i + 1, matches.length - 1))
++      } else if (event.key === 'ArrowUp') {
++        event.preventDefault()
++        setIndex((i) => Math.max(i - 1, 0))
++      } else if (event.key === 'Enter') {
++        const picked = matches[index]
++        if (picked) {
++          event.preventDefault()
++          onPick(picked)
++        }
++      } else if (event.key === 'Escape') {
++        event.preventDefault()
++        onClose()
++      }
++    }
++    document.addEventListener('keydown', onKeyDown)
++    return () => document.removeEventListener('keydown', onKeyDown)
++  }, [matches, index, onPick, onClose])
++
++  if (matches.length === 0) return null
++
++  return (
++    <ul
++      role="listbox"
++      className="absolute bottom-full left-0 right-0 mb-2 max-h-64 overflow-y-auto rounded-card border border-border2 bg-surface py-1"
++    >
++      {matches.map((reply, i) => (
++        <li
++          key={reply.id}
++          data-testid={`qr-${reply.id}`}
++          role="option"
++          aria-selected={i === index}
++          onMouseDown={(event) => {
++            event.preventDefault() // keep focus in the textarea
++            onPick(reply)
++          }}
++          className={cn(
++            'cursor-pointer px-3 py-2',
++            i === index ? 'bg-surface2' : 'hover:bg-surface2',
++          )}
++        >
++          <div className="flex items-baseline gap-2">
++            <span className="font-mono text-xs font-semibold text-roomNum">{reply.shortcut}</span>
++            <span className="text-[13px] font-semibold">{reply.title}</span>
++          </div>
++          <p className="truncate text-xs text-text3">{reply.body}</p>
++        </li>
++      ))}
++    </ul>
++  )
++}

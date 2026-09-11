@@ -1,0 +1,457 @@
+# Review package: e810f9c..335ac28
+
+## Commits
+335ac28 feat(web): notification centre and live unread badge
+
+## Files changed
+ web/src/AppLayout.tsx                              |  15 ++-
+ web/src/api/hooks/notifications.ts                 |  55 ++++++++++
+ .../notifications/NotificationsPage.test.tsx       | 115 ++++++++++++++++++++
+ .../features/notifications/NotificationsPage.tsx   | 117 +++++++++++++++++++++
+ web/src/routes.test.tsx                            |  28 +++--
+ web/src/routes.tsx                                 |   3 +-
+ 6 files changed, 323 insertions(+), 10 deletions(-)
+
+## Diff
+diff --git a/web/src/AppLayout.tsx b/web/src/AppLayout.tsx
+index 6adb288..dfcbe43 100644
+--- a/web/src/AppLayout.tsx
++++ b/web/src/AppLayout.tsx
+@@ -1,16 +1,25 @@
+ import { Outlet } from 'react-router-dom'
++import { useUnreadCount } from './api/hooks/notifications'
+ import { RealtimeProvider } from './api/ws'
+ import { AppShell } from './components/AppShell'
+ import { ThemeProvider } from './theme/ThemeContext'
+ 
++function Shell() {
++  // The shell stays fetch-free (Task 9); the count is fed in from here.
++  const unread = useUnreadCount()
++  return (
++    <AppShell unreadCount={unread.data?.count}>
++      <Outlet />
++    </AppShell>
++  )
++}
++
+ export function AppLayout() {
+   return (
+     <ThemeProvider>
+       <RealtimeProvider>
+-        <AppShell>
+-          <Outlet />
+-        </AppShell>
++        <Shell />
+       </RealtimeProvider>
+     </ThemeProvider>
+   )
+ }
+diff --git a/web/src/api/hooks/notifications.ts b/web/src/api/hooks/notifications.ts
+new file mode 100644
+index 0000000..a5d0b5b
+--- /dev/null
++++ b/web/src/api/hooks/notifications.ts
+@@ -0,0 +1,55 @@
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
++import { useSession } from '../../auth/SessionContext'
++import { ApiError, api, propertyPath } from '../client'
++import { qk } from '../queryKeys'
++import type { NotificationOut, UnreadCount } from '../types'
++
++export function useNotifications(unreadOnly: boolean) {
++  const { propertyId } = useSession()
++  return useQuery<NotificationOut[], ApiError>({
++    queryKey: qk.notifications(propertyId, unreadOnly),
++    queryFn: () =>
++      api<NotificationOut[]>(
++        propertyPath(propertyId, `notifications${unreadOnly ? '?unread=1' : ''}`),
++      ),
++  })
++}
++
++export function useUnreadCount() {
++  const { propertyId } = useSession()
++  return useQuery<UnreadCount, ApiError>({
++    queryKey: qk.unreadCount(propertyId),
++    queryFn: () => api<UnreadCount>(propertyPath(propertyId, 'notifications/unread-count')),
++    // The socket invalidates this; the interval is a backstop for a dropped connection.
++    refetchInterval: 60_000,
++  })
++}
++
++function useInvalidateNotifications() {
++  const { propertyId } = useSession()
++  const client = useQueryClient()
++  return () => {
++    void client.invalidateQueries({ queryKey: qk.notificationsAll(propertyId) })
++    void client.invalidateQueries({ queryKey: qk.unreadCount(propertyId) })
++  }
++}
++
++export function useMarkRead() {
++  const { propertyId } = useSession()
++  const invalidate = useInvalidateNotifications()
++  return useMutation<void, ApiError, { id: string }>({
++    mutationFn: ({ id }) =>
++      api<void>(propertyPath(propertyId, `notifications/${id}/read`), { method: 'POST' }),
++    onSuccess: invalidate,
++  })
++}
++
++export function useMarkAllRead() {
++  const { propertyId } = useSession()
++  const invalidate = useInvalidateNotifications()
++  return useMutation<void, ApiError, void>({
++    mutationFn: () =>
++      api<void>(propertyPath(propertyId, 'notifications/read-all'), { method: 'POST' }),
++    onSuccess: invalidate,
++  })
++}
+diff --git a/web/src/features/notifications/NotificationsPage.test.tsx b/web/src/features/notifications/NotificationsPage.test.tsx
+new file mode 100644
+index 0000000..637c3fb
+--- /dev/null
++++ b/web/src/features/notifications/NotificationsPage.test.tsx
+@@ -0,0 +1,115 @@
++import { screen, waitFor } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { SessionProvider } from '../../auth/SessionContext'
++import { aNotification } from '../../test/factories'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { NotificationsPage } from './NotificationsPage'
++
++function serve(rows: unknown[]) {
++  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
++    if (init?.method === 'POST') return Promise.resolve(new Response(null, { status: 204 }))
++    const body = String(input).includes('unread-count') ? { count: 2 } : rows
++    return Promise.resolve(
++      new Response(JSON.stringify(body), {
++        status: 200,
++        headers: { 'Content-Type': 'application/json' },
++      }),
++    )
++  })
++}
++
++function mount() {
++  return renderWithProviders(
++    <SessionProvider>
++      <NotificationsPage />
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'agent' }), route: '/app/notifications' },
++  )
++}
++
++describe('NotificationsPage', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++    serve([aNotification()])
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('lists notifications with their title and body', async () => {
++    mount()
++    expect(await screen.findByText('SLA breached in 412')).toBeInTheDocument()
++    expect(screen.getByText(/waiting 16 minutes/)).toBeInTheDocument()
++  })
++
++  it('marks an unread one visually', async () => {
++    mount()
++    await screen.findByText('SLA breached in 412')
++    expect(screen.getByTestId('unread-dot')).toBeInTheDocument()
++  })
++
++  it('does not mark a read one', async () => {
++    serve([aNotification({ readAt: '2026-09-10T19:00:00Z' })])
++    mount()
++    await screen.findByText('SLA breached in 412')
++    expect(screen.queryByTestId('unread-dot')).not.toBeInTheDocument()
++  })
++
++  it('links a conversation notification to the inbox', async () => {
++    mount()
++    expect(await screen.findByRole('link', { name: /SLA breached in 412/ })).toHaveAttribute(
++      'href',
++      '/app/inbox/c-1',
++    )
++  })
++
++  it('links a work-order notification to the board detail', async () => {
++    serve([aNotification({ entityType: 'work_order', entityId: 'w-204', title: 'WO assigned' })])
++    mount()
++    expect(await screen.findByRole('link', { name: /WO assigned/ })).toHaveAttribute(
++      'href',
++      '/app/work-orders/w-204',
++    )
++  })
++
++  it('renders an unlinkable notification as plain text', async () => {
++    serve([aNotification({ entityType: null, entityId: null, title: 'Shift handover' })])
++    mount()
++    await screen.findByText('Shift handover')
++    expect(screen.queryByRole('link', { name: /Shift handover/ })).not.toBeInTheDocument()
++  })
++
++  it('marks a notification read when it is opened', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('link', { name: /SLA breached in 412/ }))
++    await waitFor(() =>
++      expect(
++        vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('/notifications/nt-1/read')),
++      ).toBe(true),
++    )
++  })
++
++  it('marks all read', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: /mark all read/i }))
++    expect(
++      vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('/notifications/read-all')),
++    ).toBe(true)
++  })
++
++  it('filters to unread only', async () => {
++    mount()
++    await screen.findByText('SLA breached in 412')
++    await userEvent.click(screen.getByRole('tab', { name: /unread/i }))
++    await waitFor(() =>
++      expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('unread=1'))).toBe(true),
++    )
++  })
++
++  it('shows an empty state when there is nothing', async () => {
++    serve([])
++    mount()
++    expect(await screen.findByText(/nothing to catch up on/i)).toBeInTheDocument()
++  })
++})
+diff --git a/web/src/features/notifications/NotificationsPage.tsx b/web/src/features/notifications/NotificationsPage.tsx
+new file mode 100644
+index 0000000..ebdc026
+--- /dev/null
++++ b/web/src/features/notifications/NotificationsPage.tsx
+@@ -0,0 +1,117 @@
++import { useState } from 'react'
++import { Link } from 'react-router-dom'
++import {
++  useMarkAllRead,
++  useMarkRead,
++  useNotifications,
++  useUnreadCount,
++} from '../../api/hooks/notifications'
++import type { NotificationOut } from '../../api/types'
++import { Button, EmptyState, Spinner } from '../../components/ui'
++import { cn } from '../../lib/cn'
++import { relativeTime } from '../../lib/time'
++
++function linkFor(notification: NotificationOut): string | null {
++  if (!notification.entityId) return null
++  if (notification.entityType === 'conversation') return `/app/inbox/${notification.entityId}`
++  if (notification.entityType === 'work_order') return `/app/work-orders/${notification.entityId}`
++  return null
++}
++
++export function NotificationsPage() {
++  const [unreadOnly, setUnreadOnly] = useState(false)
++  const { data, isPending, error } = useNotifications(unreadOnly)
++  const unread = useUnreadCount()
++  const markRead = useMarkRead()
++  const markAll = useMarkAllRead()
++
++  return (
++    <div className="flex h-full flex-col">
++      <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
++        <h1 className="text-base font-bold">Alerts</h1>
++        <div role="tablist" className="flex gap-1.5">
++          {[
++            { key: false, label: 'All' },
++            { key: true, label: 'Unread' },
++          ].map((tab) => (
++            <button
++              key={tab.label}
++              role="tab"
++              aria-selected={unreadOnly === tab.key}
++              onClick={() => setUnreadOnly(tab.key)}
++              className={cn(
++                'inline-flex h-9 items-center rounded px-3.5 text-[13.5px] font-semibold',
++                unreadOnly === tab.key ? 'bg-accent text-accentText' : 'text-text3 hover:text-text',
++              )}
++            >
++              {tab.label}
++            </button>
++          ))}
++        </div>
++        <Button
++          className="ml-auto"
++          disabled={(unread.data?.count ?? 0) === 0}
++          loading={markAll.isPending}
++          onClick={() => markAll.mutate()}
++        >
++          Mark all read
++        </Button>
++      </header>
++
++      <div className="min-h-0 flex-1 overflow-y-auto">
++        {isPending ? (
++          <div className="grid place-items-center p-10">
++            <Spinner />
++          </div>
++        ) : error ? (
++          <EmptyState title="Could not load alerts" hint={error.message} />
++        ) : (data ?? []).length === 0 ? (
++          <EmptyState title="Nothing to catch up on" hint="New alerts will appear here." />
++        ) : (
++          (data ?? []).map((notification) => {
++            const href = linkFor(notification)
++            const body = (
++              <>
++                <span className="flex w-4 flex-none justify-center">
++                  {notification.readAt ? null : (
++                    <span data-testid="unread-dot" className="h-2 w-2 rounded-full bg-accent" />
++                  )}
++                </span>
++                <span className="min-w-0 flex-1">
++                  <span className="block text-sm font-semibold">{notification.title}</span>
++                  {notification.body ? (
++                    <span className="block text-xs text-text3">{notification.body}</span>
++                  ) : null}
++                </span>
++                <span className="flex-none font-mono text-xs text-text3">
++                  {relativeTime(notification.createdAt)}
++                </span>
++              </>
++            )
++            const className = cn(
++              'flex items-center gap-3 border-b border-border px-4 py-3.5',
++              notification.readAt ? 'hover:bg-surface2' : 'bg-sel',
++            )
++            // Opening one is also acknowledging it; two clicks for one intent is wrong.
++            return href ? (
++              <Link
++                key={notification.id}
++                to={href}
++                className={className}
++                onClick={() => {
++                  if (!notification.readAt) markRead.mutate({ id: notification.id })
++                }}
++              >
++                {body}
++              </Link>
++            ) : (
++              <div key={notification.id} className={className}>
++                {body}
++              </div>
++            )
++          })
++        )}
++      </div>
++    </div>
++  )
++}
+diff --git a/web/src/routes.test.tsx b/web/src/routes.test.tsx
+index 7640ab8..fbcf1c7 100644
+--- a/web/src/routes.test.tsx
++++ b/web/src/routes.test.tsx
+@@ -31,28 +31,44 @@ async function mainScreen() {
+ }
+ 
+ describe('AppRoutes', () => {
+   beforeEach(() => {
+     // Every mounted-with-a-role test pre-seeds the session into the query cache (staleTime:
+     // Infinity), so /api/auth/me is never actually fetched for them; this default only fires
+     // for the one unauthenticated test below. A 204 there makes api() return undefined, which
+     // React Query logs as an error ("Query data cannot be undefined") even though the redirect
+     // it drives is correct — a 401, what /api/auth/me really returns when signed out, avoids
+     // that noise without changing what any test asserts.
++    //
++    // Task 18's Shell fires a real fetch (useUnreadCount) for every /app/* route, session or
++    // not — under a blanket 401 that trips RequireAuth's onUnauthorized handler and bounces a
++    // role-seeded test straight to /login, which is not what any of these tests are about (the
++    // admin route previously never fetched anything, so this race did not exist before Task 18).
++    // Only that one endpoint is special-cased; everything else keeps 401ing as before.
+     vi.stubGlobal(
+       'fetch',
+-      vi.fn().mockResolvedValue(
+-        new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Not signed in' } }), {
+-          status: 401,
+-          headers: { 'Content-Type': 'application/json' },
+-        }),
+-      ),
++      vi.fn().mockImplementation((input: RequestInfo | URL) => {
++        if (String(input).includes('unread-count')) {
++          return Promise.resolve(
++            new Response(JSON.stringify({ count: 0 }), {
++              status: 200,
++              headers: { 'Content-Type': 'application/json' },
++            }),
++          )
++        }
++        return Promise.resolve(
++          new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Not signed in' } }), {
++            status: 401,
++            headers: { 'Content-Type': 'application/json' },
++          }),
++        )
++      }),
+     )
+   })
+   afterEach(() => {
+     vi.unstubAllGlobals()
+   })
+ 
+   it('sends an agent from /app to the inbox', async () => {
+     mountAt('/app', 'agent')
+     // Task 12 replaced the Inbox placeholder with the real screen, which has no literal
+     // "Inbox" text of its own in <main> — the location is the stable signal that we landed.
+diff --git a/web/src/routes.tsx b/web/src/routes.tsx
+index ba7ed50..a567047 100644
+--- a/web/src/routes.tsx
++++ b/web/src/routes.tsx
+@@ -3,20 +3,21 @@ import { Navigate, Route, Routes } from 'react-router-dom'
+ import { useSession } from './auth/SessionContext'
+ import { RequireAuth } from './auth/RequireAuth'
+ import { landingPath } from './auth/capabilities'
+ import { AppLayout } from './AppLayout'
+ import { EmptyState, Spinner } from './components/ui'
+ import { LoginPage } from './features/login/LoginPage'
+ import { InboxPage } from './features/inbox/InboxPage'
+ import { BoardPage } from './features/board/BoardPage'
+ import { WorkOrderDetailPage } from './features/board/WorkOrderDetailPage'
+ import { AnalyticsPage } from './features/analytics/AnalyticsPage'
++import { NotificationsPage } from './features/notifications/NotificationsPage'
+ 
+ /** Temporary: each feature task replaces one of these with the real screen. */
+ function Placeholder({ name }: { name: string }) {
+   return <EmptyState title={name} hint="Not built yet." />
+ }
+ 
+ function LandingRedirect() {
+   const { role } = useSession()
+   return <Navigate to={landingPath(role)} replace />
+ }
+@@ -50,21 +51,21 @@ export function AppRoutes() {
+           <Route path="board" element={<BoardPage />} />
+           <Route path="work-orders/:id" element={<WorkOrderDetailPage />} />
+           <Route
+             path="analytics"
+             element={
+               <RequireCapability capability="view_property_analytics">
+                 <AnalyticsPage />
+               </RequireCapability>
+             }
+           />
+-          <Route path="notifications" element={<Placeholder name="Alerts" />} />
++          <Route path="notifications" element={<NotificationsPage />} />
+           <Route
+             path="admin/*"
+             element={
+               <RequireCapability capability="manage_admin">
+                 <Placeholder name="Admin" />
+               </RequireCapability>
+             }
+           />
+         </Route>
+       </Route>

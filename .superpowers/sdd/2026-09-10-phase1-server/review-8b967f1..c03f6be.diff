@@ -1,0 +1,165 @@
+# Review package: 8b967f1..c03f6be
+
+## Commits
+c03f6be fix(server): persist adapter failures without a discarded re-raise; enforce forward-only delivery status in the domain
+
+## Files changed
+ server/app/domain/messages.py              |  9 +++++++++
+ server/app/queue/handlers/mock_delivery.py |  9 ++++-----
+ server/app/queue/handlers/outbound.py      |  9 +++++++--
+ server/tests/test_mock_sms.py              | 32 ++++++++++++++++++++++++++++++
+ 4 files changed, 52 insertions(+), 7 deletions(-)
+
+## Diff
+diff --git a/server/app/domain/messages.py b/server/app/domain/messages.py
+index 6719bcd..fba29fa 100644
+--- a/server/app/domain/messages.py
++++ b/server/app/domain/messages.py
+@@ -12,24 +12,33 @@ from app.schemas.conversations import MessageOut
+ from app.schemas.enums import DeliveryStatus, Direction
+ 
+ 
+ def _get(db: Session, property_id: str, message_id: str) -> Message:
+     m = db.scalar(select(Message).where(Message.id == message_id, Message.property_id == property_id))
+     if m is None:
+         raise NotFound("Message not found")
+     return m
+ 
+ 
++# The trusted boundary for the forward-only invariant: queued -> sent -> delivered may only move
++# forward (a stale/replayed provider callback must not revert a later status). failed/undelivered
++# are terminal-from-anywhere and sit outside this list, so e.g. queued -> failed still applies.
++_FORWARD_ORDER = [DeliveryStatus.queued, DeliveryStatus.sent, DeliveryStatus.delivered]
++
++
+ def update_delivery_status(db: Session, property_id: str, message_id: str, status: DeliveryStatus, *,
+                            provider_message_id: str | None = None, error_code: str | None = None,
+                            error_message: str | None = None) -> Message:
+     m = _get(db, property_id, message_id)
++    if (status in _FORWARD_ORDER and m.delivery_status in _FORWARD_ORDER
++            and _FORWARD_ORDER.index(status) <= _FORWARD_ORDER.index(m.delivery_status)):
++        return m  # backward or no-op transition: ignore, no write, no event
+     m.delivery_status = status
+     if provider_message_id:
+         m.provider_message_id = provider_message_id
+     if status == DeliveryStatus.delivered:
+         m.delivered_at = clock.now()
+     if status in (DeliveryStatus.failed, DeliveryStatus.undelivered):
+         m.provider_error_code = error_code
+         m.provider_error_message = error_message
+     db.flush()
+     queue_event(db, property_id, "message.status_changed",
+diff --git a/server/app/queue/handlers/mock_delivery.py b/server/app/queue/handlers/mock_delivery.py
+index 2ffcddd..6fe6e61 100644
+--- a/server/app/queue/handlers/mock_delivery.py
++++ b/server/app/queue/handlers/mock_delivery.py
+@@ -5,20 +5,19 @@ from app.models import Message
+ from app.queue.handlers import handler
+ from app.schemas.enums import DeliveryStatus
+ 
+ 
+ @handler("mock.delivery_status")
+ def mock_delivery_status(db: Session, payload: dict) -> None:
+     msg = db.get(Message, payload["message_id"])
+     if msg is None:
+         return
+     target = DeliveryStatus(payload["status"])
+-    # A retry resets the message to queued and schedules a new sequence; stale events must not
+-    # overwrite it. Only advance forward: queued→sent→delivered, or queued/sent→failed.
+-    order = [DeliveryStatus.queued, DeliveryStatus.sent, DeliveryStatus.delivered]
+-    if target in order and msg.delivery_status in order and order.index(target) <= order.index(msg.delivery_status):
+-        return
++    # A retry resets the message to queued and clears provider_message_id before scheduling a new
++    # sequence; a stale job from the superseded send must not touch the message it no longer
++    # describes. The forward-only ordering invariant lives in messages.update_delivery_status,
++    # which is the trusted boundary for it.
+     if msg.provider_message_id is None:
+         return  # message was reset by a retry after this job was scheduled
+     messages.update_delivery_status(db, msg.property_id, msg.id, target,
+                                     error_code=payload.get("error_code"),
+                                     error_message=payload.get("error_message"))
+diff --git a/server/app/queue/handlers/outbound.py b/server/app/queue/handlers/outbound.py
+index 505b45e..696eab5 100644
+--- a/server/app/queue/handlers/outbound.py
++++ b/server/app/queue/handlers/outbound.py
+@@ -13,16 +13,21 @@ from app.schemas.enums import DeliveryStatus
+ @handler("outbound.send")
+ def outbound_send(db: Session, payload: dict) -> None:
+     msg = db.get(Message, payload["message_id"])
+     if msg is None or msg.delivery_status != DeliveryStatus.queued:
+         return  # already handled or retried; idempotent
+     conv = db.get(Conversation, msg.conversation_id)
+     guest = db.get(Guest, conv.guest_id)
+     adapter = get_sms_adapter()
+     try:
+         result = adapter.send(db, guest.phone_e164, msg.body, message_id=msg.id)
+-    except Exception as exc:  # provider threw: mark failed, then re-raise so the job retries
++    except Exception as exc:
++        # Provider threw: mark failed and return normally so this write commits with the job.
++        # Re-raising would have the session rolled back by Database.session(), silently discarding
++        # the failure and leaving the message stuck at queued forever. No automatic backoff retry
++        # for transient provider errors in Phase 1: recovery is the visible failed state plus
++        # messages.retry(), which re-enqueues the job.
+         messages.update_delivery_status(db, msg.property_id, msg.id, DeliveryStatus.failed,
+                                         error_code="ADAPTER_ERROR", error_message=repr(exc)[:500])
+-        raise
++        return
+     msg.provider_message_id = result.provider_message_id
+     db.flush()
+diff --git a/server/tests/test_mock_sms.py b/server/tests/test_mock_sms.py
+index 8a6dfa0..01562df 100644
+--- a/server/tests/test_mock_sms.py
++++ b/server/tests/test_mock_sms.py
+@@ -70,20 +70,52 @@ def test_retry_requeues_a_failed_message(app, fx, database, worker):
+         assert m.delivery_status == DeliveryStatus.queued
+         assert m.provider_error_code is None
+     worker.tick()
+     clock.advance(seconds=2)
+     worker.tick()
+     worker.tick()
+     with database.session() as db:
+         assert db.get(Message, msg_id).delivery_status == DeliveryStatus.delivered
+ 
+ 
++def test_provider_exception_marks_failed_without_retry(app, fx, database, worker, events, monkeypatch):
++    def _raise(self, db, to, body, *, message_id):
++        raise RuntimeError("boom")
++
++    monkeypatch.setattr(MockSmsAdapter, "send", _raise)
++    msg_id = _outbound(database, fx, "+15551234567")
++    ran = worker.tick()
++    assert ran == 1
++    with database.session() as db:
++        m = db.get(Message, msg_id)
++        assert m.delivery_status == DeliveryStatus.failed
++        assert m.provider_error_code == "ADAPTER_ERROR"
++        assert "boom" in m.provider_error_message
++    statuses = [e.payload["deliveryStatus"] for e in events if e.type == "message.status_changed"]
++    assert statuses == ["failed"]
++
++
++def test_update_delivery_status_ignores_backward_transition(app, fx, database, events):
++    from app.domain import messages
++
++    msg_id = _outbound(database, fx, "+15551234567")
++    with database.session() as db:
++        messages.update_delivery_status(db, fx.property_a.id, msg_id, DeliveryStatus.delivered)
++    events.clear()
++    with database.session() as db:
++        m = messages.update_delivery_status(db, fx.property_a.id, msg_id, DeliveryStatus.sent)
++        assert m.delivery_status == DeliveryStatus.delivered
++    with database.session() as db:
++        assert db.get(Message, msg_id).delivery_status == DeliveryStatus.delivered
++    assert not any(e.type == "message.status_changed" for e in events)
++
++
+ def test_parse_inbound_reads_twilio_field_names(app):
+     a = MockSmsAdapter(secret="dev")
+     m = a.parse_inbound({"From": "+15551234567", "To": "+15550100", "Body": " hi ", "MessageSid": "SM1"})
+     assert (m.from_, m.to, m.body, m.provider_message_id) == ("+15551234567", "+15550100", "hi", "SM1")
+ 
+ 
+ def test_verify_inbound_checks_shared_secret(app):
+     a = MockSmsAdapter(secret="dev")
+     with app.test_request_context(headers={"X-Mock-Secret": "dev"}):
+         from flask import request

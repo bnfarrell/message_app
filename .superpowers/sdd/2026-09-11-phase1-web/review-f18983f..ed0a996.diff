@@ -1,0 +1,288 @@
+# Review package: f18983f..ed0a996
+
+## Commits
+ed0a996 test(web): silence React Router v7 future-flag warnings in the test harness
+b6e3f08 feat(web): theme provider with dark default, system fallback and server persistence
+
+## Files changed
+ web/src/api/hooks/auth.ts           |  10 ++++
+ web/src/test/harness.tsx            |   9 ++-
+ web/src/theme/ThemeContext.test.tsx | 110 ++++++++++++++++++++++++++++++++++++
+ web/src/theme/ThemeContext.tsx      |  59 +++++++++++++++++++
+ 4 files changed, 187 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/web/src/api/hooks/auth.ts b/web/src/api/hooks/auth.ts
+index 89cda1c..2e869ee 100644
+--- a/web/src/api/hooks/auth.ts
++++ b/web/src/api/hooks/auth.ts
+@@ -26,10 +26,20 @@ export function useLogin() {
+ export function useLogout() {
+   const client = useQueryClient()
+   return useMutation<void, ApiError, void>({
+     mutationFn: () => api<void>('/api/auth/logout', { method: 'POST' }),
+     // Clear unconditionally: a failed logout must not leave another user's cache on screen.
+     onSettled: () => {
+       client.clear()
+     },
+   })
+ }
++
++export function useSetPrefs() {
++  const client = useQueryClient()
++  return useMutation<SessionOut, ApiError, { theme: 'dark' | 'light' | 'system' }>({
++    mutationFn: (body) => api<SessionOut>('/api/auth/prefs', { method: 'PATCH', json: body }),
++    onSuccess: (session) => {
++      client.setQueryData(qk.session, session)
++    },
++  })
++}
+diff --git a/web/src/test/harness.tsx b/web/src/test/harness.tsx
+index 506ad9e..88c86d5 100644
+--- a/web/src/test/harness.tsx
++++ b/web/src/test/harness.tsx
+@@ -3,20 +3,21 @@ import { type RenderResult, render } from '@testing-library/react'
+ import type { ReactNode } from 'react'
+ import { MemoryRouter } from 'react-router-dom'
+ import { qk } from '../api/queryKeys'
+ import type { MembershipOut, Role, SessionOut } from '../api/types'
+ 
+ export function sessionFixture(opts: {
+   role?: Role
+   withSecondProperty?: boolean
+   secondRole?: Role
+   departmentId?: string | null
++  prefs?: Record<string, unknown>
+ } = {}): SessionOut {
+   const memberships: MembershipOut[] = [
+     {
+       propertyId: 'prop-a',
+       propertyName: 'Harbourview Hotel',
+       propertyCode: 'HVH',
+       role: opts.role ?? 'agent',
+       departmentId: opts.departmentId ?? null,
+     },
+   ]
+@@ -30,34 +31,40 @@ export function sessionFixture(opts: {
+     })
+   }
+   return {
+     user: {
+       id: 'u-ava',
+       email: 'ava@hvh.test',
+       firstName: 'Ava',
+       lastName: 'Nolan',
+       locale: 'en',
+       avatarUrl: null,
++      notificationPrefs: opts.prefs ?? {},
+     },
+     memberships,
+   }
+ }
+ 
+ export function testQueryClient(): QueryClient {
+   return new QueryClient({
+     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+   })
+ }
+ 
+ export function renderWithProviders(
+   ui: ReactNode,
+   opts: { session?: SessionOut; route?: string; client?: QueryClient } = {},
+ ): RenderResult & { client: QueryClient } {
+   const client = opts.client ?? testQueryClient()
+   if (opts.session) client.setQueryData(qk.session, opts.session)
+   const result = render(
+     <QueryClientProvider client={client}>
+-      <MemoryRouter initialEntries={[opts.route ?? '/']}>{ui}</MemoryRouter>
++      <MemoryRouter
++        initialEntries={[opts.route ?? '/']}
++        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
++      >
++        {ui}
++      </MemoryRouter>
+     </QueryClientProvider>,
+   )
+   return { ...result, client }
+ }
+diff --git a/web/src/theme/ThemeContext.test.tsx b/web/src/theme/ThemeContext.test.tsx
+new file mode 100644
+index 0000000..98c93be
+--- /dev/null
++++ b/web/src/theme/ThemeContext.test.tsx
+@@ -0,0 +1,110 @@
++import { screen, waitFor } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { SessionProvider } from '../auth/SessionContext'
++import { renderWithProviders, sessionFixture } from '../test/harness'
++import { ThemeProvider, useTheme } from './ThemeContext'
++
++function Probe() {
++  const { theme, resolved, setTheme } = useTheme()
++  return (
++    <div>
++      <span data-testid="theme">{theme}</span>
++      <span data-testid="resolved">{resolved}</span>
++      <button onClick={() => setTheme('light')}>light</button>
++      <button onClick={() => setTheme('system')}>system</button>
++    </div>
++  )
++}
++
++function prefersDark(dark: boolean) {
++  vi.stubGlobal(
++    'matchMedia',
++    vi.fn((query: string) => ({
++      matches: dark && query.includes('dark'),
++      media: query,
++      addEventListener: vi.fn(),
++      removeEventListener: vi.fn(),
++      addListener: vi.fn(),
++      removeListener: vi.fn(),
++      dispatchEvent: vi.fn(),
++      onchange: null,
++    })),
++  )
++}
++
++function withTheme(session = sessionFixture()) {
++  return renderWithProviders(
++    <SessionProvider>
++      <ThemeProvider>
++        <Probe />
++      </ThemeProvider>
++    </SessionProvider>,
++    { session },
++  )
++}
++
++describe('ThemeProvider', () => {
++  beforeEach(() => {
++    document.documentElement.removeAttribute('data-theme')
++    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })))
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('defaults to system when the user has no stored preference', async () => {
++    prefersDark(true)
++    withTheme()
++    await waitFor(() => expect(screen.getByTestId('theme')).toHaveTextContent('system'))
++  })
++
++  it('resolves system to dark when the device prefers dark', async () => {
++    prefersDark(true)
++    withTheme()
++    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('dark'))
++    expect(screen.getByTestId('resolved')).toHaveTextContent('dark')
++  })
++
++  it('resolves system to light when the device prefers light', async () => {
++    prefersDark(false)
++    withTheme()
++    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'))
++  })
++
++  it('uses the stored preference over the device setting', async () => {
++    prefersDark(true)
++    const session = sessionFixture()
++    session.user.notificationPrefs = { theme: 'light' }
++    withTheme(session)
++    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'))
++    expect(screen.getByTestId('theme')).toHaveTextContent('light')
++  })
++
++  it('applies a change immediately and persists it to the server', async () => {
++    prefersDark(true)
++    withTheme()
++    await userEvent.click(screen.getByRole('button', { name: 'light' }))
++    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'))
++    const call = vi.mocked(fetch).mock.calls.find(([url]) => String(url) === '/api/auth/prefs')
++    expect(call, 'the theme change was not sent to the server').toBeDefined()
++    expect(call![1]).toMatchObject({ method: 'PATCH' })
++    expect(call![1]!.body).toBe('{"theme":"light"}')
++  })
++
++  it('keeps the chosen theme on screen even if the save fails', async () => {
++    prefersDark(true)
++    vi.mocked(fetch).mockRejectedValue(new TypeError('offline'))
++    withTheme()
++    await userEvent.click(screen.getByRole('button', { name: 'light' }))
++    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'))
++  })
++
++  it('ignores a stored value that is not a theme', async () => {
++    prefersDark(true)
++    const session = sessionFixture()
++    session.user.notificationPrefs = { theme: 'sepia' }
++    withTheme(session)
++    await waitFor(() => expect(screen.getByTestId('theme')).toHaveTextContent('system'))
++  })
++})
+diff --git a/web/src/theme/ThemeContext.tsx b/web/src/theme/ThemeContext.tsx
+new file mode 100644
+index 0000000..1422397
+--- /dev/null
++++ b/web/src/theme/ThemeContext.tsx
+@@ -0,0 +1,59 @@
++import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
++import { useSetPrefs } from '../api/hooks/auth'
++import { useSession } from '../auth/SessionContext'
++
++export type ThemeChoice = 'dark' | 'light' | 'system'
++
++const CHOICES: ThemeChoice[] = ['dark', 'light', 'system']
++
++type ThemeValue = {
++  theme: ThemeChoice
++  resolved: 'dark' | 'light'
++  setTheme: (theme: ThemeChoice) => void
++}
++
++const ThemeContext = createContext<ThemeValue | null>(null)
++
++export function useTheme(): ThemeValue {
++  const value = useContext(ThemeContext)
++  if (!value) throw new Error('useTheme must be used inside a ThemeProvider')
++  return value
++}
++
++function storedChoice(prefs: Record<string, unknown> | undefined): ThemeChoice {
++  const raw = prefs?.['theme']
++  return CHOICES.includes(raw as ThemeChoice) ? (raw as ThemeChoice) : 'system'
++}
++
++function devicePrefersDark(): boolean {
++  // Absent in older jsdom and in some embedded webviews; dark is the product default.
++  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true
++}
++
++export function ThemeProvider({ children }: { children: ReactNode }) {
++  const { user } = useSession()
++  const setPrefs = useSetPrefs()
++  const [theme, setLocal] = useState<ThemeChoice>(() =>
++    storedChoice(user.notificationPrefs as Record<string, unknown> | undefined),
++  )
++  const resolved: 'dark' | 'light' =
++    theme === 'system' ? (devicePrefersDark() ? 'dark' : 'light') : theme
++
++  useEffect(() => {
++    document.documentElement.dataset.theme = resolved
++  }, [resolved])
++
++  const setTheme = useCallback(
++    (next: ThemeChoice) => {
++      // Local first: the toggle must feel instant, and a failed save should not revert
++      // the user's choice for this session. The next load falls back to the server value.
++      setLocal(next)
++      setPrefs.mutate({ theme: next })
++    },
++    [setPrefs],
++  )
++
++  return (
++    <ThemeContext.Provider value={{ theme, resolved, setTheme }}>{children}</ThemeContext.Provider>
++  )
++}

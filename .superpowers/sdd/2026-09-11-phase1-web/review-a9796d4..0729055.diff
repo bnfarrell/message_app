@@ -1,0 +1,148 @@
+# Review package: a9796d4..0729055
+
+## Commits
+0729055 fix(web): stabilize badge key, cover cross-role property switch, clarify test name
+
+## Files changed
+ web/src/components/AppShell.test.tsx | 38 +++++++++++++++++++++++++++++++++++-
+ web/src/components/AppShell.tsx      |  2 +-
+ 2 files changed, 38 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/web/src/components/AppShell.test.tsx b/web/src/components/AppShell.test.tsx
+index 2561df3..95bc380 100644
+--- a/web/src/components/AppShell.test.tsx
++++ b/web/src/components/AppShell.test.tsx
+@@ -1,34 +1,58 @@
+ import { screen } from '@testing-library/react'
+ import userEvent from '@testing-library/user-event'
++import { useLocation } from 'react-router-dom'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import type { Role } from '../api/types'
+ import { SessionProvider } from '../auth/SessionContext'
+ import { ThemeProvider } from '../theme/ThemeContext'
+ import { renderWithProviders, sessionFixture } from '../test/harness'
+ import { AppShell } from './AppShell'
+ 
++// Reports where the router actually landed after a property switch — the thing at risk
++// is the navigation target, not just that setPropertyId was called.
++function LocationDisplay() {
++  const location = useLocation()
++  return <div data-testid="location">{location.pathname}</div>
++}
++
+ function mount(
+   opts: { role?: Role; withSecondProperty?: boolean; secondRole?: Role; unreadCount?: number } = {},
+ ) {
+   return renderWithProviders(
+     <SessionProvider>
+       <ThemeProvider>
+         <AppShell unreadCount={opts.unreadCount}>
+           <p>screen body</p>
+         </AppShell>
+       </ThemeProvider>
+     </SessionProvider>,
+     { session: sessionFixture(opts), route: '/app/inbox' },
+   )
+ }
+ 
++function mountWithLocation(
++  opts: { role?: Role; withSecondProperty?: boolean; secondRole?: Role; unreadCount?: number } = {},
++) {
++  return renderWithProviders(
++    <SessionProvider>
++      <ThemeProvider>
++        <AppShell unreadCount={opts.unreadCount}>
++          <p>screen body</p>
++        </AppShell>
++      </ThemeProvider>
++      <LocationDisplay />
++    </SessionProvider>,
++    { session: sessionFixture(opts), route: '/app/inbox' },
++  )
++}
++
+ describe('AppShell', () => {
+   beforeEach(() => {
+     localStorage.clear()
+     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })))
+   })
+   afterEach(() => {
+     vi.unstubAllGlobals()
+   })
+ 
+   it('renders the screen body and the property identity', async () => {
+@@ -50,21 +74,23 @@ describe('AppShell', () => {
+   it('shows the Inbox to corporate, which can read conversations and add notes', async () => {
+     // corporate holds view_all_conversations and add_note on the server
+     // (server/app/auth/permissions.py), so the Inbox is reachable — read-only.
+     mount({ role: 'corporate' })
+     expect(await screen.findByRole('link', { name: /analytics/i })).toBeInTheDocument()
+     expect(screen.getByRole('link', { name: /inbox/i })).toBeInTheDocument()
+     // It cannot reply, so no Board: create_work_order and close_work_order are both false.
+     expect(screen.queryByRole('link', { name: /board/i })).not.toBeInTheDocument()
+   })
+ 
+-  it('shows Admin only to admin', async () => {
++  it('shows Admin to a role with manage_admin', async () => {
++    // manage_admin is {admin, corporate} on the server — admin is not the only role
++    // that sees this link, so this only asserts admin sees it, not exclusivity.
+     mount({ role: 'admin' })
+     expect(await screen.findByRole('link', { name: /admin/i })).toBeInTheDocument()
+   })
+ 
+   it('marks the current route as the active nav item', async () => {
+     mount({ role: 'agent' })
+     expect(await screen.findByRole('link', { name: /inbox/i })).toHaveAttribute(
+       'aria-current',
+       'page',
+     )
+@@ -102,11 +128,21 @@ describe('AppShell', () => {
+     await userEvent.click(await screen.findByRole('button', { name: /switch property/i }))
+     expect(screen.getByRole('menuitem', { name: /Lakeside Inn/ })).toBeInTheDocument()
+   })
+ 
+   it('switching property stores the choice', async () => {
+     mount({ role: 'agent', withSecondProperty: true })
+     await userEvent.click(await screen.findByRole('button', { name: /switch property/i }))
+     await userEvent.click(screen.getByRole('menuitem', { name: /Lakeside Inn/ }))
+     expect(localStorage.getItem('activePropertyId')).toBe('prop-b')
+   })
++
++  it('switching to a property where the role differs lands on that role landing screen', async () => {
++    // Agent at Harbourview, admin at Lakeside — the switch must route by the *target*
++    // membership's role, not the current session's role.
++    mountWithLocation({ role: 'agent', withSecondProperty: true, secondRole: 'admin' })
++    await userEvent.click(await screen.findByRole('button', { name: /switch property/i }))
++    await userEvent.click(screen.getByRole('menuitem', { name: /Lakeside Inn/ }))
++    expect(await screen.findByTestId('location')).toHaveTextContent('/app/analytics')
++    expect(screen.getByTestId('location')).not.toHaveTextContent('/app/inbox')
++  })
+ })
+diff --git a/web/src/components/AppShell.tsx b/web/src/components/AppShell.tsx
+index 9e26f09..f832dde 100644
+--- a/web/src/components/AppShell.tsx
++++ b/web/src/components/AppShell.tsx
+@@ -63,21 +63,21 @@ export function AppShell({
+                 to={item.to}
+                 className={({ isActive }) =>
+                   cn(
+                     'flex h-11 items-center gap-3 rounded px-3.5 text-sm font-semibold',
+                     isActive ? 'bg-surface2 text-roomNum' : 'text-text3 hover:text-text',
+                   )
+                 }
+               >
+                 <NavIcon name={item.icon} />
+                 <span className="flex-1">{item.label}</span>
+-                {item.label === 'Alerts' && unreadCount ? (
++                {item.to === '/app/notifications' && unreadCount ? (
+                   <Badge tone="danger" className="font-mono">
+                     <span data-testid="unread-badge">{unreadCount}</span>
+                   </Badge>
+                 ) : null}
+               </NavLink>
+             </li>
+           ))}
+         </ul>
+ 
+         <div className="mt-auto flex flex-col gap-2 border-t border-border pt-3">

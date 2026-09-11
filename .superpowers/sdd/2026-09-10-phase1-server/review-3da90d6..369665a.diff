@@ -1,0 +1,212 @@
+# Review package: 3da90d6..369665a
+
+## Commits
+369665a fix(server): seed summary counts, determinism doc, and reset-guard coverage
+
+## Files changed
+ server/app/cli.py         |  5 ++++-
+ server/seed/seed.py       | 32 +++++++++++++++++++++++++-------
+ server/tests/test_seed.py | 23 +++++++++++++++++++++++
+ 3 files changed, 52 insertions(+), 8 deletions(-)
+
+## Diff
+diff --git a/server/app/cli.py b/server/app/cli.py
+index 271db97..66f6901 100644
+--- a/server/app/cli.py
++++ b/server/app/cli.py
+@@ -5,15 +5,18 @@ from flask.cli import with_appcontext
+ 
+ @click.command("seed")
+ @click.option("--no-reset", is_flag=True, help="Do not delete the existing SQLite file first.")
+ @with_appcontext
+ def seed_command(no_reset: bool) -> None:
+     from seed.seed import PASSWORD, run
+ 
+     cfg = current_app.config["APP"]
+     reset = not no_reset
+     click.echo(f"Seeding {cfg.DATABASE_URL} (reset={reset})...")
+-    summary = run(cfg.DATABASE_URL, reset=reset)
++    try:
++        summary = run(cfg.DATABASE_URL, reset=reset)
++    except ValueError as exc:
++        raise click.ClickException(str(exc)) from exc
+     click.echo(f"Seeded {summary.properties} properties, {summary.users} users, {summary.guests} guests, "
+                f"{summary.stays} stays, {summary.conversations} conversations, {summary.messages} messages, "
+                f"{summary.work_orders} work orders.")
+     click.echo(f"Log in as ava@hvh.test / {PASSWORD}")
+diff --git a/server/seed/seed.py b/server/seed/seed.py
+index b18f4ff..a6ef839 100644
+--- a/server/seed/seed.py
++++ b/server/seed/seed.py
+@@ -1,19 +1,28 @@
+-"""Deterministic development seed. `flask seed` or `python -m seed.seed`. Matches spec §8."""
++"""Deterministic development seed. `flask seed` or `python -m seed.seed`. Matches spec §8.
++
++Determinism covers the shape and content of the seeded data (names, counts, message bodies, phone
++numbers, timing, etc.) — all driven from `random.Random(42)`, so two runs produce identical data
++(ids aside, since those are `uuid.uuid4()`). It deliberately does NOT cover `DigitalAsset.short_code`:
++those come from `app.domain.assets.new_short_code`, which uses `secrets.choice`, not this module's
++seeded RNG, because a short code is the public, guest-facing `/a/<code>` URL sent over SMS — making it
++predictable to satisfy a determinism goal would be a real security regression. Short codes differ
++between seed runs; everything else does not.
++"""
+ from __future__ import annotations
+ 
+ import random
+ from dataclasses import dataclass
+ from datetime import datetime, timedelta, timezone
+ from pathlib import Path
+ 
+-from sqlalchemy import select
++from sqlalchemy import func, select
+ 
+ from app import clock
+ from app.auth.passwords import hash_password
+ from app.db import Database, run_migrations
+ from app.domain.assets import new_short_code
+ from app.models import (Conversation, Department, DigitalAsset, DraftPrompt, Guest, InternalNote, Message, Property,
+                         PropertyMembership, QuickReply, ResolutionCategory, Stay, UserAccount, WorkOrder,
+                         WorkOrderEvent)
+ from app.queue import jobs
+ from app.schemas.enums import (AssetType, AuthorType, Channel, ConversationStatus, DeliveryStatus, DepartmentType,
+@@ -169,33 +178,31 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
+             for c in children:
+                 db.add(ResolutionCategory(property_id=hvh.id, name=c, parent_id=p.id))
+         db.flush()
+ 
+         # ---- conversations (30) + work orders
+         in_house = [s for s in stays if s.property_id == hvh.id and s.status == StayStatus.checked_in]
+         agents = [staff["ava"], staff["marcus"], staff["jordan"]]
+         eng_staff = [staff["eli"], staff["noah"]]
+         hk_staff = [staff["hana"], staff["rosa"]]
+         convs: list[Conversation] = []
+-        messages = 0
+         work_orders: list[WorkOrder] = []
+ 
+         def add_msg(c, direction, body, at, author=None, status=DeliveryStatus.delivered, redacted=False, author_type=None):
+-            nonlocal messages
+             m = Message(conversation_id=c.id, property_id=c.property_id, direction=direction,
+                         author_type=author_type or (AuthorType.guest if direction == Direction.inbound else AuthorType.staff),
+                         author_user_id=author.id if author else None, channel=Channel.sms, body=body, delivery_status=status,
+                         provider_message_id=f"seed-{rng.randint(10**8, 10**9)}", redacted=redacted, sent_at=at,
+                         delivered_at=at if status == DeliveryStatus.delivered else None,
+                         provider_error_code="30007" if status == DeliveryStatus.failed else None,
+                         provider_error_message="Carrier violation (mock)" if status == DeliveryStatus.failed else None)
+-            db.add(m); messages += 1; return m
++            db.add(m); return m
+ 
+         def add_wo(title, typ, prio, dept_type, status, conv=None, assignee=None, created=None):
+             created = created or now - timedelta(minutes=rng.randint(10, 600))
+             wo = WorkOrder(property_id=hvh.id, title=title, type=WorkOrderType(typ), priority=Priority(prio), status=status,
+                            location_ref=(conv.stay.room_number if conv and conv.stay else rng.choice(rooms)),
+                            department_id=depts[dept_type].id, assigned_user_id=assignee.id if assignee else None,
+                            reported_by_user_id=rng.choice(agents).id, source_conversation_id=conv.id if conv else None,
+                            created_at=created, updated_at=created,
+                            started_at=created + timedelta(minutes=5) if status in (WorkOrderStatus.in_progress, WorkOrderStatus.blocked, WorkOrderStatus.complete) else None,
+                            completed_at=created + timedelta(minutes=rng.randint(10, 60)) if status == WorkOrderStatus.complete else None)
+@@ -311,22 +318,33 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
+             active.append(add_wo(title, typ, prio, dept_type, st, assignee=assignee))
+         # A few closed ones for analytics history.
+         for k in range(6):
+             title, typ, prio, dept_type = data.WORK_ORDERS[k]
+             add_wo(title, typ, prio, dept_type, WorkOrderStatus.verified, assignee=rng.choice(eng_staff), created=now - timedelta(days=rng.randint(1, 6)))
+ 
+         # ---- recurring jobs
+         for job_type in ("sla.sweep", "snooze.wake", "pms.tick"):
+             jobs.ensure_recurring(db, job_type)
+ 
+-        summary = SeedSummary(properties=2, users=len(staff) + 2, guests=len(guests), stays=len(stays),
+-                              conversations=len(convs), messages=messages, work_orders=len(work_orders))
++        # Derive every count from the database rather than in-memory counters/lists: the showcase
++        # rewire above deletes and re-adds messages, which desynced a running `messages` counter
++        # (found in review — SeedSummary.messages reported 53 while the actual row count was 52).
++        # Querying the real rows after all mutations means no future rewire can desync this again.
++        summary = SeedSummary(
++            properties=db.scalar(select(func.count()).select_from(Property)),
++            users=db.scalar(select(func.count()).select_from(UserAccount)),
++            guests=db.scalar(select(func.count()).select_from(Guest)),
++            stays=db.scalar(select(func.count()).select_from(Stay)),
++            conversations=db.scalar(select(func.count()).select_from(Conversation)),
++            messages=db.scalar(select(func.count()).select_from(Message)),
++            work_orders=db.scalar(select(func.count()).select_from(WorkOrder)),
++        )
+     database.engine.dispose()
+     return summary
+ 
+ 
+ if __name__ == "__main__":
+     import os
+ 
+     from dotenv import load_dotenv
+ 
+     load_dotenv()
+diff --git a/server/tests/test_seed.py b/server/tests/test_seed.py
+index 1a36d9f..ce9645b 100644
+--- a/server/tests/test_seed.py
++++ b/server/tests/test_seed.py
+@@ -1,10 +1,11 @@
++import pytest
+ from sqlalchemy import func, select
+ 
+ from app.db import Database
+ from app.models import (Conversation, DigitalAsset, DraftPrompt, Guest, Message, Property, PropertyMembership,
+                         QuickReply, ResolutionCategory, Stay, UserAccount, WorkOrder)
+ from app.schemas.enums import ConversationStatus, DeliveryStatus, SmsConsentStatus, StayStatus, WorkOrderStatus
+ from seed.seed import run
+ 
+ 
+ def test_seed_matches_spec_counts(tmp_path):
+@@ -27,20 +28,29 @@ def test_seed_matches_spec_counts(tmp_path):
+         assert count(Message, Message.redacted.is_(True)) == 1
+         assert count(WorkOrder, WorkOrder.property_id == hvh.id,
+                      WorkOrder.status.in_([WorkOrderStatus.open, WorkOrderStatus.assigned, WorkOrderStatus.in_progress,
+                                            WorkOrderStatus.blocked, WorkOrderStatus.complete])) == 15
+         assert count(WorkOrder, WorkOrder.source_conversation_id.isnot(None)) >= 6
+         assert count(QuickReply, QuickReply.property_id == hvh.id) >= 15
+         assert count(DigitalAsset, DigitalAsset.property_id == hvh.id) == 8
+         assert count(ResolutionCategory, ResolutionCategory.property_id == hvh.id) >= 10
+         assert count(Message, Message.delivery_status == DeliveryStatus.failed) >= 1
+         assert db.scalar(select(UserAccount).where(UserAccount.email == "ava@hvh.test")) is not None
++        # SeedSummary must match real rows, not an in-memory counter that a rewire can desync
++        # (the showcase conversation's messages are deleted and re-added after being counted).
++        assert summary.properties == count(Property)
++        assert summary.users == count(UserAccount)
++        assert summary.guests == count(Guest)
++        assert summary.stays == count(Stay)
++        assert summary.conversations == count(Conversation)
++        assert summary.messages == count(Message)
++        assert summary.work_orders == count(WorkOrder)
+     db_.engine.dispose()
+     assert summary.conversations == 30
+ 
+     # Deterministic: running again yields identical guest phone numbers.
+     url2 = f"sqlite:///{(tmp_path / 'seed2.db').as_posix()}"
+     run(url2, reset=True)
+     a, b = Database(url), Database(url2)
+     with a.session() as da, b.session() as dbb:
+         pa = sorted(da.scalars(select(Guest.phone_e164)).all())
+         pb = sorted(dbb.scalars(select(Guest.phone_e164)).all())
+@@ -53,10 +63,23 @@ def test_seeded_users_can_log_in(tmp_path):
+     from app.config import Config
+ 
+     url = f"sqlite:///{(tmp_path / 'seed.db').as_posix()}"
+     run(url, reset=True)
+     app = create_app(Config(DATABASE_URL=url, TESTING=True))
+     c = app.test_client()
+     assert c.post("/api/auth/login", json={"email": "ava@hvh.test", "password": "Password123!"}).status_code == 200
+     body = c.get("/api/auth/me").get_json()
+     assert body["memberships"][0]["role"] == "agent"
+     app.extensions["db"].engine.dispose()
++
++
++def test_reset_refuses_non_sqlite_url():
++    with pytest.raises(ValueError, match="sqlite"):
++        run("postgresql://x/y", reset=True)
++
++
++def test_reseeding_same_sqlite_url_is_idempotent(tmp_path):
++    # The CLI's everyday-refresh path: `flask seed` run again against the same DATABASE_URL.
++    url = f"sqlite:///{(tmp_path / 'reseed.db').as_posix()}"
++    first = run(url, reset=True)
++    second = run(url, reset=True)
++    assert first == second

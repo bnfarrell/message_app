@@ -1,0 +1,369 @@
+# Review package: 04eff19..d3d0e8b
+
+## Commits
+d3d0e8b feat(server): PMS adapter interface, mock PMS driving check-ins/outs, idempotent event handling
+
+## Files changed
+ server/app/__init__.py           |  4 ++
+ server/app/pms/__init__.py       |  0
+ server/app/pms/base.py           | 55 +++++++++++++++++++++++
+ server/app/pms/handle_event.py   | 66 +++++++++++++++++++++++++++
+ server/app/pms/mock_pms.py       | 58 ++++++++++++++++++++++++
+ server/app/queue/handlers/pms.py | 16 +++++++
+ server/tests/test_pms.py         | 96 ++++++++++++++++++++++++++++++++++++++++
+ 7 files changed, 295 insertions(+)
+
+## Diff
+diff --git a/server/app/__init__.py b/server/app/__init__.py
+index 19f564a..66e38d2 100644
+--- a/server/app/__init__.py
++++ b/server/app/__init__.py
+@@ -57,20 +57,24 @@ def create_app(config: Config | None = None) -> Flask:
+ 
+     import os
+ 
+     from app.queue import jobs as _jobs
+     from app.queue.worker import Worker
+ 
+     _jobs.RECURRING["pms.tick"] = config.PMS_TICK_SECONDS or 0
+     if not config.PMS_TICK_SECONDS:
+         _jobs.RECURRING.pop("pms.tick", None)
+     app.extensions["worker"] = Worker(app)
++
++    from app.queue.handlers import pms as pms_handler
++
++    app.extensions["pms_adapter"] = pms_handler.adapter
+     under_reloader = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+     if config.START_WORKER and (under_reloader or config.is_production):
+         with app.extensions["db"].session() as db:
+             for job_type in _jobs.RECURRING:
+                 _jobs.ensure_recurring(db, job_type)
+         app.extensions["worker"].start()
+ 
+     from app.realtime.ws import sock, start_sweeper
+ 
+     sock.init_app(app)
+diff --git a/server/app/pms/__init__.py b/server/app/pms/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/server/app/pms/base.py b/server/app/pms/base.py
+new file mode 100644
+index 0000000..66d96ba
+--- /dev/null
++++ b/server/app/pms/base.py
+@@ -0,0 +1,55 @@
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from datetime import date
++from typing import Literal, Protocol
++
++from sqlalchemy.orm import Session
++
++from app.schemas.enums import StayStatus
++
++EventType = Literal["reservation.created", "stay.checked_in", "stay.checked_out", "stay.room_changed"]
++
++
++@dataclass
++class NormalizedGuest:
++    first_name: str | None
++    last_name: str | None
++    phone_e164: str
++    email: str | None = None
++    loyalty_tier: str | None = None
++    vip: bool = False
++    pms_profile_id: str | None = None
++
++
++@dataclass
++class NormalizedStay:
++    pms_reservation_id: str
++    room_number: str | None
++    room_type: str | None
++    rate_code: str | None
++    status: StayStatus
++    arrival_date: date
++    departure_date: date
++    adults: int = 1
++    children: int = 0
++    is_return_guest: bool = False
++    stay_count: int = 1
++
++
++@dataclass
++class PmsEvent:
++    external_id: str
++    type: EventType
++    property_id: str
++    guest: NormalizedGuest
++    stay: NormalizedStay
++    raw: dict = field(default_factory=dict)
++
++
++class PmsAdapter(Protocol):
++    integration_key: str
++
++    def fetch_in_house(self, db: Session, property_id: str) -> list[NormalizedStay]: ...
++
++    def next_events(self, db: Session, property_id: str) -> list[PmsEvent]: ...
+diff --git a/server/app/pms/handle_event.py b/server/app/pms/handle_event.py
+new file mode 100644
+index 0000000..3c05140
+--- /dev/null
++++ b/server/app/pms/handle_event.py
+@@ -0,0 +1,66 @@
++from __future__ import annotations
++
++from sqlalchemy import select
++from sqlalchemy.exc import IntegrityError
++from sqlalchemy.orm import Session
++
++from app import clock
++from app.domain import audit, guests
++from app.models import PmsEvent as PmsEventRow
++from app.models import Stay
++from app.pms.base import PmsEvent
++from app.realtime.broadcast import queue_event
++from app.schemas.enums import StayStatus
++
++
++def handle_event(db: Session, event: PmsEvent, integration_key: str = "mock") -> bool:
++    """Idempotent on (integration_key, external_id, event_type). Returns False for a duplicate.
++
++    Duplicate suppression is enforced at the DB level via
++    UniqueConstraint(integration_key, external_id, event_type) on pms_event, not just the SELECT
++    below — a concurrent replay races the SELECT, so the insert is retried inside a nested
++    transaction and an IntegrityError is treated as "already handled" (same pattern as
++    guests.find_or_create_by_phone).
++    """
++    dup = db.scalar(select(PmsEventRow.id).where(PmsEventRow.integration_key == integration_key,
++                                                 PmsEventRow.external_id == event.external_id,
++                                                 PmsEventRow.event_type == event.type))
++    if dup:
++        return False
++    try:
++        with db.begin_nested():
++            row = PmsEventRow(integration_key=integration_key, external_id=event.external_id,
++                              event_type=event.type, payload=event.raw)
++            db.add(row)
++            db.flush()
++    except IntegrityError:
++        return False
++
++    guest, created = guests.find_or_create_by_phone(db, event.property_id, event.guest.phone_e164)
++    for attr in ("first_name", "last_name", "email", "loyalty_tier", "vip", "pms_profile_id"):
++        value = getattr(event.guest, attr)
++        if value is not None:
++            setattr(guest, attr, value)
++
++    stay = db.scalar(select(Stay).where(Stay.property_id == event.property_id,
++                                        Stay.pms_reservation_id == event.stay.pms_reservation_id))
++    if stay is None:
++        stay = Stay(guest_id=guest.id, property_id=event.property_id, pms_reservation_id=event.stay.pms_reservation_id,
++                    arrival_date=event.stay.arrival_date, departure_date=event.stay.departure_date)
++        db.add(stay)
++    for attr in ("room_number", "room_type", "rate_code", "status", "arrival_date", "departure_date", "adults",
++                 "children", "is_return_guest", "stay_count"):
++        setattr(stay, attr, getattr(event.stay, attr))
++    stay.raw_pms = event.raw
++    now = clock.now()
++    if event.type == "stay.checked_in" and stay.actual_checkin_at is None:
++        stay.actual_checkin_at = now
++    if event.type == "stay.checked_out":
++        stay.status = StayStatus.checked_out
++        stay.actual_checkout_at = stay.actual_checkout_at or now
++    db.flush()
++    row.processed_at = now
++    audit.record(db, event.property_id, None, f"pms.{event.type}", "stay", stay.id,
++                 after={"external_id": event.external_id, "room": stay.room_number})
++    queue_event(db, event.property_id, "stay.updated", {"stayId": stay.id, "guestId": guest.id, "status": stay.status.value})
++    return True
+diff --git a/server/app/pms/mock_pms.py b/server/app/pms/mock_pms.py
+new file mode 100644
+index 0000000..2663a90
+--- /dev/null
++++ b/server/app/pms/mock_pms.py
+@@ -0,0 +1,58 @@
++"""Drives seeded stays through check-in and check-out so the inbox has a living hotel behind it."""
++from __future__ import annotations
++
++from sqlalchemy import select
++from sqlalchemy.orm import Session
++
++from app import clock
++from app.models import Guest, Stay
++from app.pms.base import NormalizedGuest, NormalizedStay, PmsEvent
++from app.schemas.enums import StayStatus
++
++
++class MockPmsAdapter:
++    integration_key = "mock"
++
++    def __init__(self):
++        self._flip = False
++
++    @staticmethod
++    def _event(stay: Stay, guest: Guest, type: str, status: StayStatus) -> PmsEvent:
++        return PmsEvent(
++            external_id=stay.pms_reservation_id or stay.id, type=type, property_id=stay.property_id,
++            guest=NormalizedGuest(first_name=guest.first_name, last_name=guest.last_name, phone_e164=guest.phone_e164,
++                                  email=guest.email, loyalty_tier=guest.loyalty_tier, vip=guest.vip,
++                                  pms_profile_id=guest.pms_profile_id),
++            stay=NormalizedStay(pms_reservation_id=stay.pms_reservation_id or stay.id, room_number=stay.room_number,
++                                room_type=stay.room_type, rate_code=stay.rate_code, status=status,
++                                arrival_date=stay.arrival_date, departure_date=stay.departure_date, adults=stay.adults,
++                                children=stay.children, is_return_guest=stay.is_return_guest, stay_count=stay.stay_count),
++            raw={"mock": True, "emitted_at": clock.now().isoformat()})
++
++    def event_for(self, db: Session, property_id: str, stay_id: str, type: str) -> PmsEvent | None:
++        stay = db.scalar(select(Stay).where(Stay.id == stay_id, Stay.property_id == property_id))
++        if stay is None:
++            return None
++        status = StayStatus.checked_in if type == "stay.checked_in" else StayStatus.checked_out
++        return self._event(stay, db.get(Guest, stay.guest_id), type, status)
++
++    def fetch_in_house(self, db: Session, property_id: str) -> list[NormalizedStay]:
++        rows = db.scalars(select(Stay).where(Stay.property_id == property_id, Stay.status == StayStatus.checked_in)).all()
++        return [self._event(s, db.get(Guest, s.guest_id), "stay.checked_in", StayStatus.checked_in).stay for s in rows]
++
++    def next_events(self, db: Session, property_id: str) -> list[PmsEvent]:
++        today = clock.now().date()
++        arrival = db.scalar(select(Stay).where(Stay.property_id == property_id, Stay.status == StayStatus.reserved,
++                                               Stay.arrival_date <= today).order_by(Stay.arrival_date).limit(1))
++        departure = db.scalar(select(Stay).where(Stay.property_id == property_id, Stay.status == StayStatus.checked_in,
++                                                 Stay.departure_date <= today).order_by(Stay.departure_date).limit(1))
++        self._flip = not self._flip
++        order = [arrival, departure] if self._flip else [departure, arrival]
++        for stay in order:
++            if stay is None:
++                continue
++            guest = db.get(Guest, stay.guest_id)
++            if stay.status == StayStatus.reserved:
++                return [self._event(stay, guest, "stay.checked_in", StayStatus.checked_in)]
++            return [self._event(stay, guest, "stay.checked_out", StayStatus.checked_out)]
++        return []
+diff --git a/server/app/queue/handlers/pms.py b/server/app/queue/handlers/pms.py
+new file mode 100644
+index 0000000..4c874e9
+--- /dev/null
++++ b/server/app/queue/handlers/pms.py
+@@ -0,0 +1,16 @@
++from sqlalchemy import select
++from sqlalchemy.orm import Session
++
++from app.models import Property
++from app.pms.handle_event import handle_event
++from app.pms.mock_pms import MockPmsAdapter
++from app.queue.handlers import handler
++
++adapter = MockPmsAdapter()
++
++
++@handler("pms.tick")
++def pms_tick(db: Session, payload: dict) -> None:
++    for pid in db.scalars(select(Property.id)).all():
++        for event in adapter.next_events(db, pid):
++            handle_event(db, event, integration_key=adapter.integration_key)
+diff --git a/server/tests/test_pms.py b/server/tests/test_pms.py
+new file mode 100644
+index 0000000..6f16cba
+--- /dev/null
++++ b/server/tests/test_pms.py
+@@ -0,0 +1,96 @@
++from datetime import date
++
++from sqlalchemy import select
++
++from app import clock
++from app.models import Guest, PmsEvent, Stay
++from app.pms.base import NormalizedGuest, NormalizedStay, PmsEvent as Ev
++from app.pms.handle_event import handle_event
++from app.pms.mock_pms import MockPmsAdapter
++from app.schemas.enums import SmsConsentStatus, StayStatus
++
++
++def _event(fx, eid="R-1", type="stay.checked_in", phone="+15553334444", room="515"):
++    today = clock.now().date()
++    return Ev(external_id=eid, type=type, property_id=fx.property_a.id,
++              guest=NormalizedGuest(first_name="Tom", last_name="Becker", phone_e164=phone, email=None,
++                                    loyalty_tier="Silver", vip=False, pms_profile_id="P-9"),
++              stay=NormalizedStay(pms_reservation_id=eid, room_number=room, room_type="Queen", rate_code="BAR",
++                                  status=StayStatus.checked_in, arrival_date=today,
++                                  departure_date=date.fromordinal(today.toordinal() + 2), adults=1, children=0,
++                                  is_return_guest=False, stay_count=1),
++              raw={"source": "test"})
++
++
++def test_check_in_upserts_guest_and_stay(app, fx, database):
++    with database.session() as db:
++        assert handle_event(db, _event(fx)) is True
++        g = db.scalar(select(Guest).where(Guest.phone_e164 == "+15553334444"))
++        assert g.first_name == "Tom" and g.loyalty_tier == "Silver" and g.pms_profile_id == "P-9"
++        s = db.scalar(select(Stay).where(Stay.pms_reservation_id == "R-1"))
++        assert s.status == StayStatus.checked_in and s.room_number == "515" and s.actual_checkin_at is not None
++        assert s.raw_pms == {"source": "test"}
++
++
++def test_duplicate_event_is_ignored(app, fx, database):
++    with database.session() as db:
++        assert handle_event(db, _event(fx)) is True
++        assert handle_event(db, _event(fx)) is False
++        assert len(db.scalars(select(Stay)).all()) == 3  # 2 fixture stays + 1
++        assert len(db.scalars(select(PmsEvent)).all()) == 1
++
++
++def test_check_out_updates_existing_stay_and_does_not_reopen_consent(app, fx, database):
++    with database.session() as db:
++        handle_event(db, _event(fx))
++        ev = _event(fx, eid="R-1", type="stay.checked_out")
++        ev.stay.status = StayStatus.checked_out
++        assert handle_event(db, ev) is True
++        s = db.scalar(select(Stay).where(Stay.pms_reservation_id == "R-1"))
++        assert s.status == StayStatus.checked_out and s.actual_checkout_at is not None
++
++
++def test_mock_adapter_checks_in_arrivals_then_checks_out_departures(app, fx, database):
++    today = clock.now().date()
++    with database.session() as db:
++        g = Guest(property_id=fx.property_a.id, first_name="Arriving", last_name="Guest", phone_e164="+15550009999")
++        db.add(g); db.flush()
++        db.add(Stay(guest_id=g.id, property_id=fx.property_a.id, pms_reservation_id="R-ARR", room_number="222",
++                    status=StayStatus.reserved, arrival_date=today, departure_date=date.fromordinal(today.toordinal() + 1)))
++        fx_stay = db.get(Stay, fx.stay_inhouse_a.id)
++        fx_stay.departure_date = today  # Sarah departs today
++    adapter = MockPmsAdapter()
++    with database.session() as db:
++        events = adapter.next_events(db, fx.property_a.id)
++        assert [e.type for e in events] == ["stay.checked_in"] and events[0].stay.pms_reservation_id == "R-ARR"
++        for e in events:
++            handle_event(db, e)
++    with database.session() as db:
++        events = adapter.next_events(db, fx.property_a.id)
++        assert [e.type for e in events] == ["stay.checked_out"] and events[0].stay.pms_reservation_id == "RES-412"
++        for e in events:
++            handle_event(db, e)
++        assert db.get(Stay, fx.stay_inhouse_a.id).status == StayStatus.checked_out
++
++
++def test_check_in_does_not_reopen_consent_for_opted_out_sms_guest(app, fx, database):
++    """A guest who texted STOP before the PMS ever reported the reservation must stay opted out,
++    and the PMS check-in must merge onto that guest rather than creating a duplicate."""
++    phone = "+15556660000"
++    with database.session() as db:
++        g = Guest(property_id=fx.property_a.id, first_name=None, last_name=None, phone_e164=phone,
++                  sms_consent_status=SmsConsentStatus.opted_out, sms_consent_at=clock.now(),
++                  sms_consent_source="sms_keyword")
++        db.add(g); db.flush()
++        guest_id = g.id
++
++    with database.session() as db:
++        ev = _event(fx, eid="R-STOP", phone=phone)
++        assert handle_event(db, ev) is True
++        guests = db.scalars(select(Guest).where(Guest.property_id == fx.property_a.id,
++                                                Guest.phone_e164 == phone)).all()
++        assert len(guests) == 1
++        g = guests[0]
++        assert g.id == guest_id
++        assert g.first_name == "Tom"  # PMS profile data merged in
++        assert g.sms_consent_status == SmsConsentStatus.opted_out  # untouched by the merge

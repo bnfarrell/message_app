@@ -1,0 +1,108 @@
+# Review package: 95f66f7..58877de
+
+## Commits
+58877de fix(server): review round 1 — ASCII output, test isolation, README wording
+
+## Files changed
+ README.md                      | 2 +-
+ server/dev_start.py            | 2 +-
+ server/tests/test_dev_start.py | 6 ++++--
+ 3 files changed, 6 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/README.md b/README.md
+index a35c807..ab4fe95 100644
+--- a/README.md
++++ b/README.md
+@@ -14,21 +14,21 @@ Double-click `start.bat` at the repo root. It creates `server/data/`, runs migra
+ database only if it's empty, then starts the server with the job worker and SLA sweep running. It's safe to
+ double-click again — it will not re-seed over existing data. It requires the venv below to already exist; if
+ it doesn't, `start.bat` prints a message telling you to create it first.
+ 
+ ## Setup (Windows / macOS / Linux)
+ ```bash
+ python -m venv .venv
+ # Windows Git Bash: . .venv/Scripts/activate   PowerShell: .venv\Scripts\Activate.ps1   macOS/Linux: . .venv/bin/activate
+ cd server && pip install -e ".[dev]" && cd ..
+ cp server/.env.example server/.env
+-npm run seed          # creates server/data/app.db with realistic data
++npm run seed          # wipes and recreates server/data/app.db with realistic data
+ npm run server        # http://127.0.0.1:5000  (API + WebSocket + job worker)
+ npm run test:server   # pytest, including the §11.1 acceptance suite
+ ```
+ Note: npm ≥ 11.19 blocks package install scripts by default; the server has no native dependencies, so this
+ does not affect the Python side. If a Node package needs its install script, run `npm install-scripts approve <pkg>`.
+ 
+ ## Seeded logins (password for all: `Password123!`)
+ | Email | Role | Lands on |
+ |---|---|---|
+ | ava@hvh.test, marcus@hvh.test, jordan@hvh.test | agent | Inbox |
+diff --git a/server/dev_start.py b/server/dev_start.py
+index f2240e2..a4788a2 100644
+--- a/server/dev_start.py
++++ b/server/dev_start.py
+@@ -85,21 +85,21 @@ def main() -> int:
+ 
+     print(f"Preparing {cfg.DATABASE_URL} ...")
+     seeded, summary = prepare(cfg.DATABASE_URL)
+     if seeded:
+         print(f"Seeded {summary.properties} properties, {summary.users} users, "
+               f"{summary.guests} guests, "
+               f"{summary.stays} stays, {summary.conversations} conversations, "
+               f"{summary.messages} messages, "
+               f"{summary.work_orders} work orders.")
+     else:
+-        print("Database already has data — skipping seed.")
++        print("Database already has data, skipping seed.")
+ 
+     port = int(os.getenv("PORT", "5000"))
+     print(f"\nStarting server at http://127.0.0.1:{port}")
+     print(f"Log in as {SEEDED_EMAIL} / {SEEDED_PASSWORD}\n")
+ 
+     from app import create_app
+ 
+     app = create_app(cfg)
+     app.run(host="127.0.0.1", port=port, debug=not cfg.is_production, threaded=True)
+     return 0
+diff --git a/server/tests/test_dev_start.py b/server/tests/test_dev_start.py
+index 1cfa5e6..ef32f4c 100644
+--- a/server/tests/test_dev_start.py
++++ b/server/tests/test_dev_start.py
+@@ -30,33 +30,35 @@ def test_resolve_database_url_ignores_process_cwd(tmp_path, monkeypatch):
+     # This is the whole point of the function: the reloader can respawn this launcher with a
+     # different cwd than it started with, and the resolved sqlite path must not move with it.
+     monkeypatch.setattr(dev_start, "SERVER_DIR", tmp_path)
+     elsewhere = tmp_path / "elsewhere"
+     elsewhere.mkdir()
+     monkeypatch.chdir(elsewhere)
+     resolved = dev_start.resolve_database_url("sqlite:///data/app.db")
+     assert resolved == f"sqlite:///{(tmp_path / 'data' / 'app.db').resolve().as_posix()}"
+ 
+ 
+-def test_is_db_empty_before_and_after_migration_and_seed(tmp_path):
++def test_is_db_empty_before_and_after_migration_and_seed(tmp_path, monkeypatch):
++    monkeypatch.setattr(dev_start, "SERVER_DIR", tmp_path)
+     url = f"sqlite:///{(tmp_path / 'app.db').as_posix()}"
+     # no file yet: Database() creates it lazily, table absent -> empty
+     assert dev_start.is_db_empty(url)
+     seeded, summary = dev_start.prepare(url)
+     assert seeded is True
+     assert summary.properties > 0
+     assert not dev_start.is_db_empty(url)
+ 
+ 
+-def test_prepare_is_idempotent_and_never_reseeds_over_existing_data(tmp_path):
++def test_prepare_is_idempotent_and_never_reseeds_over_existing_data(tmp_path, monkeypatch):
+     # This is the launcher's core safety property: running it twice (e.g. double-clicking
+     # start.bat again) must not duplicate seeded rows.
++    monkeypatch.setattr(dev_start, "SERVER_DIR", tmp_path)
+     url = f"sqlite:///{(tmp_path / 'app.db').as_posix()}"
+     first_seeded, first_summary = dev_start.prepare(url)
+     second_seeded, second_summary = dev_start.prepare(url)
+ 
+     assert first_seeded is True
+     assert second_seeded is False
+     assert second_summary is None
+ 
+     db = Database(url)
+     with db.session() as session:
