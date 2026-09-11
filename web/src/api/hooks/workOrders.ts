@@ -7,6 +7,7 @@ import type {
   WorkOrderDetail,
   WorkOrderOut,
   WorkOrderPatch,
+  WorkOrderPhotoOut,
   WorkOrderPrefill,
 } from '../types'
 
@@ -71,6 +72,26 @@ export function useCreateWorkOrder() {
           queryKey: qk.conversation(propertyId, created.sourceConversationId),
         })
       }
+    },
+  })
+}
+
+export function useUploadWorkOrderPhoto(id: string) {
+  const { propertyId } = useSession()
+  const client = useQueryClient()
+  return useMutation<WorkOrderPhotoOut, ApiError, { file: File; kind: 'before' | 'after' }>({
+    mutationFn: ({ file, kind }) => {
+      const form = new FormData()
+      form.set('photo', file)
+      form.set('kind', kind)
+      // No Content-Type here — the browser sets the multipart boundary itself.
+      return api<WorkOrderPhotoOut>(propertyPath(propertyId, `work-orders/${id}/photos`), {
+        method: 'POST',
+        body: form,
+      })
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: qk.workOrder(propertyId, id) })
     },
   })
 }

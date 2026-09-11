@@ -106,6 +106,20 @@ describe('WorkOrderDetailPage', () => {
     expect(items[1]).toHaveTextContent('created')
   })
 
+  // G1's new event type. The generic "type → toValue" phrasing every other event uses would
+  // read as "photo attached → after"; the mockup's own wording is "after photo attached".
+  it('phrases a photo_attached event naturally, matching the mockup', async () => {
+    serve(
+      aWorkOrderDetail({
+        events: [
+          { id: 'e1', type: 'photo_attached', userId: 'u-eli', userName: 'Eli', fromValue: null, toValue: 'after', comment: null, createdAt: '2026-09-10T18:56:00Z' },
+        ],
+      }),
+    )
+    mount()
+    expect(await screen.findByText('after photo attached')).toBeInTheDocument()
+  })
+
   it('shows a transition comment in the timeline', async () => {
     serve(
       aWorkOrderDetail({

@@ -13,14 +13,18 @@ type PydanticError = { loc?: unknown[]; msg?: string }
  * same wording for the same failure, and a new form gets it for free.
  *
  * These are every code `server/app/` raises today — `app/domain/_patch.py` (`required`),
- * `app/domain/guests.py` (`invalid_phone_number`) and `app/domain/properties.py`
- * (`invalid_timezone`). An unlisted code falls through **verbatim** rather than being swallowed or
- * replaced by a generic apology: a code on screen is ugly but actionable, and it names the gap.
+ * `app/domain/guests.py` (`invalid_phone_number`), `app/domain/properties.py`
+ * (`invalid_timezone`), and `app/api/work_orders.py`'s photo upload (`file_too_large`,
+ * `unsupported_image_type`). An unlisted code falls through **verbatim** rather than being
+ * swallowed or replaced by a generic apology: a code on screen is ugly but actionable, and it
+ * names the gap.
  */
 const REASON_COPY: Record<string, string> = {
   required: 'This field is required.',
   invalid_phone_number: 'Enter a valid phone number, for example +1 555 012 3456.',
   invalid_timezone: 'Not a recognised IANA time zone.',
+  file_too_large: 'That photo is over 8 MB. Choose a smaller one.',
+  unsupported_image_type: 'Only JPEG, PNG or WebP photos are accepted.',
 }
 
 /**

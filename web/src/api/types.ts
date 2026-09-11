@@ -18,6 +18,6 @@ export type {
   SendMessageRequest, SessionOut, SimEvent, SimGuest, SmsConsentStatus,
   StaffPatch, StaffUserOut, StayOut, StayStatus, UnreadCount, UserOut,
   WorkOrderBrief, WorkOrderDetail, WorkOrderEventOut, WorkOrderEventType,
-  WorkOrderListQuery, WorkOrderOut, WorkOrderPatch, WorkOrderPrefill,
-  WorkOrderStatus, WorkOrderType,
+  WorkOrderListQuery, WorkOrderOut, WorkOrderPatch, WorkOrderPhotoKind,
+  WorkOrderPhotoOut, WorkOrderPrefill, WorkOrderStatus, WorkOrderType,
 } from './types.generated'

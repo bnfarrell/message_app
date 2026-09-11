@@ -2,11 +2,20 @@ import type { ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useWorkOrder } from '../../api/hooks/workOrders'
 import { useDepartments, useStaff } from '../../api/hooks/users'
+import type { WorkOrderEventOut } from '../../api/types'
 import { Avatar, Badge, EmptyState, Spinner } from '../../components/ui'
 import { formatClock, formatDuration } from '../../lib/time'
 import { CommentBox } from './CommentBox'
+import { PhotoPanel } from './PhotoPanel'
 import { PRIORITY_TONE, STATUS_LABELS } from './transitions'
 import { TransitionButtons } from './TransitionButtons'
+
+/** Every other event type reads as "type → toValue"; photo_attached reads more naturally as
+ * "before/after photo attached", matching the mockup's "Eli · after photo attached · 18:56". */
+function eventTitle(event: WorkOrderEventOut): string {
+  if (event.type === 'photo_attached') return `${event.toValue ?? ''} photo attached`.trim()
+  return `${event.type.replace('_', ' ')}${event.toValue ? ` → ${event.toValue.replace('_', ' ')}` : ''}`
+}
 
 function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -101,6 +110,8 @@ export function WorkOrderDetailPage() {
               </p>
             ) : null}
           </section>
+
+          <PhotoPanel workOrderId={data.id} photos={data.photos} />
         </div>
 
         <div className="flex flex-col gap-4">
@@ -113,10 +124,7 @@ export function WorkOrderDetailPage() {
                 {/* Newest first: the last thing that happened is what a reader wants. */}
                 {[...data.events].reverse().map((event) => (
                   <li key={event.id} className="border-l-2 border-border2 pl-3">
-                    <p className="text-[13px] font-semibold">
-                      {event.type.replace('_', ' ')}
-                      {event.toValue ? ` → ${event.toValue.replace('_', ' ')}` : ''}
-                    </p>
+                    <p className="text-[13px] font-semibold">{eventTitle(event)}</p>
                     <p className="text-xs text-text3">
                       {[event.userName, formatClock(event.createdAt)].filter(Boolean).join(' · ')}
                     </p>

@@ -13,6 +13,7 @@ import type {
   StayOut,
   WorkOrderDetail,
   WorkOrderOut,
+  WorkOrderPhotoOut,
 } from '../api/types'
 
 export function aGuest(over: Partial<GuestOut> = {}): GuestOut {
@@ -163,6 +164,21 @@ export function aWorkOrder(over: Partial<WorkOrderOut> = {}): WorkOrderOut {
 
 export function aWorkOrderDetail(over: Partial<WorkOrderDetail> = {}): WorkOrderDetail {
   return { ...aWorkOrder(), events: [], photos: [], guestName: 'Sarah Chen', roomNumber: '412', ...over }
+}
+
+export function aWorkOrderPhoto(over: Partial<WorkOrderPhotoOut> = {}): WorkOrderPhotoOut {
+  return {
+    id: 'photo-1',
+    workOrderId: 'w-204',
+    kind: 'before',
+    contentType: 'image/png',
+    byteSize: 48213,
+    uploadedByUserId: 'u-eli',
+    uploadedByName: 'Eli Engineer',
+    url: '/api/p/prop-a/work-orders/w-204/photos/photo-1',
+    createdAt: '2026-09-10T18:47:00Z',
+    ...over,
+  }
 }
 
 export function aDepartment(over: Partial<DepartmentOut> = {}): DepartmentOut {
