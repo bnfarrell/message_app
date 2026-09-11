@@ -92,6 +92,20 @@ export function DepartmentsAdmin() {
     setSelected(null)
   }
 
+  /**
+   * Editing a field is the admin acting on the refusal, so the refusal stops being the news.
+   *
+   * The delete guard's message tells them to clear Active instead; leaving the 409 banner up while
+   * they do exactly that shows a complaint about deleting over a panel that is now about saving.
+   * Only the delete failure is cleared — a create/patch failure is pinned to the field the admin
+   * is still fixing, and clearing that on the first keystroke would take the field error with it.
+   */
+  function edit(change: Partial<Draft>) {
+    if (!draft) return
+    if (remove.error) remove.reset()
+    setDraft({ ...draft, ...change })
+  }
+
   function open(department: DepartmentOut) {
     clearFailures()
     setSelected(department)
@@ -166,13 +180,13 @@ export function DepartmentsAdmin() {
           <div>
             <label className={LABEL} htmlFor="dept-name">Name</label>
             <Input id="dept-name" value={draft.name} maxLength={100}
-                   onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+                   onChange={(e) => edit({ name: e.target.value })} />
             <FieldError message={fields.name} />
           </div>
           <div>
             <label className={LABEL} htmlFor="dept-type">Type</label>
             <select id="dept-type" className={SELECT} value={draft.type}
-                    onChange={(e) => setDraft({ ...draft, type: e.target.value as DepartmentType })}>
+                    onChange={(e) => edit({ type: e.target.value as DepartmentType })}>
               {(Object.keys(TYPE_LABELS) as DepartmentType[]).map((type) => (
                 <option key={type} value={type}>{TYPE_LABELS[type]}</option>
               ))}
@@ -181,7 +195,7 @@ export function DepartmentsAdmin() {
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={draft.active}
-                   onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />
+                   onChange={(e) => edit({ active: e.target.checked })} />
             Active
           </label>
           {/* The escape hatch the delete guard's message points at: a department that is still

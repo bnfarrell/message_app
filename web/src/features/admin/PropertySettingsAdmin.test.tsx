@@ -115,6 +115,36 @@ describe('PropertySettingsAdmin', () => {
     expect(JSON.parse(String(patched()[0]![1]!.body)).address).toBeNull()
   })
 
+  it('clears a REQUIRED box to null too, so the admin reads copy rather than a raw regex', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.clear(await screen.findByLabelText('Currency'))
+    serve((_url, init) =>
+      init?.method === 'PATCH'
+        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: currency',
+                          details: { currency: 'required' } } }, 400)
+        : null,
+    )
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    // `""` fails in Pydantic and the admin reads "String should match pattern ^[A-Za-z]{3}$".
+    // `null` reaches patch_changes instead, which answers `required` — a code the shared map
+    // already words. The server half of this is pinned by
+    // server/tests/test_property_settings.py::test_patch_settings_rejects_an_explicit_null_on_a_required_field,
+    // which asserts {"currency": null} -> 400 details {"currency": "required"} for real.
+    expect(JSON.parse(String(patched()[0]![1]!.body)).currency).toBeNull()
+    const message = await screen.findByText('This field is required.')
+    expect(message.parentElement).toContainElement(screen.getByLabelText('Currency'))
+  })
+
+  it('clears an emptied name to null as well, not to an empty string', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.clear(await screen.findByLabelText('Property name'))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(JSON.parse(String(patched()[0]![1]!.body)).name).toBeNull()
+  })
+
   it('offers the stored zone as a real option even when the browser list omits it', async () => {
     const original = Intl.supportedValuesOf
     // A browser with no supportedValuesOf falls back to a short list, and this zone is

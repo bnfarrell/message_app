@@ -29,8 +29,10 @@ const FALLBACK_ZONES = [
 ]
 
 /**
- * `timezone` is validated server-side against IANA zones and a typo is a 422 the admin cannot act
- * on, so it is a picker rather than a text box.
+ * `timezone` is validated server-side against IANA zones and a typo is refused, so it is a picker
+ * rather than a text box. (A **400**, not a 422: `normalize_timezone` raises `ValidationFailed`,
+ * whose `status` is 400 — server/app/errors.py. Nothing here branches on the status, but the
+ * wrong number in a comment is how a `status === 422` branch that never fires gets written.)
  *
  * The stored value is always included even when the list does not carry it. Without that, a zone
  * this browser has never heard of would leave the select showing its *first* option while the
@@ -81,16 +83,26 @@ function draftFrom(s: PropertySettingsOut): Draft {
   }
 }
 
-/** An emptied nullable box clears the column; `""` would store an empty string instead of null. */
+/**
+ * An emptied box sends `null`, never `""`.
+ *
+ * For a nullable column that is the difference between clearing it and storing an empty string.
+ * For the two REQUIRED text fields — `name` and `currency`, both `nullable=False` on `Property` —
+ * it decides which error the admin reads: `""` fails in Pydantic and reports its own wording, so
+ * an emptied Currency box answered with the raw `String should match pattern ^[A-Za-z]{3}$`. Sent
+ * as `null` it reaches `patch_changes` instead, which raises the `required` reason code that the
+ * shared normaliser already words as "This field is required." Nothing is lost: the server still
+ * refuses the edit either way, and still names the field.
+ */
 const orNull = (value: string) => (value.trim() === '' ? null : value)
 /** An emptied required number sends null, which the server answers with "required" per field. */
 const orNullNumber = (value: string) => (value.trim() === '' ? null : Number(value))
 
 function patchFrom(draft: Draft): PropertySettingsPatch {
   return {
-    name: draft.name,
+    name: orNull(draft.name),
     timezone: draft.timezone,
-    currency: draft.currency,
+    currency: orNull(draft.currency),
     address: orNull(draft.address),
     phone: orNull(draft.phone),
     smsNumber: orNull(draft.smsNumber),

@@ -55,10 +55,17 @@ describe('DepartmentsAdmin', () => {
 
   it('lists departments with a human type label, not the raw enum value', async () => {
     mount()
-    expect(await screen.findByText('Maintenance')).toBeInTheDocument()
-    expect(screen.getByText('Maintenance')).toBeInTheDocument() // the type of the row above
-    expect(screen.getByText('Front desk')).toBeInTheDocument()
+    // Name in column 1, the *labelled* type in column 2. The fixture names are deliberately unlike
+    // their own type labels, so each assertion can only pass for the reason it states — the
+    // previous version re-asserted the name here and could never have failed for the type.
+    await screen.findByText('Maintenance')
+    const rows = screen.getAllByRole('row').slice(1) as HTMLTableRowElement[]
+    const [maintenance, reception] = rows
+    expect(maintenance!.cells[0]).toHaveTextContent('Maintenance')
+    expect(maintenance!.cells[1]).toHaveTextContent('Engineering')
+    expect(reception!.cells[1]).toHaveTextContent('Front desk')
     expect(screen.queryByText('front_desk')).not.toBeInTheDocument()
+    expect(screen.queryByText('engineering')).not.toBeInTheDocument()
   })
 
   it('creates a department, defaulting the type to other rather than to a routing role', async () => {
@@ -145,6 +152,26 @@ describe('DepartmentsAdmin', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(conflict)
     // The panel must stay open — the escape hatch it points at is the Active box inside it.
     expect(screen.getByLabelText('Active')).toBeInTheDocument()
+  })
+
+  it('drops the refused-delete banner once the admin starts following its advice', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByText('Maintenance'))
+    serve((_url, init) =>
+      init?.method === 'DELETE'
+        ? json({ error: { code: 'CONFLICT', message: 'Reassign the work orders … first, or ' +
+                                   'deactivate the department instead' } }, 409)
+        : null,
+    )
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+    await screen.findByRole('alert')
+
+    // Unchecking Active is precisely what the refusal told them to do. Leaving a complaint about
+    // deleting on screen while they do it describes an action the panel is no longer performing.
+    await user.click(screen.getByLabelText('Active'))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('pins a field-level 400 to the input that caused it', async () => {
