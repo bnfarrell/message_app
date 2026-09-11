@@ -7,16 +7,26 @@ import { Button, Dropdown } from '../../components/ui'
 import { ArchiveDialog } from './ArchiveDialog'
 import { CreateWorkOrderModal } from './CreateWorkOrderModal'
 
-function snoozePresets(now: Date): { label: string; at: Date }[] {
-  const hour = (n: number) => new Date(now.getTime() + n * 3600_000)
-  const tomorrow9 = new Date(now)
-  tomorrow9.setDate(tomorrow9.getDate() + 1)
-  tomorrow9.setHours(9, 0, 0, 0)
-  return [
-    { label: '1 hour', at: hour(1) },
-    { label: '4 hours', at: hour(4) },
-    { label: 'Tomorrow 9 am', at: tomorrow9 },
-  ]
+type SnoozePreset = { label: string; hours: number } | { label: string; tomorrow9am: true }
+
+const SNOOZE_PRESETS: SnoozePreset[] = [
+  { label: '1 hour', hours: 1 },
+  { label: '4 hours', hours: 4 },
+  { label: 'Tomorrow 9 am', tomorrow9am: true },
+]
+
+// Computed fresh at the moment of the click — a preset must mean "N hours from now",
+// not "N hours from whenever this conversation happened to be opened". An agent can sit
+// on a conversation for a shift; a snoozedUntil computed from mount time could already be
+// in the past by the time they click, snapping the conversation straight back out of snooze.
+function snoozeTarget(preset: SnoozePreset): Date {
+  if ('tomorrow9am' in preset) {
+    const at = new Date()
+    at.setDate(at.getDate() + 1)
+    at.setHours(9, 0, 0, 0)
+    return at
+  }
+  return new Date(Date.now() + preset.hours * 3600_000)
 }
 
 const ITEM = 'flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface2'
@@ -28,9 +38,6 @@ export function ConversationActions({ conversation }: { conversation: Conversati
   const { data: departments } = useDepartments()
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [woOpen, setWoOpen] = useState(false)
-  // Captured once, not recomputed on every Dropdown re-render, so "1 hour" means an hour
-  // from when this view opened, not from whenever the menu happens to redraw.
-  const [now] = useState(() => new Date())
 
   return (
     <div className="flex items-center gap-2">
@@ -86,14 +93,14 @@ export function ConversationActions({ conversation }: { conversation: Conversati
         <Dropdown label="Snooze" align="right">
           {(close) => (
             <>
-              {snoozePresets(now).map((preset) => (
+              {SNOOZE_PRESETS.map((preset) => (
                 <button
                   key={preset.label}
                   role="menuitem"
                   className={ITEM}
                   onClick={() => {
                     close()
-                    patch.mutate({ snoozedUntil: preset.at.toISOString() })
+                    patch.mutate({ snoozedUntil: snoozeTarget(preset).toISOString() })
                   }}
                 >
                   {preset.label}

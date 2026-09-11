@@ -50,13 +50,19 @@ export function CreateWorkOrderModal({
     setForm((current) => (current ? { ...current, [key]: value } : current))
   }
 
+  // Any non-success dismissal (Cancel, Escape, backdrop) drops the edited draft so a
+  // reopen re-seeds from a fresh prefill rather than showing a stale session's edits.
+  function handleClose() {
+    setForm(null)
+    onClose()
+  }
+
   function submit() {
     if (!form || !form.title.trim()) return
     create.mutate(form, {
       onSuccess: (created) => {
         toast(`Work order #${created.id} created`)
-        setForm(null)
-        onClose()
+        handleClose()
       },
     })
   }
@@ -64,12 +70,12 @@ export function CreateWorkOrderModal({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title="Create work order"
       wide
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={handleClose}>Cancel</Button>
           <Button variant="primary" loading={create.isPending} onClick={submit}>
             Create
           </Button>

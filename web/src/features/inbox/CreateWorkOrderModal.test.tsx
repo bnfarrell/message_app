@@ -1,5 +1,6 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionProvider } from '../../auth/SessionContext'
 import { ToastProvider } from '../../components/ui'
@@ -127,5 +128,34 @@ describe('CreateWorkOrderModal', () => {
     await userEvent.click(screen.getByRole('button', { name: /create/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Not allowed')
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('resets the edited draft on Cancel, so a reopen re-seeds from a fresh prefill', async () => {
+    // The real ConversationActions keeps this modal mounted permanently and only toggles
+    // `open`, so a wrapper that does the same is the only way to exercise a genuine reopen.
+    function Wrapper() {
+      const [open, setOpen] = useState(true)
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Reopen</button>
+          <CreateWorkOrderModal conversationId="c-1" open={open} onClose={() => setOpen(false)} />
+        </>
+      )
+    }
+    renderWithProviders(
+      <SessionProvider>
+        <ToastProvider>
+          <Wrapper />
+        </ToastProvider>
+      </SessionProvider>,
+      { session: sessionFixture({ role: 'agent' }) },
+    )
+    const title = await screen.findByLabelText('Title')
+    await waitFor(() => expect(title).toHaveValue('AC not cooling'))
+    await userEvent.clear(title)
+    await userEvent.type(title, 'Something the agent typed and abandoned')
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    await userEvent.click(screen.getByRole('button', { name: /reopen/i }))
+    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('AC not cooling'))
   })
 })
