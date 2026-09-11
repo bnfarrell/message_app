@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { cn } from '../../lib/cn'
 
 type Toast = { id: number; message: string; tone: 'ok' | 'danger' }
@@ -13,11 +21,24 @@ export function useToast() {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>())
+
+  useEffect(() => {
+    const pending = timers.current
+    return () => {
+      pending.forEach((timer) => clearTimeout(timer))
+      pending.clear()
+    }
+  }, [])
 
   const push = useCallback((message: string, tone: 'ok' | 'danger' = 'ok') => {
     const id = Date.now() + Math.random()
     setToasts((current) => [...current, { id, message, tone }])
-    setTimeout(() => setToasts((current) => current.filter((t) => t.id !== id)), 5000)
+    const timer = setTimeout(() => {
+      timers.current.delete(timer)
+      setToasts((current) => current.filter((t) => t.id !== id))
+    }, 5000)
+    timers.current.add(timer)
   }, [])
 
   return (

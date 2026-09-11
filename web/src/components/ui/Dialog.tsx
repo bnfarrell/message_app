@@ -19,6 +19,14 @@ export function Dialog({
 }) {
   const panel = useRef<HTMLDivElement>(null)
   const restoreTo = useRef<Element | null>(null)
+  // Callers typically pass a fresh onClose identity every render (onClose={() => setOpen(false)}).
+  // Keep the latest one in a ref so the focus-management effect below can depend on [open] only —
+  // otherwise every parent re-render would replay the capture-and-focus logic and steal focus back.
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   useEffect(() => {
     if (!open) return
@@ -31,7 +39,7 @@ export function Dialog({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.stopPropagation()
-        onClose()
+        onCloseRef.current()
       }
     }
     document.addEventListener('keydown', onKeyDown)
@@ -39,7 +47,7 @@ export function Dialog({
       document.removeEventListener('keydown', onKeyDown)
       ;(restoreTo.current as HTMLElement | null)?.focus?.()
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
 
