@@ -53,6 +53,9 @@ export function QuickReplyPalette({
         event.preventDefault()
         setIndex((i) => Math.max(i - 1, 0))
       } else if (event.key === 'Enter') {
+        // Ctrl/Cmd+Enter is the composer's send. Picking as well would fire a render whose
+        // result lands in the box the send just emptied, as a template nobody asked for.
+        if (event.ctrlKey || event.metaKey) return
         const picked = matches[index]
         if (picked) {
           event.preventDefault()

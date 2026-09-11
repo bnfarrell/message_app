@@ -74,9 +74,16 @@ export function Composer({
   function submit() {
     const trimmed = body.trim()
     if (!trimmed || pending) return
+    // Otherwise a palette forced open over a draft that was never typed into (a prompt
+    // draft, an asset link) would still be open over the emptied box afterwards.
+    setPaletteForced(false)
     if (noteMode) {
       addNote.mutate({ body: trimmed }, { onError: () => setBody(trimmed) })
       setBody('')
+      // Both are outbound-SMS attribution and neither travelled with the note, so leaving
+      // them armed would attach them to whatever is sent next instead.
+      setAssetId(null)
+      setDraftPromptId(null)
       return
     }
     // A quick reply still resolving (or one that failed) must never let the raw
@@ -180,10 +187,20 @@ export function Composer({
           }
           // `cn` concatenates, it does not resolve Tailwind conflicts, and the palette's
           // own source order otherwise lets Textarea's bg-surface2/text-text win here.
-          className={noteMode ? '!border-noteBorder !bg-noteBg !text-noteText' : undefined}
+          // focus:!border-accent must be important too: Textarea's only focus affordance is
+          // that border (it sets focus:outline-none), and a plain one loses to !border-noteBorder.
+          className={
+            noteMode
+              ? '!border-noteBorder focus:!border-accent !bg-noteBg !text-noteText'
+              : undefined
+          }
           onChange={(event) => {
             setBody(event.target.value)
             setPaletteDismissed(false)
+            // A forced-open palette has no term, so it never narrows as you type and its
+            // document-level Enter handler would swallow a newline and overwrite the draft
+            // with a template. Typing releases it; the '/' path re-opens on its own terms.
+            setPaletteForced(false)
           }}
           onFocus={() => setPresence(conversationId, 'composing')}
           onBlur={() => setPresence(conversationId, 'viewing')}

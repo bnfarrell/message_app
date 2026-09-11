@@ -108,6 +108,20 @@ describe('GuestPanel', () => {
     await waitFor(() => expect(screen.getByText('Previous stays').parentElement).toHaveTextContent('None'))
   })
 
+  // Fix round 1: a failed lookup rendered "None", which is the answer for a first-time
+  // guest — the opposite of "we do not know".
+  it('says so when the stay history cannot be loaded, rather than None', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: 'SERVER_ERROR', message: 'boom' } }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    mount()
+    expect(await screen.findByText('Stay history unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Previous stays').parentElement).not.toHaveTextContent('None')
+  })
+
   // GET /guests/<id> is gated server-side on view_all_conversations, which dept_staff
   // lacks — showing the section would only produce a 403.
   it('hides the section, and asks for nothing, for a role without view_all_conversations', async () => {

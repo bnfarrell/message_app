@@ -142,7 +142,11 @@ export function GuestPanel({ conversation }: { conversation: ConversationDetail 
 
       {canSeeHistory ? (
         <Section title="Previous stays">
-          {guestDetail.isPending ? null : previousStays.length === 0 ? (
+          {/* The only fallible section in this panel: everything else renders from props.
+              A failed lookup must not read as "first-time guest" — the two are opposites. */}
+          {guestDetail.error ? (
+            <p className="text-xs text-dangerText">Stay history unavailable</p>
+          ) : guestDetail.isPending ? null : previousStays.length === 0 ? (
             <p className="text-xs text-text3">None</p>
           ) : (
             <ul className="flex flex-col gap-1.5">

@@ -415,6 +415,72 @@ describe('Composer', () => {
     expect(box).toHaveValue('Half a sentence')
   })
 
+  // Fix round 1: a forced-open palette has no term, so it never narrowed as you typed and
+  // its document-level Enter handler stayed armed. Pressing Enter for a newline picked the
+  // highlighted reply and replaced the whole draft with a template.
+  it('releases the forced palette as soon as you type, so Enter still makes a newline', async () => {
+    routes({ render: { body: 'A TEMPLATE THAT MUST NOT APPEAR', characters: 31, segments: 1 } })
+    mount()
+    const box = await screen.findByRole('textbox')
+    await userEvent.click(screen.getByRole('button', { name: /quick/i }))
+    await screen.findByTestId('qr-q-1')
+    await userEvent.type(box, "Hi Sarah, I'll send someone up")
+    expect(screen.queryByTestId('qr-q-1')).not.toBeInTheDocument()
+    await userEvent.keyboard('{Enter}')
+    expect(box).toHaveValue("Hi Sarah, I'll send someone up\n")
+    expect(
+      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/render') && i?.method === 'POST'),
+    ).toBe(false)
+  })
+
+  it('does not leave the forced palette open over the box after a send', async () => {
+    routes({ render: { body: 'A TEMPLATE THAT MUST NOT APPEAR', characters: 31, segments: 1 } })
+    mount()
+    const box = await screen.findByRole('textbox')
+    await userEvent.type(box, 'On our way')
+    await userEvent.click(screen.getByRole('button', { name: /quick/i }))
+    await userEvent.keyboard('{Control>}{Enter}{/Control}')
+    await waitFor(() => expect(box).toHaveValue(''))
+    expect(screen.queryByTestId('qr-q-1')).not.toBeInTheDocument()
+    // Ctrl+Enter means send, never "pick the highlighted reply": the palette's document
+    // listener must not also fire and repopulate the just-emptied box with a template.
+    expect(
+      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/render') && i?.method === 'POST'),
+    ).toBe(false)
+  })
+
+  // Fix round 1: the note branch of submit() left assetId and draftPromptId armed, so the
+  // next outbound message carried an attachment whose link was never in its body.
+  it('disarms a picked asset when the draft is posted as a note instead', async () => {
+    mount()
+    await userEvent.click(await screen.findByRole('button', { name: /attach/i }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: /WiFi card/ }))
+    const box = screen.getByRole('textbox')
+    await waitFor(() => expect((box as HTMLTextAreaElement).value).toContain('/a/wifi1'))
+    await userEvent.click(screen.getByRole('button', { name: 'Note' }))
+    await userEvent.click(screen.getByRole('button', { name: /add note/i }))
+    await waitFor(() => expect(notePosts()).toHaveLength(1))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reply' }))
+    await userEvent.type(screen.getByRole('textbox'), 'Someone is on the way')
+    await userEvent.keyboard('{Control>}{Enter}{/Control}')
+    const sent = vi
+      .mocked(fetch)
+      .mock.calls.find(([u, i]) => String(u).includes('/messages') && i?.method === 'POST')
+    expect(JSON.parse(String(sent![1]!.body))).toMatchObject({
+      body: 'Someone is on the way',
+      digitalAssetId: null,
+    })
+  })
+
+  // Textarea's only focus affordance is focus:border-accent (it sets focus:outline-none),
+  // and a plain one loses to the important !border-noteBorder that tints Note mode.
+  it('keeps a focus indicator in Note mode', async () => {
+    mount()
+    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
+    expect(screen.getByRole('textbox').className).toContain('focus:!border-accent')
+  })
+
   it('opens the work-order modal from the composer', async () => {
     mount()
     await userEvent.click(await screen.findByRole('button', { name: /work order/i }))
