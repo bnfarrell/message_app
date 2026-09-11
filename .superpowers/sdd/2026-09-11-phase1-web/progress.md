@@ -3242,3 +3242,37 @@ USER INSTRUCTION: commit everything, nothing ignored, because all the data is fi
       Scanned the staged content for credential-shaped strings first. The only hits were the
       literal placeholder `user:pw@host/db` inside a review transcript. No .env exists on disk;
       only server/.env.example, which was already committed.
+
+A3 FIX RE-REVIEW RETURNED (agent a1599d8afb4c8f391, opus): ALL FIVE ADDRESSED, no new breakage,
+      NO DATA MODIFIED. It did the empirical job it was sent to do rather than reading the diff
+      and inferring: ran the app cold, signed in as alex, and exercised BOTH destructive sequences
+      on ALL FIVE admin screens - Users, Departments, Quick replies, Digital assets, Resolution
+      categories. Every one SAFE. It guarded against false negatives by confirming the panel was
+      genuinely armed on record A first and by waiting for record B's fields to show B's values,
+      and it checked the console for React warnings in every run.
+      The only delete it attempted was Engineering, which the server's own reference guard refused
+      with a real 409; the row is still present and active. Two settings saves were refused with
+      400 and all values re-read unchanged.
+      It ENDORSED the D95 departure and added the argument I had not: nothing is left worse by
+      removing the key, because every child of the Departments panel is controlled by the parent's
+      `draft`, the panel has no uncontrolled child state, and at three fields it never scrolls -
+      so the remount the key bought was resetting nothing the new mechanism does not reset.
+
+Task A3: COMPLETE (commits 4438a5b..b722651, review clean after 1 fix round).
+**THE ADMIN SECTION IS COMPLETE: A1, A2 and A3 all closed.** Web 489 passing, server 347.
+
+Ruling D96 (the test harness gets a safe default, not a remembered convention): the re-reviewer
+      found the impossible-server hazard is broader than the single case A3 fixed. The shared
+      serve() PATCH handler's `{...SETTINGS, ...sent}` models TWO behaviours the real server does
+      not have - REFUSAL (any null on name/currency/timezone is rejected) and NORMALISATION (the
+      server upper-cases currency and reformats smsNumber to E.164, and the screen's own hint copy
+      promises exactly that). So a future test asserting post-save DISPLAY would assert a lie and
+      pass.
+      Harden the default handler rather than leaving each test to remember an override. The
+      reviewer made the argument with my own words: a safe default beats a remembered convention -
+      the same reasoning that chose a required subjectId prop over a per-call-site key.
+      Assigned to S1 as a separate commit rather than its own dispatch seat: it is small, it is
+      test-only, and S1 is the next writer. Precedent is A3, which carried three unrelated items
+      as their own commits without trouble.
+      Cost if wrong: if hardening the mock breaks existing admin tests, those tests were relying
+      on a server that cannot exist, which is the finding rather than a regression.

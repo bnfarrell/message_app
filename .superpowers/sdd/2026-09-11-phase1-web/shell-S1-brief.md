@@ -235,6 +235,31 @@ consistent in both themes, and check the other selected/raised surfaces in the p
 whatever you decide. If you conclude a component change is genuinely required instead, say so —
 but do not leave the inversion in place.
 
+## 3b. One unrelated item, SEPARATE COMMIT (ruling D96)
+
+The admin screens' shared test helper answers a PATCH by echoing back whatever the test sent
+(`{...SETTINGS, ...sent}`). That models a server which accepts anything — including values the
+real one refuses, and values the real one would rewrite.
+
+It has already produced one defect: a test sent `{"name": null}`, the mock returned 200, the
+component received `value={null}`, and React emitted two warnings **that no test failed on**. It
+was found by grepping stderr, not by a red suite.
+
+A reviewer then established the hazard is broader than the one case. The default handler models
+**two** impossible behaviours:
+
+- **refusal** — any `null` on `name`, `currency` or `timezone` is rejected by the real server;
+- **normalisation** — the real server upper-cases `currency` and reformats `smsNumber` to E.164,
+  and the screen's own hint copy tells the admin to expect that. The mock does neither.
+
+So a future test that asserts what the screen displays *after* a save would assert a lie and
+pass.
+
+Harden the default handler so it refuses what the server refuses and normalises what the server
+normalises, rather than leaving each test to remember an override. That is the same argument
+that chose a required `subjectId` prop over a per-call-site `key`: a safe default beats a
+remembered convention. Keep it in its own commit — it is nothing to do with the reskin.
+
 ## 4. What you must NOT do
 
 - Do not change anything inside the `<main>` content area — no screen layouts, no tables, no
@@ -249,7 +274,8 @@ but do not leave the inversion in place.
 
 ## 5. Verify before you commit
 
-- **The web suite.** Check `git log` for the current count before you start and beat it;
+- **The web suite.** It is at **489 passing, 0 failed** (50 files) and the server at **347**;
+  beat the web number and break neither.
   `AppShell.test.tsx` WILL break when you restructure the rail, and updating it is part of the
   work, not a regression. Add coverage for: the grouped rendering, a group with no visible
   items rendering nothing, the palette opening/filtering/navigating, and the palette's
