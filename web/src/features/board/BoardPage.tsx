@@ -1,10 +1,12 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useWorkOrders } from '../../api/hooks/workOrders'
 import { useDepartments, useStaff } from '../../api/hooks/users'
+import { useSession } from '../../auth/SessionContext'
 import type { WorkOrderOut } from '../../api/types'
 import { Button, EmptyState, Spinner } from '../../components/ui'
 import { cn } from '../../lib/cn'
+import { CreateWorkOrderModal } from '../inbox/CreateWorkOrderModal'
 import { BOARD_COLUMNS, CLOSED_STATUSES, OPEN_STATUSES, STATUS_LABELS } from './transitions'
 import { WorkOrderCard } from './WorkOrderCard'
 
@@ -26,6 +28,8 @@ function selectedFilter(params: URLSearchParams): Filter {
 export function BoardPage() {
   // landingPath sends dept_staff and supervisors here with ?mine=1 — honour it.
   const [params, setParams] = useSearchParams()
+  const { can } = useSession()
+  const [creating, setCreating] = useState(false)
   const selected = selectedFilter(params)
   const urgentOnly = selected.kind === 'urgent'
   const view = params.get('view') === 'list' ? 'list' : 'board'
@@ -135,6 +139,13 @@ export function BoardPage() {
           <Button onClick={() => setParam('view', view === 'board' ? 'list' : 'board')}>
             {view === 'board' ? 'List' : 'Board'}
           </Button>
+          {/* Board.dc.html:69. Plenty of the mockup's work orders — POOL PUMP, 3F ICE, ELEV B —
+              have no guest conversation behind them, and none of them could be raised at all. */}
+          {can('create_work_order') ? (
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              New
+            </Button>
+          ) : null}
         </div>
       </header>
 
@@ -207,6 +218,10 @@ export function BoardPage() {
           </>
         )}
       </footer>
+
+      {/* Mounted only while open: the modal needs a ToastProvider, the same reason the
+          composer mounts it this way. */}
+      {creating ? <CreateWorkOrderModal open onClose={() => setCreating(false)} /> : null}
     </div>
   )
 }

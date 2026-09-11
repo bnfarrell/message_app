@@ -1,11 +1,26 @@
 import { useEffect, useState } from 'react'
 import { useCreateWorkOrder, useWorkOrderPrefill } from '../../api/hooks/workOrders'
 import { useDepartments, useStaff } from '../../api/hooks/users'
-import type { CreateWorkOrder, Priority, WorkOrderType } from '../../api/types'
+import type { CreateWorkOrder, LocationType, Priority, WorkOrderType } from '../../api/types'
 import { Button, Dialog, Input, Spinner, Textarea, useToast } from '../../components/ui'
 
 const TYPES: WorkOrderType[] = ['maintenance', 'housekeeping', 'guest_request', 'pm', 'other']
 const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent']
+const LOCATION_TYPES: LocationType[] = ['room', 'public_area', 'equipment', 'other']
+
+// A work order raised from the board has no suggestion to seed it. `sourceConversationId` is
+// absent rather than null, so the POST body omits it entirely.
+const BLANK: CreateWorkOrder = {
+  title: '',
+  description: '',
+  type: 'maintenance',
+  priority: 'normal',
+  locationType: 'room',
+  locationRef: '',
+  departmentId: null,
+  assignedUserId: null,
+  dueAt: null,
+}
 
 const FIELD = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
 const SELECT =
@@ -16,7 +31,8 @@ export function CreateWorkOrderModal({
   open,
   onClose,
 }: {
-  conversationId: string
+  /** Absent when the work order is raised standalone, from the board. */
+  conversationId?: string
   open: boolean
   onClose: () => void
 }) {
@@ -25,11 +41,17 @@ export function CreateWorkOrderModal({
   const { data: departments } = useDepartments()
   const { data: staff } = useStaff()
   const toast = useToast()
-  const [form, setForm] = useState<CreateWorkOrder | null>(null)
+  const [form, setForm] = useState<CreateWorkOrder | null>(() =>
+    conversationId ? null : { ...BLANK },
+  )
 
-  // Seed the form once the suggestion lands; the agent owns it from then on.
+  // Seed the form once the suggestion lands; the agent owns it from then on. With no
+  // conversation there is no suggestion to wait for, so the form opens blank immediately.
   useEffect(() => {
-    if (prefill.data && !form) {
+    if (form || !open) return
+    if (!conversationId) {
+      setForm({ ...BLANK })
+    } else if (prefill.data) {
       setForm({
         title: prefill.data.title,
         description: prefill.data.description,
@@ -44,7 +66,7 @@ export function CreateWorkOrderModal({
         sourceMessageId: prefill.data.sourceMessageId,
       })
     }
-  }, [prefill.data, form])
+  }, [prefill.data, form, open, conversationId])
 
   function set<K extends keyof CreateWorkOrder>(key: K, value: CreateWorkOrder[K]) {
     setForm((current) => (current ? { ...current, [key]: value } : current))
@@ -156,13 +178,24 @@ export function CreateWorkOrderModal({
             </div>
           </div>
 
-          <div>
-            <label className={FIELD} htmlFor="wo-location">Location</label>
-            <Input
-              id="wo-location"
-              value={form.locationRef ?? ''}
-              onChange={(e) => set('locationRef', e.target.value)}
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={FIELD} htmlFor="wo-location-type">Location type</label>
+              <select id="wo-location-type" className={SELECT} value={form.locationType ?? 'room'}
+                      onChange={(e) => set('locationType', e.target.value as LocationType)}>
+                {LOCATION_TYPES.map((l) => (
+                  <option key={l} value={l}>{l.replace('_', ' ')}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={FIELD} htmlFor="wo-location">Location</label>
+              <Input
+                id="wo-location"
+                value={form.locationRef ?? ''}
+                onChange={(e) => set('locationRef', e.target.value)}
+              />
+            </div>
           </div>
         </>
       )}

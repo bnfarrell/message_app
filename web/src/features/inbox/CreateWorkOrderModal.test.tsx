@@ -60,6 +60,18 @@ function mount(onClose = vi.fn()) {
   return onClose
 }
 
+function mountStandalone(onClose = vi.fn()) {
+  renderWithProviders(
+    <SessionProvider>
+      <ToastProvider>
+        <CreateWorkOrderModal open onClose={onClose} />
+      </ToastProvider>
+    </SessionProvider>,
+    { session: sessionFixture({ role: 'dept_staff' }) },
+  )
+  return onClose
+}
+
 describe('CreateWorkOrderModal', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
@@ -128,6 +140,48 @@ describe('CreateWorkOrderModal', () => {
     await userEvent.click(screen.getByRole('button', { name: /create/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Not allowed')
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('opens blank with no conversation and asks the server for no prefill', async () => {
+    // CreateWorkOrder.sourceConversationId is optional server-side, and the mockups are full of
+    // work orders with no guest behind them — POOL PUMP, 3F ICE, ELEV B.
+    mountStandalone()
+    const title = await screen.findByLabelText('Title')
+    expect(title).toHaveValue('')
+    expect(screen.getByLabelText('Description')).toHaveValue('')
+    expect(screen.getByLabelText('Location')).toHaveValue('')
+    expect(screen.getByLabelText('Priority')).toHaveValue('normal')
+    expect(screen.getByLabelText('Department')).toHaveValue('')
+    expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('prefill'))).toBe(false)
+  })
+
+  it('posts a standalone work order without a sourceConversationId key', async () => {
+    const onClose = mountStandalone()
+    await userEvent.type(await screen.findByLabelText('Title'), 'Pool pump seized')
+    await userEvent.selectOptions(screen.getByLabelText('Location type'), 'equipment')
+    await userEvent.type(screen.getByLabelText('Location'), 'POOL')
+    await userEvent.selectOptions(screen.getByLabelText('Department'), 'dept-eng')
+    await userEvent.click(screen.getByRole('button', { name: /create/i }))
+
+    const post = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'POST')
+    const body = JSON.parse(String(post![1]!.body))
+    expect(body).toMatchObject({
+      title: 'Pool pump seized',
+      locationType: 'equipment',
+      locationRef: 'POOL',
+      departmentId: 'dept-eng',
+    })
+    // Omitted, not null: the route branches on `if data.source_conversation_id`.
+    expect('sourceConversationId' in body).toBe(false)
+    expect('sourceMessageId' in body).toBe(false)
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
+
+  it('will not save an empty title with no conversation either', async () => {
+    mountStandalone()
+    await screen.findByLabelText('Title')
+    await userEvent.click(screen.getByRole('button', { name: /create/i }))
+    expect(vi.mocked(fetch).mock.calls.some(([, i]) => i?.method === 'POST')).toBe(false)
   })
 
   it('resets the edited draft on Cancel, so a reopen re-seeds from a fresh prefill', async () => {

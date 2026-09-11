@@ -2,6 +2,8 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionProvider } from '../../auth/SessionContext'
+import { ToastProvider } from '../../components/ui'
+import type { Role } from '../../api/types'
 import { aDepartment, aStaffUser, aWorkOrder } from '../../test/factories'
 import { renderWithProviders, sessionFixture } from '../../test/harness'
 import { BoardPage } from './BoardPage'
@@ -18,8 +20,16 @@ const ORDERS = [
 // The real server withholds verified and cancelled unless includeClosed is set, so the mock
 // must too — otherwise the reveal toggle looks like it works while fetching nothing new.
 function serve(orders = ORDERS) {
-  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
+    if (init?.method === 'POST') {
+      return Promise.resolve(
+        new Response(JSON.stringify(aWorkOrder({ id: 'w-900' })), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    }
     const body = url.includes('/departments')
       ? [aDepartment()]
       : url.includes('/users')
@@ -36,12 +46,14 @@ function serve(orders = ORDERS) {
   })
 }
 
-function mount(route = '/app/board') {
+function mount(route = '/app/board', role: Role = 'supervisor') {
   return renderWithProviders(
     <SessionProvider>
-      <BoardPage />
+      <ToastProvider>
+        <BoardPage />
+      </ToastProvider>
     </SessionProvider>,
-    { session: sessionFixture({ role: 'supervisor' }), route },
+    { session: sessionFixture({ role }), route },
   )
 }
 
@@ -211,6 +223,32 @@ describe('BoardPage', () => {
     mount('/app/board?closed=1&urgent=1')
     await userEvent.click(await screen.findByRole('tab', { name: /All/ }))
     expect(await screen.findByText('Pool pump serviced')).toBeInTheDocument()
+  })
+
+  it('raises a work order from the header with no conversation behind it', async () => {
+    mount()
+    await userEvent.click(await screen.findByRole('button', { name: 'New' }))
+    const title = await screen.findByLabelText('Title')
+    expect(title).toHaveValue('')
+
+    await userEvent.type(title, 'Elevator B juddering')
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    await waitFor(() =>
+      expect(vi.mocked(fetch).mock.calls.some(([, i]) => i?.method === 'POST')).toBe(true),
+    )
+    const post = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'POST')!
+    const body = JSON.parse(String(post[1]!.body))
+    expect(body).toMatchObject({ title: 'Elevator B juddering' })
+    expect('sourceConversationId' in body).toBe(false)
+    // No conversation means no prefill request to make.
+    expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('prefill'))).toBe(false)
+  })
+
+  it('hides New from a role without create_work_order', async () => {
+    mount('/app/board', 'corporate')
+    await screen.findByText('Faucet dripping')
+    expect(screen.queryByRole('button', { name: 'New' })).not.toBeInTheDocument()
   })
 
   it('shows an empty state when nothing matches', async () => {
