@@ -69,13 +69,15 @@ describe('AdminPage', () => {
     )
   })
 
-  it('shows departments read-only: the rows are there and there is no create button', async () => {
+  it('routes to the departments screen, which is now editable', async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response(
         JSON.stringify([
           {
             id: 'd-1',
-            name: 'Housekeeping',
+            // Not "Housekeeping": the Type column now renders a human label, so a name equal to
+            // its own type label would match twice and prove nothing about either.
+            name: 'Rooms',
             type: 'housekeeping',
             escalationMinutes: 20,
             active: true,
@@ -86,10 +88,11 @@ describe('AdminPage', () => {
     )
     mount('/app/admin/departments')
 
-    expect(await screen.findByText('Housekeeping')).toBeInTheDocument()
+    expect(await screen.findByText('Rooms')).toBeInTheDocument()
+    expect(screen.getByText('Housekeeping')).toBeInTheDocument()
     expect(screen.getByText('20 min')).toBeInTheDocument()
-    // Phase 1 exposes only the GET, so the screen must offer no way to write.
-    expect(screen.queryByRole('button', { name: /new department/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument()
+    // A1 added POST/PATCH/DELETE, so the screen that used to be read-only "by design" now
+    // offers a way in. What it does with it is DepartmentsAdmin.test.tsx's subject.
+    expect(screen.getByRole('button', { name: /new department/i })).toBeInTheDocument()
   })
 })
