@@ -12,10 +12,21 @@ def test_normalize_phone():
     assert guests.normalize_phone("+44 20 7946 0958") == "+442079460958"
 
 
-@pytest.mark.parametrize("raw", ["", "   ", "5551234", "123456789012345"])
+@pytest.mark.parametrize("raw", ["", "   ", "5551234", "123456789012345",
+                                 "+", "+ ", "+1-", "+()"])
 def test_normalize_phone_rejects_junk(raw):
+    """The four "+" cases are ruling D83: the "+" branch used to accept any digit count, so "+"
+    normalised to "+" and saved. On Property.sms_number that silently drops every inbound guest
+    message for the property."""
     with pytest.raises(ValidationFailed):
         guests.normalize_phone(raw)
+
+
+@pytest.mark.parametrize("raw", ["+12", "+345", "+55512", "+123456"])
+def test_normalize_phone_still_accepts_short_codes(raw):
+    """The D83 floor is 2 digits precisely so it cannot reject an SMS short code — legitimate
+    senders at 3-6 digits — which a full-E.164 floor would have done."""
+    assert guests.normalize_phone(raw) == raw
 
 
 def test_find_or_create_by_phone_is_idempotent_and_property_scoped(app, fx, database):
