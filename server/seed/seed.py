@@ -1,4 +1,13 @@
-"""Deterministic development seed. `flask seed` or `python -m seed.seed`. Matches spec §8."""
+"""Deterministic development seed. `flask seed` or `python -m seed.seed`. Matches spec §8.
+
+Determinism covers the shape and content of the seeded data (names, counts, message bodies, phone
+numbers, timing, etc.) — all driven from `random.Random(42)`, so two runs produce identical data
+(ids aside, since those are `uuid.uuid4()`). It deliberately does NOT cover `DigitalAsset.short_code`:
+those come from `app.domain.assets.new_short_code`, which uses `secrets.choice`, not this module's
+seeded RNG, because a short code is the public, guest-facing `/a/<code>` URL sent over SMS — making it
+predictable to satisfy a determinism goal would be a real security regression. Short codes differ
+between seed runs; everything else does not.
+"""
 from __future__ import annotations
 
 import random
@@ -6,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app import clock
 from app.auth.passwords import hash_password
@@ -176,11 +185,9 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
         eng_staff = [staff["eli"], staff["noah"]]
         hk_staff = [staff["hana"], staff["rosa"]]
         convs: list[Conversation] = []
-        messages = 0
         work_orders: list[WorkOrder] = []
 
         def add_msg(c, direction, body, at, author=None, status=DeliveryStatus.delivered, redacted=False, author_type=None):
-            nonlocal messages
             m = Message(conversation_id=c.id, property_id=c.property_id, direction=direction,
                         author_type=author_type or (AuthorType.guest if direction == Direction.inbound else AuthorType.staff),
                         author_user_id=author.id if author else None, channel=Channel.sms, body=body, delivery_status=status,
@@ -188,7 +195,7 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
                         delivered_at=at if status == DeliveryStatus.delivered else None,
                         provider_error_code="30007" if status == DeliveryStatus.failed else None,
                         provider_error_message="Carrier violation (mock)" if status == DeliveryStatus.failed else None)
-            db.add(m); messages += 1; return m
+            db.add(m); return m
 
         def add_wo(title, typ, prio, dept_type, status, conv=None, assignee=None, created=None):
             created = created or now - timedelta(minutes=rng.randint(10, 600))
@@ -318,8 +325,19 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
         for job_type in ("sla.sweep", "snooze.wake", "pms.tick"):
             jobs.ensure_recurring(db, job_type)
 
-        summary = SeedSummary(properties=2, users=len(staff) + 2, guests=len(guests), stays=len(stays),
-                              conversations=len(convs), messages=messages, work_orders=len(work_orders))
+        # Derive every count from the database rather than in-memory counters/lists: the showcase
+        # rewire above deletes and re-adds messages, which desynced a running `messages` counter
+        # (found in review — SeedSummary.messages reported 53 while the actual row count was 52).
+        # Querying the real rows after all mutations means no future rewire can desync this again.
+        summary = SeedSummary(
+            properties=db.scalar(select(func.count()).select_from(Property)),
+            users=db.scalar(select(func.count()).select_from(UserAccount)),
+            guests=db.scalar(select(func.count()).select_from(Guest)),
+            stays=db.scalar(select(func.count()).select_from(Stay)),
+            conversations=db.scalar(select(func.count()).select_from(Conversation)),
+            messages=db.scalar(select(func.count()).select_from(Message)),
+            work_orders=db.scalar(select(func.count()).select_from(WorkOrder)),
+        )
     database.engine.dispose()
     return summary
 

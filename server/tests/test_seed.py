@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy import func, select
 
 from app.db import Database
@@ -34,6 +35,15 @@ def test_seed_matches_spec_counts(tmp_path):
         assert count(ResolutionCategory, ResolutionCategory.property_id == hvh.id) >= 10
         assert count(Message, Message.delivery_status == DeliveryStatus.failed) >= 1
         assert db.scalar(select(UserAccount).where(UserAccount.email == "ava@hvh.test")) is not None
+        # SeedSummary must match real rows, not an in-memory counter that a rewire can desync
+        # (the showcase conversation's messages are deleted and re-added after being counted).
+        assert summary.properties == count(Property)
+        assert summary.users == count(UserAccount)
+        assert summary.guests == count(Guest)
+        assert summary.stays == count(Stay)
+        assert summary.conversations == count(Conversation)
+        assert summary.messages == count(Message)
+        assert summary.work_orders == count(WorkOrder)
     db_.engine.dispose()
     assert summary.conversations == 30
 
@@ -60,3 +70,16 @@ def test_seeded_users_can_log_in(tmp_path):
     body = c.get("/api/auth/me").get_json()
     assert body["memberships"][0]["role"] == "agent"
     app.extensions["db"].engine.dispose()
+
+
+def test_reset_refuses_non_sqlite_url():
+    with pytest.raises(ValueError, match="sqlite"):
+        run("postgresql://x/y", reset=True)
+
+
+def test_reseeding_same_sqlite_url_is_idempotent(tmp_path):
+    # The CLI's everyday-refresh path: `flask seed` run again against the same DATABASE_URL.
+    url = f"sqlite:///{(tmp_path / 'reseed.db').as_posix()}"
+    first = run(url, reset=True)
+    second = run(url, reset=True)
+    assert first == second
