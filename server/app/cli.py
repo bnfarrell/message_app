@@ -21,4 +21,5 @@ def seed_command(no_reset: bool) -> None:
                f"{summary.stays} stays, {summary.conversations} conversations, "
                f"{summary.messages} messages, "
                f"{summary.work_orders} work orders.")
-    click.echo(f"Log in as ava@hvh.test / {PASSWORD}")
+    click.echo(f"Log in as alex@hvh.test / {PASSWORD} (admin), "
+               f"or ava@hvh.test for an agent's inbox")

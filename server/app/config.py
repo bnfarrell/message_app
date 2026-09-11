@@ -38,6 +38,11 @@ class Config:
     PMS_TICK_SECONDS: int = 90
     START_WORKER: bool = False
     CORS_ORIGIN: str = "http://localhost:5173"
+    # The seed fixture uses RFC 2606 reserved domains (hvh.test, lsi.test). Pydantic's
+    # EmailStr rejects those as special-use, so a production deployment seeded with the
+    # fixture can be seeded and then not logged into. Demo deployments set this; a
+    # deployment with real accounts never should.
+    ALLOW_TEST_EMAIL_DOMAINS: bool = False
     ENV: str = "development"
     ENABLE_DEV_ENDPOINTS: bool = False
     USE_RELOADER: bool = False
@@ -78,6 +83,7 @@ class Config:
             PMS_TICK_SECONDS=int(os.getenv("PMS_TICK_SECONDS", cls.PMS_TICK_SECONDS)),
             START_WORKER=os.getenv("START_WORKER", "0") == "1",
             CORS_ORIGIN=os.getenv("CORS_ORIGIN", cls.CORS_ORIGIN),
+            ALLOW_TEST_EMAIL_DOMAINS=os.getenv("ALLOW_TEST_EMAIL_DOMAINS", "0") == "1",
             ENV=os.getenv("FLASK_ENV", cls.ENV),
             ENABLE_DEV_ENDPOINTS=os.getenv("ENABLE_DEV_ENDPOINTS", "0") == "1",
             USE_RELOADER=os.getenv("USE_RELOADER", "0") == "1",

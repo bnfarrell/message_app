@@ -513,4 +513,7 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
 
     load_dotenv()
-    print(run(os.getenv("DATABASE_URL", "sqlite:///data/app.db")))
+    url = os.getenv("DATABASE_URL", "sqlite:///data/app.db")
+    # reset deletes the sqlite FILE, which means nothing for any other backend — and run()
+    # refuses it there rather than seeding on top of a database it cannot safely clear.
+    print(run(url, reset=url.startswith("sqlite:///")))

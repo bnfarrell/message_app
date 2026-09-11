@@ -143,6 +143,19 @@ refuses to boot in production with the placeholder), `START_WORKER=1` (it defaul
 sweeps and delivery-status transitions silently never run), `FLASK_ENV=production`, and `DATABASE_URL` from a
 Railway Postgres — the filesystem is ephemeral, so SQLite there is wiped on every redeploy.
 
-A fresh database has no users. Seed it once from the Railway console with `python -m seed.seed`, or copy an
+A fresh database has no users. Seed it once from the Railway console:
+
+```
+ALLOW_TEST_EMAIL_DOMAINS=1 python -m seed.seed
+```
+
+Two things about that. `python -m seed.seed` only *deletes* data for a `sqlite:///` URL; against any other
+backend it refuses to reset and seeds into what must be an empty database. And the fixture's accounts live on
+RFC 2606 reserved domains (`hvh.test`), which pydantic's `EmailStr` rejects as special-use — so without
+`ALLOW_TEST_EMAIL_DOMAINS=1` you would seed successfully and then be unable to log in. Set it for a demo
+deployment; never for one with real accounts. Log in as `alex@hvh.test` for admin, `ava@hvh.test` for an
+agent's inbox.
+
+Alternatively copy an
 existing SQLite database with `python -m tools.sqlite_to_postgres --target …` (see that module's docstring;
 connecting from outside Railway needs the Postgres service's **public** URL, not the `.railway.internal` one).

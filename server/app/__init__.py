@@ -18,13 +18,14 @@ def create_app(config: Config | None = None) -> Flask:
     app.config["TESTING"] = config.TESTING
     app.config["SECRET_KEY"] = config.SESSION_SECRET
 
-    if not config.is_production:
+    if not config.is_production or config.ALLOW_TEST_EMAIL_DOMAINS:
         import email_validator
 
         # RFC 2606 reserved test domains (e.g. "hvh.test") back every seeded demo account;
         # email-validator otherwise rejects them as "special-use", which would make a freshly
         # seeded dev database impossible to log into (tests/conftest.py sets this same flag
-        # for the test process). Never enabled in production.
+        # for the test process). In production this needs ALLOW_TEST_EMAIL_DOMAINS,
+        # which a demo deployment seeded with the fixture must set or nobody can log in.
         email_validator.TEST_ENVIRONMENT = True
 
     from app.db import Database
