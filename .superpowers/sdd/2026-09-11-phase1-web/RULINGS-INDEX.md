@@ -1,0 +1,112 @@
+# Rulings index
+
+101 decisions taken on the user's behalf, D1–D102, in the order made.
+Full reasoning and the cost-if-wrong for each is in `progress.md` (web phase) or
+`../2026-09-10-phase1-server/progress.md` (server phase). This is the index.
+
+Numbers never used: D77.
+
+
+## Web phase
+
+- **D1** — Task 1's `vite.config.ts` must import `defineConfig` from `vitest/config`, not `vite`.
+- **D2** — Task 1's vitest config must scope `include` to `src/`.
+- **D3** — Task 10's amber-threshold test times are off by six seconds and are corrected.
+- **D4** — Task 12's Interfaces block is corrected to `ConversationList({ filter, selectedId, dept })`.
+- **D5** — accept `environmentMatchGlobs: [['src/index.css.test.ts', 'node']]` in vite.config.ts.
+- **D6** — accept the added `@types/node` devDependency (`^20.16.5`).
+- **D7** — accept `noEmit: true` → `emitDeclarationOnly: true` in tsconfig.node.json.
+- **D8** — fix both.
+- **D9** — accept `dirname(fileURLToPath(import.meta.url))` in place of my `new URL('.', import.meta.url).pathname`.
+- **D10** — fix F3.
+- **D11** — fold the Minor temp-directory leak into the same fix round.
+- **D12** — the staleness guard is platform-fragile and must normalise newlines.
+- **D13** — fix M1 at dispatch rather than deferring it.
+- **D14** — F4 is real; fix it. F5 is a false positive; reject it, and the fault is mine.
+- **D15** — fold the Toast timer-cleanup Minor into the same fix round
+- **D16** — accept the `--no-experimental-webstorage` execArgv fix.
+- **D17** — fix the React Router future-flag warnings now, in the harness.
+- **D18** — fix F6, and do not let me design the fix from partial information.
+- **D19** — accept both test-scaffolding fixes; both are my defects.
+- **D20** — accept all four test/config fixes.
+- **D21** — the `/a` proxy prefix is a CRITICAL pre-existing bug in my Task 1 config; fix it now rather than deferring.
+- **D22** — fix F7, narrowly.
+- **D23** — my plan contradicted itself on the corporate Inbox, and the TEST was the wrong half.
+- **D24** — fix F8.
+- **D25** — fold both Minors into the same round.
+- **D26** — accept the `act()` fix; it is my defect.
+- **D27** — accept the `hadConnection` → `attempt.current > 0` fix; my reference code had a real hole.
+- **D28** — fix F9 with the identity guard, and make the test able to reach the path.
+- **D29** — fold in three Minors, park three.
+- **D30** — accept the `RequireAuth` infinite-loop fix, outside the task's file list.
+- **D31** — Finding against the SERVER's seed, not the web client. Recorded, not fixed here.
+- **D32** — Finding against my own plan: `npm run lint` has never worked.
+- **D33** — CORRECTION TO MY OWN FINDING. I asserted something I had not verified, and the implementer caught it.
+- **D34** — SECOND CORRECTION TO MY SEED CLAIM, from the same root cause as D33.
+- **D35** — the ordinal bug is real, user-visible, and nominated for the final fix wave.
+- **D36** — fix all three.
+- **D37** — fix F13, and fold in the `render.mutate` error gap.
+- **D38** — fix F14, and the principle matters more than the bug.
+- **D39** — park the hanging-test concern, nominated for the final wave.
+- **D40** — park the missing responsive regression test, nominated for the final wave.
+- **D41** — park both UX Minors for the final wave.
+- **D42** — THIRD unverified data claim from me, and it uncovered a real server defect.
+- **D43** — fix F15 by matching bucket identity, not substring.
+- **D44** — this is a real product gap and the user is right.
+- **D45** — fix the light `timerDone` contrast; park the rest.
+- **D46** — the Important finding resolves to a defect in MY brief, not the implementation. No fix round.
+- **D47** — port migration
+- **D48** — Task 21 brief carries the pre-D47 port
+- **D49** — the brief's START_WORKER troubleshooting note is wrong
+- **D50** — Task 21 implementer runs concurrently with the Task 20 review
+- **D51** — how to close defect D
+- **D52** — simulator chrome - the question I deliberately did NOT rule on
+- **D53** — how the fix wave is split
+- **D54** — how the nine restorations are executed
+- **D55** — ordering against the correction wave
+- **D56** — where the residual I3 bleed gets fixed
+- **D57** — the new endpoints are beyond the spec's API table, and that is now intended
+- **D58** — route shape for property settings
+- **D59** — how the admin scope is executed
+- **D60** — ordering against R2
+- **D61** — put the new domain functions in `server/app/domain/users.py`, beside `list_departments`.
+- **D62** — the ADMIN nav group - a deliberate deviation from the thumbnail the user approved
+- **D63** — what the Ctrl+K palette can honestly do
+- **D64** — the property switcher moves
+- **D65** — sequencing the shell work against the admin work
+- **D66** — the R1 screenshots in the repo root
+- **D67** — a preview endpoint, and why M9's preview half was declined for the wrong reason
+- **D68** — how many Insert chips
+- **D69** — the cn / tailwind-merge hazard
+- **D70** — two comments that A1 makes false, and who fixes them
+- **D71** — the preview renders sample values, not a real guest
+- **D72** — primaryColor is data, not palette
+- **D73** — what enters R1's fix round
+- **D74** — F5 belongs to S1, not to R1
+- **D75** — the R1 fix round WAITS for A1 to commit
+- **D76** — the generated-type seam is REAL and is A2/A3's job, confirmed not assumed
+- **D78** — the parse_body latent 500
+- **D79** — the SLA knob hole - my own mistake, caught by A1
+- **D80** — FINALISING D79 - the reviewer corrected me and it is right
+- **D81** — escalation_minutes in A3's UI
+- **D82** — the explicit-null 500 gets fixed ONCE, including the pre-existing categories copy
+- **D83** — the phone floor goes in normalize_phone, but a MINIMAL one
+- **D84** — main was RED and A1's fix round owns making it green
+- **D85** — A2 starts before A1's re-review returns
+- **D86** — a weak test, parked and REASSIGNED to S1 rather than looped
+- **D87** — the NEW CONTRACT HAS A FIELD-NAME BUG, and it must be fixed BEFORE A3 builds against it
+- **D88** — sequencing round 2
+- **D89** — the duplicate SMS counter already shipped - my D67 reasoning was right about the hazard and wrong about the facts
+- **D90** — the error contract has TWO shapes, and the normaliser IS the contract
+- **D91** — the half of my own ruling that my reasoning never reached
+- **D92** — a one-line safety net A2 was right not to add unilaterally
+- **D93** — the normaliser returns two KINDS of value, and that is a UI copy problem
+- **D94** — where the EditPanel fix belongs
+- **D95** — ACCEPTING A DEPARTURE FROM D94 - the implementer was right and I was wrong
+- **D96** — the test harness gets a safe default, not a remembered convention
+- **D97** — diagnose before fixing, and separate the diagnosis from the fix
+- **D98** — fix the operational fault, not the chain
+- **D99** — this was MY process failure, and the guard is the remedy
+- **D100** — MY OWN MISTAKE, recorded because the remedy is a rule I should have been following
+- **D101** — the `*` ignore file keeps coming BACK, and that is what broke my commits
+- **D102** — the fix is right; the reported REASON for it is wrong, and that matters
