@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAgentStats, useOverview } from '../../api/hooks/analytics'
 import { useSession } from '../../auth/SessionContext'
-import { Button, EmptyState, Spinner } from '../../components/ui'
+import { Button, EmptyState, Input, Spinner } from '../../components/ui'
 import { cn } from '../../lib/cn'
 import { formatDuration } from '../../lib/time'
 import { BarChart } from './BarChart'
@@ -23,26 +24,46 @@ const PAST_SLA_LABELS = new Set(['15–30 min', '30+ min'])
 
 export function AnalyticsPage() {
   const { membership, can } = useSession()
-  const [key, setKey] = useState<RangeKey>('7d')
-  const { from, to } = useMemo(() => rangeFor(key), [key])
-  const overview = useOverview(from, to)
-  const agents = useAgentStats(from, to)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const keyParam = (searchParams.get('range') ?? '7d') as RangeKey
+  const [key, setKey] = useState<RangeKey>(keyParam)
+  const [customFrom, setCustomFrom] = useState(searchParams.get('from') ?? '')
+  const [customTo, setCustomTo] = useState(searchParams.get('to') ?? '')
 
-  if (overview.isPending) {
-    return (
-      <div className="grid h-full place-items-center">
-        <Spinner />
-      </div>
-    )
+  const handleRangeChange = (newKey: RangeKey) => {
+    setKey(newKey)
+    const newParams = new URLSearchParams(searchParams)
+    newParams.set('range', newKey)
+    if (newKey !== 'custom') {
+      newParams.delete('from')
+      newParams.delete('to')
+    }
+    setSearchParams(newParams)
   }
-  if (overview.error || !overview.data) {
-    return <EmptyState title="Could not load analytics" hint={overview.error?.message} />
+
+  const handleCustomDateChange = (from: string, to: string) => {
+    setCustomFrom(from)
+    setCustomTo(to)
+    if (from && to) {
+      const newParams = new URLSearchParams(searchParams)
+      newParams.set('from', from)
+      newParams.set('to', to)
+      setSearchParams(newParams)
+    }
   }
+
+  const isValidRange = key !== 'custom' || Boolean(customFrom && customTo && customFrom <= customTo)
+  const { from, to } = useMemo(
+    () => (isValidRange ? rangeFor(key, new Date(), customFrom, customTo) : { from: '', to: '' }),
+    [key, customFrom, customTo, isValidRange],
+  )
+  const overview = useOverview(from, to, isValidRange)
+  const agents = useAgentStats(from, to, isValidRange)
   const d = overview.data
 
-  return (
-    <div className="h-full overflow-y-auto p-4">
-      <header className="mb-4 flex flex-wrap items-center gap-3">
+  const header = (
+    <header className="mb-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-base font-bold">Analytics</h1>
           <p className="text-xs text-text3">{membership.propertyName}</p>
@@ -53,7 +74,7 @@ export function AnalyticsPage() {
               key={option}
               role="tab"
               aria-selected={key === option}
-              onClick={() => setKey(option)}
+              onClick={() => handleRangeChange(option)}
               className={cn(
                 'inline-flex h-10 items-center rounded px-3.5 text-[13.5px] font-semibold',
                 key === option ? 'bg-accent text-accentText' : 'text-text3 hover:text-text',
@@ -63,12 +84,10 @@ export function AnalyticsPage() {
             </button>
           ))}
         </div>
-        {can('export') ? (
+        {can('export') && d ? (
           <Button
             className="ml-auto"
             onClick={() => {
-              // The server has no export endpoint in Phase 1; CSV from what is on screen
-              // is honest and needs no new API surface.
               const rows = [
                 ['metric', 'value'],
                 ['conversations', String(d.conversations)],
@@ -90,7 +109,60 @@ export function AnalyticsPage() {
             Export
           </Button>
         ) : null}
-      </header>
+      </div>
+      {key === 'custom' && (
+        <div className="flex gap-2">
+          <Input
+            type="date"
+            value={customFrom}
+            onChange={(e) => handleCustomDateChange(e.target.value, customTo)}
+            className="w-32"
+          />
+          <Input
+            type="date"
+            value={customTo}
+            onChange={(e) => handleCustomDateChange(customFrom, e.target.value)}
+            className="w-32"
+          />
+          {customFrom && customTo && customFrom > customTo && (
+            <p className="flex items-center text-xs text-dangerText">From date cannot be after to date</p>
+          )}
+        </div>
+      )}
+    </header>
+  )
+
+  if (!isValidRange) {
+    return (
+      <div className="h-full overflow-y-auto p-4">
+        {header}
+        <p className="text-xs text-text3">Enter a valid date range to see analytics.</p>
+      </div>
+    )
+  }
+
+  if (overview.isPending) {
+    return (
+      <div className="h-full overflow-y-auto p-4">
+        {header}
+        <div className="grid place-items-center py-12">
+          <Spinner />
+        </div>
+      </div>
+    )
+  }
+  if (overview.error || !d) {
+    return (
+      <div className="h-full overflow-y-auto p-4">
+        {header}
+        <EmptyState title="Could not load analytics" hint={overview.error?.message} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full overflow-y-auto p-4">
+      {header}
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard

@@ -1,4 +1,4 @@
-export type RangeKey = 'today' | '7d' | '30d'
+export type RangeKey = 'today' | '7d' | '30d' | 'custom'
 
 function iso(date: Date): string {
   // Local date parts, not UTC: "today" must mean the operator's today.
@@ -9,7 +9,10 @@ function iso(date: Date): string {
 }
 
 /** The server treats a bare date `to` as end-of-day, so these ranges are inclusive. */
-export function rangeFor(key: RangeKey, now: Date = new Date()): { from: string; to: string } {
+export function rangeFor(key: RangeKey, now: Date = new Date(), customFrom?: string, customTo?: string): { from: string; to: string } {
+  if (key === 'custom' && customFrom && customTo) {
+    return { from: customFrom, to: customTo }
+  }
   const to = iso(now)
   if (key === 'today') return { from: to, to }
   const days = key === '7d' ? 6 : 29
@@ -22,4 +25,5 @@ export const RANGE_LABELS: Record<RangeKey, string> = {
   today: 'Today',
   '7d': '7 days',
   '30d': '30 days',
+  custom: 'Custom',
 }

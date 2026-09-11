@@ -33,4 +33,15 @@ describe('rangeFor', () => {
   it('uses local date parts, so a late-evening call does not roll to tomorrow', () => {
     expect(rangeFor('today', new Date(2026, 8, 10, 23, 59)).to).toBe('2026-09-10')
   })
+
+  it('uses the custom from/to when key is custom', () => {
+    expect(rangeFor('custom', NOW, '2026-08-01', '2026-08-15')).toEqual({
+      from: '2026-08-01',
+      to: '2026-08-15',
+    })
+  })
+
+  it('falls back to a 30-day window if custom is selected but no dates are given', () => {
+    expect(rangeFor('custom', NOW)).toEqual({ from: '2026-08-12', to: '2026-09-10' })
+  })
 })

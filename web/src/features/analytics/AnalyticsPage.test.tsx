@@ -169,4 +169,73 @@ describe('AnalyticsPage', () => {
     mount()
     expect(await screen.findByText('Not permitted')).toBeInTheDocument()
   })
+
+  it('reveals two date inputs when Custom is selected', async () => {
+    mount()
+    await screen.findByText('214')
+    await userEvent.click(screen.getByRole('tab', { name: 'Custom' }))
+    const dateInputs = document.querySelectorAll('input[type="date"]')
+    expect(dateInputs).toHaveLength(2)
+  })
+
+  it('shows a message rather than a stuck spinner while the custom range is incomplete', async () => {
+    mount()
+    await screen.findByText('214')
+    await userEvent.click(screen.getByRole('tab', { name: 'Custom' }))
+    expect(await screen.findByText(/enter a valid date range/i)).toBeInTheDocument()
+    expect(screen.queryByTestId('spinner')).not.toBeInTheDocument()
+  })
+
+  it('fetches the custom range once both dates are entered, and not before', async () => {
+    mount()
+    await screen.findByText('214')
+    const callsBefore = vi.mocked(fetch).mock.calls.length
+    await userEvent.click(screen.getByRole('tab', { name: 'Custom' }))
+    const [fromInput, toInput] = document.querySelectorAll('input[type="date"]')
+
+    // Only the "from" date is filled in — must not fetch yet.
+    await userEvent.type(fromInput!, '2026-08-01')
+    expect(vi.mocked(fetch).mock.calls.length).toBe(callsBefore)
+
+    await userEvent.type(toInput!, '2026-08-15')
+    await waitFor(() => {
+      const urls = vi.mocked(fetch).mock.calls.map(([u]) => String(u))
+      expect(urls.some((u) => u.includes('from=2026-08-01') && u.includes('to=2026-08-15'))).toBe(
+        true,
+      )
+    })
+  })
+
+  it('names the custom range in the export filename', async () => {
+    mount()
+    await screen.findByText('214')
+    await userEvent.click(screen.getByRole('tab', { name: 'Custom' }))
+    const [fromInput, toInput] = document.querySelectorAll('input[type="date"]')
+    await userEvent.type(fromInput!, '2026-08-01')
+    await userEvent.type(toInput!, '2026-08-15')
+    await waitFor(() => screen.getByRole('button', { name: 'Export' }))
+
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+    expect(clickSpy).toHaveBeenCalled()
+    const anchor = clickSpy.mock.instances[0] as unknown as HTMLAnchorElement
+    expect(anchor.download).toBe('analytics-2026-08-01-to-2026-08-15.csv')
+    clickSpy.mockRestore()
+  })
+
+  it('rejects a custom range where from is after to, and does not fetch it', async () => {
+    mount()
+    await screen.findByText('214')
+    await userEvent.click(screen.getByRole('tab', { name: 'Custom' }))
+    const [fromInput, toInput] = document.querySelectorAll('input[type="date"]')
+    const callsBefore = vi.mocked(fetch).mock.calls.length
+
+    await userEvent.type(fromInput!, '2026-08-15')
+    await userEvent.type(toInput!, '2026-08-01')
+
+    expect(await screen.findByText(/from date cannot be after to date/i)).toBeInTheDocument()
+    const urls = vi.mocked(fetch).mock.calls.map(([u]) => String(u))
+    expect(urls.some((u) => u.includes('from=2026-08-15'))).toBe(false)
+    expect(vi.mocked(fetch).mock.calls.length).toBe(callsBefore)
+  })
 })
