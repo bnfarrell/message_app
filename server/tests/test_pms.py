@@ -77,9 +77,10 @@ def test_check_in_does_not_reopen_consent_for_opted_out_sms_guest(app, fx, datab
     """A guest who texted STOP before the PMS ever reported the reservation must stay opted out,
     and the PMS check-in must merge onto that guest rather than creating a duplicate."""
     phone = "+15556660000"
+    consent_at = clock.now()
     with database.session() as db:
         g = Guest(property_id=fx.property_a.id, first_name=None, last_name=None, phone_e164=phone,
-                  sms_consent_status=SmsConsentStatus.opted_out, sms_consent_at=clock.now(),
+                  sms_consent_status=SmsConsentStatus.opted_out, sms_consent_at=consent_at,
                   sms_consent_source="sms_keyword")
         db.add(g); db.flush()
         guest_id = g.id
@@ -94,3 +95,41 @@ def test_check_in_does_not_reopen_consent_for_opted_out_sms_guest(app, fx, datab
         assert g.id == guest_id
         assert g.first_name == "Tom"  # PMS profile data merged in
         assert g.sms_consent_status == SmsConsentStatus.opted_out  # untouched by the merge
+        assert g.sms_consent_at == consent_at
+        assert g.sms_consent_source == "sms_keyword"
+
+
+def test_stay_upsert_survives_concurrent_insert_race(app, fx, database, monkeypatch):
+    # Same race shape as guests.find_or_create_by_phone's own test
+    # (test_find_or_create_by_phone_survives_concurrent_insert_race in test_guests_stays.py):
+    # a second event for the same reservation (e.g. a differently-typed event that passes the
+    # per-event-type dedup check) wins the insert in the gap between our SELECT and our own
+    # INSERT. Force our first _find_stay lookup to miss, as it would during that race, and assert
+    # handle_event recovers via the UniqueConstraint(property_id, pms_reservation_id) instead of
+    # raising IntegrityError or creating a duplicate Stay row.
+    from app.pms import handle_event as handle_event_module
+
+    with database.session() as db:
+        winner = Stay(guest_id=fx.guest_nostay_a.id, property_id=fx.property_a.id,
+                      pms_reservation_id="R-1", room_number="999", status=StayStatus.checked_in,
+                      arrival_date=clock.now().date(), departure_date=clock.now().date())
+        db.add(winner)
+        db.flush()
+        winner_id = winner.id
+
+        real_find_stay = handle_event_module._find_stay
+        calls = {"n": 0}
+
+        def flaky_find_stay(db_, property_id, pms_reservation_id):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return None  # pretend the row isn't visible yet (the race window)
+            return real_find_stay(db_, property_id, pms_reservation_id)
+
+        monkeypatch.setattr(handle_event_module, "_find_stay", flaky_find_stay)
+
+        assert handle_event(db, _event(fx)) is True
+        stays = db.scalars(select(Stay).where(Stay.property_id == fx.property_a.id,
+                                              Stay.pms_reservation_id == "R-1")).all()
+        assert len(stays) == 1
+        assert stays[0].id == winner_id

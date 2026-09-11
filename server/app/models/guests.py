@@ -34,7 +34,10 @@ class Guest(TimestampMixin, Base):
 
 class Stay(TimestampMixin, Base):
     __tablename__ = "stay"
-    __table_args__ = (Index("ix_stay_property_status", "property_id", "status"),)
+    __table_args__ = (
+        Index("ix_stay_property_status", "property_id", "status"),
+        UniqueConstraint("property_id", "pms_reservation_id", name="uq_stay_property_reservation"),
+    )
     guest_id: Mapped[str] = mapped_column(ForeignKey("guest.id"), nullable=False, index=True)
     property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
     pms_reservation_id: Mapped[str | None] = mapped_column(String(100), index=True)

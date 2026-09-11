@@ -43,9 +43,11 @@ class MockPmsAdapter:
     def next_events(self, db: Session, property_id: str) -> list[PmsEvent]:
         today = clock.now().date()
         arrival = db.scalar(select(Stay).where(Stay.property_id == property_id, Stay.status == StayStatus.reserved,
-                                               Stay.arrival_date <= today).order_by(Stay.arrival_date).limit(1))
+                                               Stay.arrival_date <= today)
+                            .order_by(Stay.arrival_date, Stay.id).limit(1))
         departure = db.scalar(select(Stay).where(Stay.property_id == property_id, Stay.status == StayStatus.checked_in,
-                                                 Stay.departure_date <= today).order_by(Stay.departure_date).limit(1))
+                                                 Stay.departure_date <= today)
+                              .order_by(Stay.departure_date, Stay.id).limit(1))
         self._flip = not self._flip
         order = [arrival, departure] if self._flip else [departure, arrival]
         for stay in order:

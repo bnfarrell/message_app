@@ -13,6 +13,11 @@ from app.realtime.broadcast import queue_event
 from app.schemas.enums import StayStatus
 
 
+def _find_stay(db: Session, property_id: str, pms_reservation_id: str) -> Stay | None:
+    return db.scalar(select(Stay).where(Stay.property_id == property_id,
+                                        Stay.pms_reservation_id == pms_reservation_id))
+
+
 def handle_event(db: Session, event: PmsEvent, integration_key: str = "mock") -> bool:
     """Idempotent on (integration_key, external_id, event_type). Returns False for a duplicate.
 
@@ -42,12 +47,23 @@ def handle_event(db: Session, event: PmsEvent, integration_key: str = "mock") ->
         if value is not None:
             setattr(guest, attr, value)
 
-    stay = db.scalar(select(Stay).where(Stay.property_id == event.property_id,
-                                        Stay.pms_reservation_id == event.stay.pms_reservation_id))
+    stay = _find_stay(db, event.property_id, event.stay.pms_reservation_id)
     if stay is None:
-        stay = Stay(guest_id=guest.id, property_id=event.property_id, pms_reservation_id=event.stay.pms_reservation_id,
-                    arrival_date=event.stay.arrival_date, departure_date=event.stay.departure_date)
-        db.add(stay)
+        # Race-safe for the same reason as the pms_event insert above: Stay carries
+        # UniqueConstraint(property_id, pms_reservation_id) (uq_stay_property_reservation), so a
+        # second event for the same reservation racing past our SELECT (e.g. reservation.created
+        # and stay.checked_in, which differ by event_type and so both pass the dedup check above)
+        # hits the constraint instead of creating a duplicate Stay row.
+        try:
+            with db.begin_nested():
+                stay = Stay(guest_id=guest.id, property_id=event.property_id,
+                           pms_reservation_id=event.stay.pms_reservation_id,
+                           arrival_date=event.stay.arrival_date,
+                           departure_date=event.stay.departure_date)
+                db.add(stay)
+                db.flush()
+        except IntegrityError:
+            stay = _find_stay(db, event.property_id, event.stay.pms_reservation_id)
     for attr in ("room_number", "room_type", "rate_code", "status", "arrival_date", "departure_date", "adults",
                  "children", "is_return_guest", "stay_count"):
         setattr(stay, attr, getattr(event.stay, attr))
