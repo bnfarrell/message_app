@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RenderedQuickReply } from '../../api/types'
@@ -9,7 +9,8 @@ import { QuickRepliesAdmin } from './QuickRepliesAdmin'
 
 const REPLIES = [
   aQuickReply({ id: 'q1', shortcut: '/wifi', title: 'WiFi details', usageCount: 212 }),
-  aQuickReply({ id: 'q2', shortcut: '/shuttle', title: 'Airport shuttle', active: false, usageCount: 0 }),
+  aQuickReply({ id: 'q2', shortcut: '/shuttle', title: 'Airport shuttle', active: false, usageCount: 0,
+                body: 'The shuttle runs on the hour from 5 AM.' }),
 ]
 
 // What GET /quick-replies/variables answers — server/app/domain/quick_replies.py VARIABLES.
@@ -298,21 +299,47 @@ describe('QuickRepliesAdmin', () => {
     expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('/conversations'))).toBe(false)
   })
 
+  /**
+   * Fake timers, so the 300 ms window is exact rather than raced against the machine.
+   *
+   * An earlier version typed with a real ~20 ms delay and asserted "fewer than 5 requests". It
+   * could fail — verified — but only by a margin a loaded machine can close: once a gap between
+   * keystrokes exceeds 300 ms, intermediate previews fire for real. A flake in the *passing*
+   * direction, on the one test whose job is to catch a missing debounce, is worthless.
+   *
+   * Two constraints shape how this is written, both measured rather than assumed:
+   *  - Timers are faked only once the panel is open. @testing-library's `waitFor` recognises
+   *    *jest's* fake timers and not vitest's, so a `findBy*` inside the faked section would sit on
+   *    a clock nobody advances.
+   *  - Input is driven by `fireEvent`, not `userEvent`. `userEvent.type` hangs under vitest fake
+   *    timers even on a bare textarea with no debounce at all (reduced and confirmed): React's
+   *    async `act` waits on a `setTimeout` that is itself faked. `fireEvent` + synchronous `act`
+   *    needs no timer to flush. One `change` is one `onChange`, which is all the debounce sees.
+   */
   it('debounces the preview instead of firing one request per keystroke', async () => {
-    // Real keystroke spacing, deliberately: with `delay: null` the whole burst lands inside one
-    // task and even a 0 ms debounce coalesces it, which would make this test unable to fail.
-    const user = userEvent.setup({ delay: 20 })
     mount()
-    await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /new quick reply/i }))
     const body = await screen.findByLabelText('Body')
     expect(previewed).toEqual([]) // empty body: the server 400s on one, so it is never asked
 
-    const text = 'The pool is open 7 AM to 10 PM.' // 31 keystrokes, ~20 ms apart
-    await user.type(body, text)
-    await waitFor(() => expect(previewed.at(-1)).toBe(text))
-    // Undebounced this is one round trip per character; 300 ms of quiet makes it one in total.
-    expect(previewed.length).toBeLessThan(5)
-    await waitFor(() => expect(screen.getByText(/chars/)).toBeInTheDocument())
+    vi.useFakeTimers()
+    try {
+      // Undebounced this is a round trip before the clock has moved at all.
+      fireEvent.change(body, { target: { value: 'The pool' } })
+      expect(previewed).toEqual([])
+
+      act(() => void vi.advanceTimersByTime(299))
+      expect(previewed).toEqual([]) // 299 ms: still inside the window
+
+      fireEvent.change(body, { target: { value: 'The pool is open' } }) // restarts it
+      act(() => void vi.advanceTimersByTime(299))
+      expect(previewed).toEqual([])
+
+      act(() => void vi.advanceTimersByTime(1))
+      expect(previewed).toEqual(['The pool is open']) // exactly one, for the settled body
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('sends locale on patch and it survives the round trip', async () => {
@@ -407,5 +434,102 @@ describe('QuickRepliesAdmin', () => {
     await user.type(await screen.findByLabelText('Body'), 'Anything at all.')
     expect(await screen.findByText(/Preview unavailable: Body is too long/)).toBeInTheDocument()
     expect(screen.queryByText(/chars/)).not.toBeInTheDocument()
+  })
+
+  // --- fix round 1 ---
+
+  it('drops a failed save when another record is opened (F1)', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByText('WiFi details'))
+    await screen.findByLabelText('Locale')
+    serve((_url, init) =>
+      init?.method === 'PATCH'
+        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: locale',
+                          details: { locale: 'required' } } }, 400)
+        : null,
+    )
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText('required')
+
+    serve() // the next record is fine; the previous record's complaint is not about it
+    await user.click(screen.getByText('Airport shuttle'))
+    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('Airport shuttle'))
+    // A red "required" pinned under a Locale holding a valid "en" is worse than the stale banner:
+    // it accuses a specific, correct input belonging to a different row.
+    expect(screen.queryByText('required')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('drops a failed save on Cancel, so the next panel opens clean (F1)', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByText('WiFi details'))
+    await screen.findByLabelText('Locale')
+    serve((_url, init) =>
+      init?.method === 'PATCH'
+        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: locale',
+                          details: { locale: 'required' } } }, 400)
+        : null,
+    )
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText('required')
+
+    serve()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: /new quick reply/i }))
+    await screen.findByLabelText('Locale')
+    expect(screen.queryByText('required')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('never shows the previous record’s render while the next one is debouncing (F2)', async () => {
+    mount()
+    await userEvent.click(await screen.findByText('WiFi details'))
+    // The WiFi body interpolates, so its render is textually distinct from the raw body.
+    const wifiRender = await screen.findByText('Hi there — the network is Harbourview-Guest, no password needed.')
+    expect(wifiRender).toBeInTheDocument()
+
+    // Frozen clock: the debounce provably has not elapsed, which is the whole window at issue.
+    // fireEvent rather than userEvent for the same reason as the debounce test above.
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByText('Airport shuttle'))
+      const pane = document.querySelector('[aria-busy]')
+      expect(screen.getByLabelText('Body')).toHaveValue('The shuttle runs on the hour from 5 AM.')
+      expect(pane).toHaveTextContent('The shuttle runs on the hour from 5 AM.')
+      expect(pane).not.toHaveTextContent('Harbourview-Guest')
+      expect(pane).toHaveAttribute('aria-busy', 'true')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('says variables exist when the list cannot be loaded, rather than a bare Insert: (F3)', async () => {
+    serve((url) =>
+      url.includes('/quick-replies/variables')
+        ? json({ error: { code: 'INTERNAL', message: 'boom' } }, 500)
+        : null,
+    )
+    mount()
+    await userEvent.click(await screen.findByText('WiFi details'))
+    await screen.findByLabelText('Body')
+
+    expect(await screen.findByText(/placeholders are filled in when the reply is sent/))
+      .toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'guest_first_name' })).not.toBeInTheDocument()
+    // The chips replaced a hint line; a label with nothing after it would lose both.
+    expect(screen.queryByText((_t, el) => el?.textContent?.trim() === 'Insert:')).not.toBeInTheDocument()
+  })
+
+  it('caps the body at the 1600 characters the server accepts (F4)', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByRole('button', { name: /new quick reply/i }))
+    const body = await screen.findByLabelText('Body')
+    await user.click(body)
+    await user.paste('x'.repeat(1700))
+    // Past 1600 the preview answers the generic "Invalid request body", which never says why.
+    expect((body as HTMLTextAreaElement).value).toHaveLength(1600)
   })
 })

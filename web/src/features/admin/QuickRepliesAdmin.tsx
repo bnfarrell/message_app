@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ApiError } from '../../api/client'
+import { fieldErrors } from '../../api/fieldErrors'
 import {
   useCreateQuickReply, useDeleteQuickReply, usePatchQuickReply, useQuickReplies,
   useQuickReplyPreview, useQuickReplyVariables,
@@ -29,28 +29,6 @@ const EMPTY: Draft = {
 const LABEL = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
 const SELECT = 'h-11 w-full rounded border border-border3 bg-surface2 px-3 text-sm text-text focus:border-accent focus:outline-none'
 
-/**
- * A PATCH that clears a NOT NULL field answers 400 with `details: {"<camelCaseField>": "required"}`;
- * a body Pydantic rejects answers 400 with `details` as its error list, each entry's `loc` ending
- * in the field name. Both name the input the admin typed in, so both are rendered against it
- * rather than only in the panel's banner.
- */
-function fieldErrors(error: unknown): Record<string, string> {
-  const details = error instanceof ApiError ? error.details : undefined
-  if (!details || typeof details !== 'object') return {}
-  if (!Array.isArray(details)) {
-    return Object.fromEntries(
-      Object.entries(details as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
-    )
-  }
-  const out: Record<string, string> = {}
-  for (const item of details as { loc?: unknown[]; msg?: string }[]) {
-    const field = item.loc?.[item.loc.length - 1]
-    if (typeof field === 'string' && item.msg && !(field in out)) out[field] = item.msg
-  }
-  return out
-}
-
 /** Keeps the preview to one request per pause, not one per keystroke. */
 function useDebounced(value: string, ms: number): string {
   const [settled, setSettled] = useState(value)
@@ -65,7 +43,7 @@ export function QuickRepliesAdmin() {
   const [search, setSearch] = useState('')
   const { data, isPending, error } = useQuickReplies(search || undefined)
   const { data: departments } = useDepartments()
-  const { data: variables } = useQuickReplyVariables()
+  const { data: variables, isError: variablesFailed } = useQuickReplyVariables()
   const create = useCreateQuickReply()
   const patch = usePatchQuickReply()
   const remove = useDeleteQuickReply()
@@ -78,8 +56,10 @@ export function QuickRepliesAdmin() {
   const debouncedBody = useDebounced(body, 300)
   const preview = useQuickReplyPreview(debouncedBody)
   // The rendered text belongs to `debouncedBody`; until that catches up and the request settles,
-  // what is on screen describes an older draft, so it is labelled rather than passed off as current.
+  // what is on screen describes an older draft — possibly a different record's, when the admin
+  // clicks from one row to the next — so the pane shows the draft as typed instead, labelled.
   const previewStale = debouncedBody !== body || preview.isFetching
+  const previewBody = previewStale ? body : preview.data?.body ?? body
 
   const rows = data ?? []
   const activeCount = rows.filter((r) => r.active).length
@@ -120,7 +100,25 @@ export function QuickRepliesAdmin() {
     },
   ]
 
+  /**
+   * A mutation error outlives its panel: react-query keeps it until the next mutate. Left alone,
+   * opening a different row shows the previous record's banner and — worse, since the message is
+   * pinned to a specific box — a red field error under an input holding a perfectly valid value.
+   */
+  function clearFailures() {
+    create.reset()
+    patch.reset()
+    remove.reset()
+  }
+
+  function close() {
+    clearFailures()
+    setDraft(null)
+    setSelected(null)
+  }
+
   function open(reply: QuickReplyOut) {
+    clearFailures()
     setSelected(reply)
     setDraft({
       id: reply.id,
@@ -146,14 +144,10 @@ export function QuickRepliesAdmin() {
 
   function save() {
     if (!draft || !draft.shortcut.trim() || !draft.title.trim() || !draft.body.trim()) return
-    const done = () => {
-      setDraft(null)
-      setSelected(null)
-    }
     // Every field on the draft is patchable: A1 added `locale` to QuickReplyPatch, so the old
     // "strip locale, extra=forbid rejects it" carve-out is gone.
-    if (draft.id) patch.mutate(draft, { onSuccess: done })
-    else create.mutate(draft, { onSuccess: done })
+    if (draft.id) patch.mutate(draft, { onSuccess: close })
+    else create.mutate(draft, { onSuccess: close })
   }
 
   return (
@@ -176,6 +170,7 @@ export function QuickRepliesAdmin() {
             variant="primary"
             className="ml-auto"
             onClick={() => {
+              clearFailures()
               setSelected(null)
               setDraft({ ...EMPTY })
             }}
@@ -206,21 +201,8 @@ export function QuickRepliesAdmin() {
           saving={pending}
           error={failure}
           onSave={save}
-          onCancel={() => {
-            setDraft(null)
-            setSelected(null)
-          }}
-          onDelete={
-            draftId
-              ? () =>
-                  remove.mutate({ id: draftId }, {
-                    onSuccess: () => {
-                      setDraft(null)
-                      setSelected(null)
-                    },
-                  })
-              : undefined
-          }
+          onCancel={close}
+          onDelete={draftId ? () => remove.mutate({ id: draftId }, { onSuccess: close }) : undefined}
         >
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -249,25 +231,37 @@ export function QuickRepliesAdmin() {
           </div>
           <div>
             <label className={LABEL} htmlFor="qr-body">Body</label>
-            <Textarea id="qr-body" ref={bodyRef} rows={6} value={draft.body}
+            {/* QuickReplyIn.body and PreviewRequest.body are both capped at 1600; without this
+                the preview answers the generic "Invalid request body" and never says why. */}
+            <Textarea id="qr-body" ref={bodyRef} rows={6} value={draft.body} maxLength={1600}
                       onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
             <FieldError message={fields.body} />
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-text3">
-              Insert:
-              {(variables ?? []).map((name) => (
-                <button
-                  key={name}
-                  type="button"
-                  // Keeps the textarea's selection alive across the click, so the token lands
-                  // where the caret already was rather than at the end of the body.
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => insertVariable(name)}
-                  className="rounded-md bg-tagBg px-2 py-1 font-mono text-xs text-roomNum hover:bg-sel"
-                >
-                  {name}
-                </button>
-              ))}
-            </div>
+            {variables?.length ? (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-text3">
+                Insert:
+                {variables.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    // Keeps the textarea's selection alive across the click, so the token lands
+                    // where the caret already was rather than at the end of the body.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => insertVariable(name)}
+                    className="rounded-md bg-tagBg px-2 py-1 font-mono text-xs text-roomNum hover:bg-sel"
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            ) : variablesFailed ? (
+              // The chips replaced a static hint that named the variables. If the list cannot be
+              // fetched, say they exist rather than leaving a bare "Insert:" or nothing at all —
+              // without naming them here, which would be the hardcoded copy the chips avoid.
+              <p className="mt-1.5 text-xs text-text3">
+                {'{{variable_name}}'} placeholders are filled in when the reply is sent. The list of
+                names could not be loaded.
+              </p>
+            ) : null}
           </div>
 
           {draft.body ? (
@@ -288,7 +282,7 @@ export function QuickRepliesAdmin() {
                       previewStale && 'opacity-60',
                     )}
                   >
-                    {preview.data?.body ?? draft.body}
+                    {previewBody}
                   </div>
                   <p className="mt-1 font-mono text-xs text-text3">
                     {previewStale || !preview.data
