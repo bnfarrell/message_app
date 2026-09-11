@@ -3466,3 +3466,46 @@ S1 fix re-review dispatched (agent a43dcc7bd0659f472, opus) over 691d8dd..149eb1
       to INCLUDE 0f32656, because my `git add -A` put part of the F5/F6 work in that commit under a
       message about something else, and a reviewer scoped to 697011a alone would under-report both.
       Told so explicitly. Also told to check for an existing server on 5200 before starting one.
+
+S1 FIX RE-REVIEW RETURNED (agent a43dcc7bd0659f472, opus): F1-F7 ALL ADDRESSED for the reviewed
+      commit, every measurement reproduced to the hundredth, and the three settled palette
+      behaviours re-verified by instrumenting fetch AND XHR (zero calls on open, type and arrow).
+
+      IT INDEPENDENTLY FOUND AND QUANTIFIED THE COLLISION the user reported as "screen isn't wide
+      enough", arriving at it from measurement rather than from my message. Because the trigger is
+      position:absolute the right-hand group is unconstrained and grows leftward into it, and
+      `truncate` never engages. At 1280 the slack is 47px, so a ~20-character name already
+      collides: "Alexander Fitzgerald" -> **-4.7px**, "Alexandra Constantinopoulos" -> **-56px**,
+      a double-barrelled surname -> **-118px**. It has a screenshot of the user's name disappearing
+      BEHIND the opaque search box. Its summary of the tradeoff is exactly right: absolute
+      positioning avoids the drift of flex ordering, but trades drift for OCCLUSION.
+      It then tested the in-flight grid fix live at 1280 with a 36-character name: trigger stays
+      340x36 centred, no overlap, no horizontal scroll, and the NAME TRUNCATES instead. So F8 is
+      confirmed correct by an independent party before it is even committed.
+
+      TWO CORRECTIONS TO THE RECORD, one of which I repeated to the user:
+      - The sub-1280 justification used a wrong number. At 1024 the free half-width is **109px**,
+        so a centred control could be ~218px - which is WIDER than the 149px trigger it replaced,
+        not narrower. I relayed the "narrower than the one it replaced" claim to the user as the
+        reason for not centring below xl. The conclusion still held on other grounds (218px is not
+        meaningfully "larger" beside a 320px field) but the stated reason was false, and the grid
+        fix supersedes the whole question by centring at every width anyway.
+      - MessageBubble.tsx:64 is a THIRD conflicting call site - `<Button variant="ghost"
+        className="h-7">` - which S1's report dismissed as having "no className of its own". That
+        reason is false. It is harmless in fact (.h-7 already beat .h-11 by stylesheet order, so
+        Retry was 28px before and after), but a false reason in a report is how the next reader
+        gets misled.
+
+      Dialog close X at 31x44: ACCEPTABLE, confirmed by measurement - 10px padding each side, glyph
+      4.96:1, nearest neighbour 17px, clears WCAG 2.5.8's 24x24 with margin. It fails AAA 2.5.5 on
+      width only, and `w-11` on that one button is the entire fix if the project ever wants AAA.
+      --border3 verified live in both themes: every pair now clears 3:1 (light 3.10-3.49, dark
+      3.30-3.90) and the visual cost is acceptable - card hairlines, table rules and message
+      bubbles are untouched because they use --border/--border2.
+
+      Data: it changed no records, and returned both users' themes to what IT found. But what it
+      found for alex@hvh.test was already wrong - an earlier reviewer had left alex on dark, I
+      restored it to light, and this one then "restored" it back to dark. Set alex to light again.
+      The lesson is small but real: toggling the theme PERSISTS to the server, so every agent that
+      checks both themes mutates a user record, and "restore what you found" compounds an earlier
+      agent's error rather than correcting it.
