@@ -10,6 +10,7 @@ import { InboxPage } from './features/inbox/InboxPage'
 import { BoardPage } from './features/board/BoardPage'
 import { WorkOrderDetailPage } from './features/board/WorkOrderDetailPage'
 import { AnalyticsPage } from './features/analytics/AnalyticsPage'
+import { NotificationsPage } from './features/notifications/NotificationsPage'
 
 /** Temporary: each feature task replaces one of these with the real screen. */
 function Placeholder({ name }: { name: string }) {
@@ -57,7 +58,7 @@ export function AppRoutes() {
               </RequireCapability>
             }
           />
-          <Route path="notifications" element={<Placeholder name="Alerts" />} />
+          <Route path="notifications" element={<NotificationsPage />} />
           <Route
             path="admin/*"
             element={

@@ -38,14 +38,30 @@ describe('AppRoutes', () => {
     // React Query logs as an error ("Query data cannot be undefined") even though the redirect
     // it drives is correct — a 401, what /api/auth/me really returns when signed out, avoids
     // that noise without changing what any test asserts.
+    //
+    // Task 18's Shell fires a real fetch (useUnreadCount) for every /app/* route, session or
+    // not — under a blanket 401 that trips RequireAuth's onUnauthorized handler and bounces a
+    // role-seeded test straight to /login, which is not what any of these tests are about (the
+    // admin route previously never fetched anything, so this race did not exist before Task 18).
+    // Only that one endpoint is special-cased; everything else keeps 401ing as before.
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Not signed in' } }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      ),
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        if (String(input).includes('unread-count')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ count: 0 }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Not signed in' } }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+      }),
     )
   })
   afterEach(() => {
