@@ -1,10 +1,10 @@
 from flask import Blueprint, g
 from sqlalchemy import select
 
-from app.api._util import client_meta, db_session, ok, parse_body, parse_query
+from app.api._util import client_meta, db_session, no_content, ok, parse_body, parse_query
 from app.auth.decorators import require_auth, require_capability, require_property
 from app.auth.permissions import has_capability
-from app.domain import conversations, messages, notes
+from app.domain import conversations, draft_prompts, messages, notes
 from app.errors import NotFound
 from app.models import Message
 from app.schemas.conversations import (
@@ -97,3 +97,15 @@ def patch_conversation(property_id: str, conversation_id: str):
         conversations.patch(db, g.property_id, conversation_id, g.user.id, changes,
                             can_archive=has_capability(g.membership.role, "archive"))
         return ok(conversations.detail(db, g.property_id, conversation_id))
+
+
+@bp.post("/<conversation_id>/draft-prompts/<prompt_id>/dismiss")
+@require_auth
+@require_property
+@require_capability("reply")
+def dismiss_prompt(property_id: str, conversation_id: str, prompt_id: str):
+    with db_session() as db:
+        c = conversations.get(db, g.property_id, conversation_id)
+        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
+        draft_prompts.dismiss(db, g.property_id, conversation_id, prompt_id, g.user.id)
+    return no_content()
