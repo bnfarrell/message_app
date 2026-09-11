@@ -26,7 +26,10 @@ const OVERVIEW = {
   inboundByDay: [{ day: '2026-09-10', count: 40 }],
   firstResponseDistribution: [
     { label: '< 2 min', count: 88, share: 0.41 },
-    { label: '15–30', count: 19, share: 0.09 },
+    { label: '2–5 min', count: 40, share: 0.19 },
+    { label: '5–15 min', count: 30, share: 0.14 },
+    { label: '15–30 min', count: 19, share: 0.09 },
+    { label: '30+ min', count: 37, share: 0.17 },
   ],
   workOrdersByDepartment: [
     { departmentId: 'dept-eng', departmentName: 'Engineering', closed: 34, meanTimeToResolveSeconds: 2820 },
@@ -138,9 +141,12 @@ describe('AnalyticsPage', () => {
     expect(screen.queryByRole('button', { name: 'Export' })).not.toBeInTheDocument()
   })
 
-  it('marks the over-SLA reply bucket in red', async () => {
+  it('marks only the past-SLA reply buckets in red', async () => {
     mount()
     await screen.findByText('214')
+    // "5–15 min" is entirely within the 15-minute SLA and must not read as a breach.
+    expect(screen.getByText('14%').className).not.toContain('dangerText')
+    // "15–30 min" is past the SLA.
     expect(screen.getByText('9%').className).toContain('dangerText')
   })
 

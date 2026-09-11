@@ -17,6 +17,10 @@ function duration(seconds: number | null | undefined): string {
 const CARD = 'rounded-card border border-border2 bg-surface p-4'
 const H = 'mb-3 text-[13px] font-bold uppercase tracking-wider text-text3'
 
+// The server's stable bucket order (see app/domain/analytics.py) — only these two are past
+// the 15-minute SLA. Matched by exact label, not substring: "5–15 min" contains "15" too.
+const PAST_SLA_LABELS = new Set(['15–30 min', '30+ min'])
+
 export function AnalyticsPage() {
   const { membership, can } = useSession()
   const [key, setKey] = useState<RangeKey>('7d')
@@ -133,7 +137,7 @@ export function AnalyticsPage() {
               value: `${Math.round(bucket.share * 100)}%`,
               share: bucket.share,
               // The only red: buckets past the 15-minute SLA.
-              danger: bucket.label.includes('15') || bucket.label.includes('30'),
+              danger: PAST_SLA_LABELS.has(bucket.label),
             }))}
           />
           <p className="mt-3 text-[12.5px] text-text3">Red is past the 15-minute SLA.</p>
