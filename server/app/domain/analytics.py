@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import math
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.models import Conversation, Department, Message, PropertyMembership, UserAccount, WorkOrder
+from app.models import (
+    Conversation,
+    Department,
+    Message,
+    Property,
+    PropertyMembership,
+    UserAccount,
+    WorkOrder,
+)
 from app.schemas.analytics import (
     AgentStats,
     DayBucket,
@@ -40,6 +49,22 @@ def default_range(since: datetime | None, until: datetime | None) -> tuple[datet
     return since, until
 
 
+def property_zone(db: Session, property_id: str) -> ZoneInfo:
+    """The property's own IANA zone. domain.properties.normalize_timezone validates it on write."""
+    return ZoneInfo(db.scalar(select(Property.timezone).where(Property.id == property_id))
+                    or "UTC")
+
+
+def local(at: datetime, zone: ZoneInfo) -> datetime:
+    """Move a stored UTC instant into the property's wall clock.
+
+    `sent_at` is conceptually UTC and app.db.UTCDateTime hands it back aware, but UTC is attached
+    explicitly for a naive value rather than left to `astimezone()`, which would read the *server
+    machine's* local zone instead — a wrong answer that only appears off a UTC host.
+    """
+    return (at if at.tzinfo else at.replace(tzinfo=UTC)).astimezone(zone)
+
+
 def overview(db: Session, property_id: str, since: datetime | None = None,
             until: datetime | None = None) -> Overview:
     since, until = default_range(since, until)
@@ -54,8 +79,15 @@ def overview(db: Session, property_id: str, since: datetime | None = None,
                if m.direction == Direction.outbound and m.author_type == AuthorType.staff]
     frs = [c.first_response_seconds for c in convs if c.first_response_seconds is not None]
     breaches = sum(1 for c in convs if c.sla_breach_notified_at is not None)
-    by_hour = Counter(m.sent_at.hour for m in inbound)
-    by_day = Counter(m.sent_at.date().isoformat() for m in inbound)
+    # Buckets are the property's local hours and days: a duty manager reading "busiest hour" or
+    # a per-day chart means their own wall clock, and a 9pm New York message belongs to that day,
+    # not to the next one it falls on in UTC. `since`/`until` above stay UTC instants — they
+    # select which messages are in range, not which bucket one lands in, so converting them too
+    # would double-apply the offset.
+    zone = property_zone(db, property_id)
+    local_inbound = [local(m.sent_at, zone) for m in inbound]
+    by_hour = Counter(at.hour for at in local_inbound)
+    by_day = Counter(at.date().isoformat() for at in local_inbound)
     dist = [ResponseBucket(label=label, count=sum(1 for v in frs if lo <= v < hi),
                            share=(sum(1 for v in frs if lo <= v < hi) / len(frs)) if frs else 0.0)
             for label, lo, hi in BUCKETS]

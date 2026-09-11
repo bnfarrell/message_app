@@ -1,4 +1,5 @@
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from app import clock
 from app.domain import analytics, work_orders
@@ -64,16 +65,21 @@ def test_overview_and_agents(app, fx, client, database, login):
            and o["meanTimeToResolveSeconds"] == 1200)
     assert o["workOrdersFromConversations"] == 1
 
+    # Buckets are property-local (America/New_York), not UTC. The two messages are 13h apart, so
+    # they are still in different local hours; the second one crosses midnight in UTC but not in
+    # New York, so both land on the same local day.
+    zone = ZoneInfo(fx.property_a.timezone)
+    first_local, second_local = start.astimezone(zone), second_hour.astimezone(zone)
     hour_counts = {b["hour"]: b["count"] for b in o["inboundByHour"]}
     assert len(o["inboundByHour"]) == 24
-    assert hour_counts[start.hour] == 1
-    assert hour_counts[second_hour.hour] == 1
-    assert start.hour != second_hour.hour
+    assert hour_counts[first_local.hour] == 1
+    assert hour_counts[second_local.hour] == 1
+    assert first_local.hour != second_local.hour
     assert sum(hour_counts.values()) == 2
 
     day_counts = {b["day"]: b["count"] for b in o["inboundByDay"]}
-    assert day_counts == {start.date().isoformat(): 1, second_hour.date().isoformat(): 1}
-    assert start.date() != second_hour.date()
+    assert day_counts == {first_local.date().isoformat(): 2}
+    assert start.date() != second_hour.date()  # ... even though UTC puts them on two dates
 
     # The whole first-response histogram, not just its existence: 46920s lands in the "30+ min"
     # bucket (the only conversation with a response), every other bucket must be empty.
@@ -163,3 +169,50 @@ def test_overview_excludes_other_property_data(app, fx, client, database):
     assert a_overview.work_orders_created == 0
     assert b_overview.conversations == 1 and b_overview.inbound_messages == 1
     assert b_overview.work_orders_created == 1
+
+
+def test_buckets_use_each_property_own_timezone(app, fx, client, database):
+    """One instant, two properties, two different local buckets.
+
+    The instant is 2026-09-11 01:30 UTC: 21:30 on 2026-09-10 in New York (property A, UTC-4 in
+    September) and 20:30 on 2026-09-10 in Chicago (property B, UTC-5). So raw UTC would report
+    hour 1 on the 11th for both — the wrong hour *and* the wrong day — and a single hardcoded
+    offset would get one of the two properties wrong.
+    """
+    clock.advance(hours=13, minutes=30)
+    at = clock.now()
+    assert (at.hour, at.date().isoformat()) == (1, "2026-09-11")  # the UTC answer, for contrast
+
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+    inbound(client, fx, fx.guest_b.phone_e164, "no towels", to=fx.property_b.sms_number)
+    clock.advance(minutes=1)  # default_range's "until" is now(); keep it after both rows
+
+    with database.session() as db:
+        a = analytics.overview(db, fx.property_a.id)
+        b = analytics.overview(db, fx.property_b.id)
+
+    assert (fx.property_a.timezone, fx.property_b.timezone) == ("America/New_York",
+                                                               "America/Chicago")
+    assert [(x.hour, x.count) for x in a.inbound_by_hour if x.count] == [(21, 1)]
+    assert [(x.hour, x.count) for x in b.inbound_by_hour if x.count] == [(20, 1)]
+    assert [(x.day, x.count) for x in a.inbound_by_day] == [("2026-09-10", 1)]
+    assert [(x.day, x.count) for x in b.inbound_by_day] == [("2026-09-10", 1)]
+
+
+def test_range_filter_is_not_shifted_by_the_bucket_timezone(app, fx, client, database):
+    """`since`/`until` are UTC instants and must stay that way: converting them as well would
+    double-apply the offset and silently drop (or admit) messages near the window edge."""
+    clock.advance(hours=13, minutes=30)  # 2026-09-11 01:30 UTC, 21:30 local on the 10th
+    at = clock.now()
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
+
+    with database.session() as db:
+        inside = analytics.overview(db, fx.property_a.id, at - timedelta(minutes=1),
+                                    at + timedelta(minutes=1))
+        # A window that ends one minute before the message — four hours wide, so an offset applied
+        # to the boundaries as well would pull the message back into it.
+        before = analytics.overview(db, fx.property_a.id, at - timedelta(hours=4),
+                                    at - timedelta(minutes=1))
+    assert inside.inbound_messages == 1
+    assert [(x.day, x.count) for x in inside.inbound_by_day] == [("2026-09-10", 1)]
+    assert before.inbound_messages == 0 and before.inbound_by_day == []
