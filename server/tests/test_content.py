@@ -122,3 +122,91 @@ def test_resolution_category_delete_blocked_by_conversation_reference(app, fx, c
                        json={"status": "archived", "resolutionCategoryId": cat["id"]})
     assert resp.status_code == 200
     assert admin.delete(f"{base}/{cat['id']}").status_code == 409
+
+
+def test_quick_reply_locale_is_patchable(app, fx, login):
+    base = f"/api/p/{fx.property_a.id}/quick-replies"
+    admin = login("admin@hvh.test")
+    qr = admin.post(base, json={"shortcut": "/bienvenue", "title": "Welcome",
+                                "body": "Bonjour {{guest_first_name}}."}).get_json()
+    assert qr["locale"] == "en"
+    patched = admin.patch(f"{base}/{qr['id']}", json={"locale": "fr-CA"})
+    assert patched.status_code == 200
+    body = patched.get_json()
+    assert body["locale"] == "fr-CA"
+    assert (body["shortcut"], body["title"], body["body"], body["active"]) == (
+        qr["shortcut"], qr["title"], qr["body"], qr["active"])
+    assert admin.get(base).get_json()[0]["locale"] == "fr-CA"  # persisted
+    # the column is String(8); an over-long value must not reach the database
+    assert admin.patch(f"{base}/{qr['id']}", json={"locale": "x" * 9}).status_code == 400
+
+
+def test_quick_reply_variables_endpoint_is_the_authoritative_list(app, fx, login):
+    from app.domain.quick_replies import VARIABLES
+
+    res = login("agent@hvh.test").get(f"/api/p/{fx.property_a.id}/quick-replies/variables")
+    assert res.status_code == 200
+    assert res.get_json() == list(VARIABLES)
+    assert "property_name" in res.get_json()  # the mockup omits this chip; the server is the truth
+
+
+def test_preview_falls_back_without_a_conversation(app, fx, login):
+    from app.domain.quick_replies import FALLBACKS
+
+    url = f"/api/p/{fx.property_a.id}/quick-replies/preview"
+    body = "Hi {{guest_first_name}}, room {{room_number}} — see {{agent_first_name}}."
+    res = login("admin@hvh.test").post(url, json={"body": body})
+    assert res.status_code == 200, res.get_json()
+    out = res.get_json()
+    assert out["body"] == (f"Hi {FALLBACKS['guest_first_name']}, "
+                           f"room {FALLBACKS['room_number']} — "
+                           f"see {FALLBACKS['agent_first_name']}.")
+    assert out["characters"] == len(out["body"])
+
+
+def test_preview_uses_real_guest_data_with_a_conversation(app, fx, client, database, login):
+    inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
+    cid = _cid(database, fx.guest_inhouse_a.id)
+    url = f"/api/p/{fx.property_a.id}/quick-replies/preview"
+    out = login("admin@hvh.test").post(url, json={
+        "body": "Hi {{guest_first_name}} in {{room_number}} at {{property_name}}.",
+        "conversationId": cid}).get_json()
+    assert out["body"] == "Hi Sarah in 412 at Harbourview Hotel."
+
+
+def test_preview_does_not_touch_usage_count(app, fx, database, login):
+    """The regression that made /render unusable as a preview: the admin table shows a "Uses"
+    column, and previewing must not inflate it."""
+    from app.models import QuickReply
+
+    base = f"/api/p/{fx.property_a.id}/quick-replies"
+    admin = login("admin@hvh.test")
+    qr = admin.post(base, json={"shortcut": "/spa", "title": "Spa",
+                                "body": "The spa closes at 8."}).get_json()
+    with database.session() as db:
+        before = db.get(QuickReply, qr["id"]).usage_count
+    for _ in range(3):
+        res = admin.post(f"{base}/preview", json={"body": "The spa closes at 8."})
+        assert res.status_code == 200
+    with database.session() as db:
+        assert db.get(QuickReply, qr["id"]).usage_count == before == 0
+
+
+def test_preview_capability_differs_from_render(app, fx, login):
+    """`corporate` holds manage_admin but not `reply`, so it can open the admin screen and must be
+    able to drive the preview pane on it — the second reason /render cannot serve this."""
+    url = f"/api/p/{fx.property_a.id}/quick-replies/preview"
+    assert login("corporate@hvh.test").post(url, json={"body": "hello"}).status_code == 200
+    for email in ("agent@hvh.test", "manager@hvh.test", "engineer@hvh.test"):
+        assert login(email).post(url, json={"body": "hello"}).status_code == 403
+
+
+def test_preview_counts_segments_the_same_way_the_sender_does(app, fx, login):
+    from app.domain.sms import segment_count
+
+    url = f"/api/p/{fx.property_a.id}/quick-replies/preview"
+    admin = login("admin@hvh.test")
+    for body in ("a" * 160, "a" * 161, "café " * 20, "😀" + "a" * 69):
+        out = admin.post(url, json={"body": body}).get_json()
+        assert (out["segments"], out["characters"]) == (segment_count(body), len(body)), body
+    assert admin.post(url, json={"body": ""}).status_code == 400

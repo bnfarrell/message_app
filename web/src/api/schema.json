@@ -2060,6 +2060,35 @@
       "title": "PrefsPatch",
       "type": "object"
     },
+    "PreviewRequest": {
+      "additionalProperties": false,
+      "description": "Previews arbitrary body text, so the admin editor can render unsaved drafts.",
+      "properties": {
+        "body": {
+          "maxLength": 1600,
+          "minLength": 1,
+          "title": "Body",
+          "type": "string"
+        },
+        "conversationId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversationid"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "title": "PreviewRequest",
+      "type": "object"
+    },
     "Priority": {
       "enum": [
         "low",
@@ -2110,6 +2139,8 @@
         },
         "locale": {
           "default": "en",
+          "maxLength": 8,
+          "minLength": 1,
           "title": "Locale",
           "type": "string"
         },
@@ -2253,6 +2284,20 @@
           ],
           "default": null,
           "title": "Departmentid"
+        },
+        "locale": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locale"
         },
         "shortcut": {
           "anyOf": [

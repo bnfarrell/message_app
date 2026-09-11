@@ -121,6 +121,22 @@ def context_for_conversation(db: Session, property_id: str, conversation_id: str
     }
 
 
+def preview(db: Session, property_id: str, body: str, conversation_id: str | None,
+            agent_user_id: str | None) -> RenderedQuickReply:
+    """Renders arbitrary body text without touching a single row.
+
+    Deliberately not `render()`: that one bumps `usage_count` (which the admin table displays as
+    "Uses"), needs a saved row and a real conversation, and is gated on `reply` — a capability
+    `corporate` does not hold even though it can open the admin screen. Every variable with no
+    context — including the no-conversation case — falls back through `interpolate`.
+    """
+    ctx = (context_for_conversation(db, property_id, conversation_id, agent_user_id)
+           if conversation_id else {})
+    rendered = interpolate(body, ctx)
+    return RenderedQuickReply(body=rendered, segments=segment_count(rendered),
+                              characters=len(rendered))
+
+
 def render(db: Session, property_id: str, quick_reply_id: str, conversation_id: str,
            agent_user_id: str | None) -> RenderedQuickReply:
     r = get(db, property_id, quick_reply_id)

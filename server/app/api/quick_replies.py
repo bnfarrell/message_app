@@ -3,7 +3,13 @@ from flask import Blueprint, g, request
 from app.api._util import db_session, no_content, ok, parse_body
 from app.auth.decorators import require_auth, require_capability, require_property
 from app.domain import conversations, quick_replies
-from app.schemas.content import QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderRequest
+from app.schemas.content import (
+    PreviewRequest,
+    QuickReplyIn,
+    QuickReplyOut,
+    QuickReplyPatch,
+    RenderRequest,
+)
 
 bp = Blueprint("quick_replies", __name__, url_prefix="/api/p/<property_id>/quick-replies")
 
@@ -61,3 +67,27 @@ def render_quick_reply(property_id: str, quick_reply_id: str):
                                      g.user.id, g.membership.department_id)
         return ok(quick_replies.render(db, g.property_id, quick_reply_id, body.conversation_id,
                                        g.user.id))
+
+
+@bp.get("/variables")
+@require_auth
+@require_property
+def list_variables(property_id: str):
+    """The authoritative `{{variable}}` list (ruling D68), so the client never hardcodes it."""
+    return ok(list(quick_replies.VARIABLES))
+
+
+@bp.post("/preview")
+@require_auth
+@require_property
+@require_capability("manage_admin")
+def preview_quick_reply(property_id: str):
+    """Read-only sibling of /render for the admin editor: arbitrary body text, no usage_count
+    bump, and gated on the screen's own capability so `corporate` is not locked out."""
+    body = parse_body(PreviewRequest)
+    with db_session() as db:
+        if body.conversation_id:
+            conversations.get_for_viewer(db, g.property_id, body.conversation_id,
+                                         g.membership.role, g.user.id, g.membership.department_id)
+        return ok(quick_replies.preview(db, g.property_id, body.body, body.conversation_id,
+                                        g.user.id))

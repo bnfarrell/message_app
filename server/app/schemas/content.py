@@ -12,7 +12,7 @@ class QuickReplyIn(CamelModel):
     body: str = Field(min_length=1, max_length=1600)
     category: str | None = None
     department_id: str | None = None
-    locale: str = "en"
+    locale: str = Field(default="en", min_length=1, max_length=8)
     active: bool = True
 
 
@@ -22,6 +22,7 @@ class QuickReplyPatch(CamelModel):
     body: str | None = None
     category: str | None = None
     department_id: str | None = None
+    locale: str | None = Field(default=None, min_length=1, max_length=8)
     active: bool | None = None
 
 
@@ -39,6 +40,13 @@ class QuickReplyOut(CamelModel):
 
 class RenderRequest(CamelModel):
     conversation_id: str
+
+
+class PreviewRequest(CamelModel):
+    """Previews arbitrary body text, so the admin editor can render unsaved drafts."""
+
+    body: str = Field(min_length=1, max_length=1600)
+    conversation_id: str | None = None
 
 
 class RenderedQuickReply(CamelModel):
