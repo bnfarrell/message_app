@@ -283,6 +283,7 @@ export type Workordersbydepartment = DepartmentBucket[];
 export type Workordersclosed = number;
 export type Workorderscreated1 = number;
 export type Workordersfromconversations = number;
+export type Theme = ('dark' | 'light' | 'system') | null;
 export type Active7 = boolean;
 export type Body6 = string;
 export type Category3 = string | null;
@@ -832,6 +833,15 @@ export interface ResponseBucket {
   share: Share;
 }
 /**
+ * Only the keys the client is allowed to set. `extra='forbid'` comes from CamelModel.
+ *
+ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * via the `definition` "PrefsPatch".
+ */
+export interface PrefsPatch {
+  theme?: Theme;
+}
+/**
  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
  * via the `definition` "QuickReplyIn".
  */
@@ -915,6 +925,10 @@ export interface UserOut {
   id: Id14;
   lastName: Lastname2;
   locale: Locale2;
+  notificationPrefs?: Notificationprefs;
+}
+export interface Notificationprefs {
+  [k: string]: unknown;
 }
 /**
  * This interface was referenced by `ConciergeAPI`'s JSON-Schema

@@ -11,7 +11,7 @@ from app.domain import audit
 from app.errors import Unauthorized
 from app.models import Property, PropertyMembership, UserAccount
 from app.ratelimit import login_limiter, rate_limited
-from app.schemas.auth import LoginRequest, MembershipOut, SessionOut, UserOut
+from app.schemas.auth import LoginRequest, MembershipOut, PrefsPatch, SessionOut, UserOut
 from app.schemas.enums import UserStatus
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
@@ -80,4 +80,19 @@ def logout():
 def me():
     with db_session() as db:
         user = db.get(UserAccount, g.user.id)
+        return ok(_session_out(db, user))
+
+
+@bp.patch("/prefs")
+@require_auth
+def patch_prefs():
+    body = parse_body(PrefsPatch)
+    with db_session() as db:
+        user = db.get(UserAccount, g.user.id)
+        # Reassign rather than mutate: a JSON column mutated in place is not seen as dirty
+        # by SQLAlchemy without MutableDict, so the UPDATE would never be emitted.
+        prefs = dict(user.notification_prefs or {})
+        if body.theme is not None:
+            prefs["theme"] = body.theme
+        user.notification_prefs = prefs
         return ok(_session_out(db, user))

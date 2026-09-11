@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import EmailStr, Field
 
 from app.schemas.common import CamelModel
@@ -16,6 +18,13 @@ class UserOut(CamelModel):
     last_name: str
     avatar_url: str | None = None
     locale: str
+    notification_prefs: dict = Field(default_factory=dict)
+
+
+class PrefsPatch(CamelModel):
+    """Only the keys the client is allowed to set. `extra='forbid'` comes from CamelModel."""
+
+    theme: Literal["dark", "light", "system"] | None = None
 
 
 class MembershipOut(CamelModel):

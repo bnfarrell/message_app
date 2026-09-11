@@ -2035,6 +2035,31 @@
       "title": "Overview",
       "type": "object"
     },
+    "PrefsPatch": {
+      "additionalProperties": false,
+      "description": "Only the keys the client is allowed to set. `extra='forbid'` comes from CamelModel.",
+      "properties": {
+        "theme": {
+          "anyOf": [
+            {
+              "enum": [
+                "dark",
+                "light",
+                "system"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Theme"
+        }
+      },
+      "title": "PrefsPatch",
+      "type": "object"
+    },
     "Priority": {
       "enum": [
         "low",
@@ -2731,6 +2756,11 @@
         "locale": {
           "title": "Locale",
           "type": "string"
+        },
+        "notificationPrefs": {
+          "additionalProperties": true,
+          "title": "Notificationprefs",
+          "type": "object"
         }
       },
       "required": [
