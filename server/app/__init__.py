@@ -123,4 +123,10 @@ def create_app(config: Config | None = None) -> Flask:
     sock.init_app(app)
     if config.START_WORKER and (under_reloader or not config.USE_RELOADER):
         start_sweeper(app)
+
+    from app import spa
+
+    # No-op unless WEB_DIST names a built client, which only the container image does.
+    # Registered last so the API and socket rules already exist when the catch-all lands.
+    spa.install(app)
     return app

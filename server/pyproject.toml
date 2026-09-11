@@ -15,10 +15,17 @@ dependencies = [
   # timezone validator in app/domain/properties.py would otherwise reject every
   # valid IANA zone there.
   "tzdata>=2024.1",
+  # flask-sock speaks the protocol but delegates the WSGI handshake to simple-websocket,
+  # so /ws is dead without it at runtime. It sat in the dev extra until the container
+  # build made the distinction load-bearing.
+  "simple-websocket>=1.1",
+  # Production WSGI server. run.py's docstring has named this command since the server
+  # phase; it was never actually installable.
+  "gunicorn>=23",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6", "simple-websocket>=1.1"]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [build-system]
 requires = ["setuptools>=68"]
