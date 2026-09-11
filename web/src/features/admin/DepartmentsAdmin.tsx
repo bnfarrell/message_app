@@ -152,6 +152,13 @@ export function DepartmentsAdmin() {
 
       {draft ? (
         <EditPanel
+          // Remount per subject. EditPanel holds its delete confirmation in local state, and the
+          // panel does not unmount when the admin clicks from one row to the next — so a Delete
+          // pressed on a department the guard then refuses leaves "Confirm" armed over the NEXT
+          // row the admin opens, one click from deleting something they never asked about. The
+          // key is scoped to this screen; the same carry-over exists on the other four panels and
+          // is recorded rather than fixed here.
+          key={draftId ?? 'new'}
           title={draft.id ? 'Edit department' : 'New department'}
           saving={pending}
           error={failure}

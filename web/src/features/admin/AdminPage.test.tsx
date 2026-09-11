@@ -26,7 +26,7 @@ describe('AdminPage', () => {
     vi.unstubAllGlobals()
   })
 
-  it('lists the five live sections as links, in the order the mockup uses', async () => {
+  it('lists the six live sections as links, in the order the mockup uses', async () => {
     mount()
     const labels = [
       'Users & roles',
@@ -34,6 +34,9 @@ describe('AdminPage', () => {
       'Quick replies',
       'Digital assets',
       'Resolution categories',
+      // Sixth and last of the live group, directly above the divider — where Admin.dc.html
+      // draws it, and it draws it ungreyed, so this is the client catching up to the mockup.
+      'Property settings',
     ]
     for (const name of labels) {
       expect(await screen.findByRole('link', { name })).toBeInTheDocument()
@@ -46,11 +49,14 @@ describe('AdminPage', () => {
   it('lists the Phase 2 sections as disabled, not as links', async () => {
     mount()
     await screen.findByRole('link', { name: 'Quick replies' })
-    for (const name of ['Property settings', 'Automations', 'Blocked numbers', 'Integrations']) {
+    for (const name of ['Automations', 'Blocked numbers', 'Integrations']) {
       expect(screen.getByText(name)).toBeInTheDocument()
       expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
     }
+    // The three that stay greyed have no models, no endpoints and no spec behind them; the
+    // caption above them is unchanged.
     expect(screen.getByText(/arrive in Phase 2/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Property settings' })).toBeInTheDocument()
   })
 
   it('marks the current section', async () => {

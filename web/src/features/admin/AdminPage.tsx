@@ -3,6 +3,7 @@ import { cn } from '../../lib/cn'
 import { AssetsAdmin } from './AssetsAdmin'
 import { CategoriesAdmin } from './CategoriesAdmin'
 import { DepartmentsAdmin } from './DepartmentsAdmin'
+import { PropertySettingsAdmin } from './PropertySettingsAdmin'
 import { QuickRepliesAdmin } from './QuickRepliesAdmin'
 import { UsersAdmin } from './UsersAdmin'
 
@@ -16,10 +17,11 @@ const LIVE = [
   { to: '/app/admin/quick-replies', label: 'Quick replies' },
   { to: '/app/admin/assets', label: 'Digital assets' },
   { to: '/app/admin/categories', label: 'Resolution categories' },
+  { to: '/app/admin/property', label: 'Property settings' },
 ]
 
 // Shown deliberately (mockup Admin.dc.html): an admin should see the product's shape.
-const PHASE_2 = ['Property settings', 'Automations', 'Blocked numbers', 'Integrations']
+const PHASE_2 = ['Automations', 'Blocked numbers', 'Integrations']
 
 export function AdminPage() {
   return (
@@ -64,6 +66,7 @@ export function AdminPage() {
         <Route path="quick-replies" element={<QuickRepliesAdmin />} />
         <Route path="assets" element={<AssetsAdmin />} />
         <Route path="categories" element={<CategoriesAdmin />} />
+        <Route path="property" element={<PropertySettingsAdmin />} />
       </Routes>
     </div>
   )

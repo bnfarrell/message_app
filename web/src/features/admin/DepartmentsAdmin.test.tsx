@@ -182,6 +182,22 @@ describe('DepartmentsAdmin', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('does not carry an armed delete confirmation over to the next row', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByText('Maintenance'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+
+    await user.click(screen.getByText('Reception'))
+    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Reception'))
+    // Reception's panel must not open one click away from deleting Reception. This is the reason
+    // the panel is keyed on the record: its confirmation lives in EditPanel's own state and the
+    // panel is never unmounted between rows.
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+  })
+
   it('shows escalation as a column but offers no control for it (D81)', async () => {
     const user = userEvent.setup()
     mount()

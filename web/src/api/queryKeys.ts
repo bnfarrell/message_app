@@ -23,6 +23,7 @@ export const qk = {
   categories: (propertyId: string) => ['categories', propertyId] as const,
   categoriesAll: (propertyId: string) => ['categories', propertyId] as const,
   departments: (propertyId: string) => ['departments', propertyId] as const,
+  propertySettings: (propertyId: string) => ['propertySettings', propertyId] as const,
   staff: (propertyId: string) => ['staff', propertyId] as const,
   staffAll: (propertyId: string) => ['staff', propertyId] as const,
   guest: (propertyId: string, id: string) => ['guest', propertyId, id] as const,
