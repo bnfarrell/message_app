@@ -21,7 +21,7 @@ Keyword = Literal["stop", "start", "help"]
 
 
 def classify_keyword(body: str) -> Keyword | None:
-    normalized = body.strip().lower().rstrip(".,!?")
+    normalized = body.strip().lower().rstrip(" .,!?")
     if not normalized:
         return None
     if normalized in STOP_WORDS:

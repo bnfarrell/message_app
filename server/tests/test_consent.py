@@ -7,7 +7,8 @@ from app.schemas.enums import SmsConsentStatus
 
 
 @pytest.mark.parametrize("body,expected", [
-    ("STOP", "stop"), ("stop", "stop"), ("stop.", "stop"), (" STOP ", "stop"), ("STOPALL", "stop"),
+    ("STOP", "stop"), ("stop", "stop"), ("stop.", "stop"), ("STOP .", "stop"), (" STOP ", "stop"),
+    ("STOPALL", "stop"),
     ("UNSUBSCRIBE", "stop"), ("CANCEL", "stop"), ("END", "stop"), ("QUIT", "stop"),
     ("START", "start"), ("UNSTOP", "start"), ("YES", "start"),
     ("HELP", "help"),
