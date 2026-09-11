@@ -24,6 +24,7 @@ def create_app(config: Config | None = None) -> Flask:
     register_error_handlers(app)
 
     from app.api import (
+        analytics,
         assets,
         auth,
         categories,
@@ -52,6 +53,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(categories.bp)
     app.register_blueprint(short_links.bp)
     app.register_blueprint(hooks.bp)
+    app.register_blueprint(analytics.bp)
 
     import os
 
