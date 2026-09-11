@@ -3585,3 +3585,38 @@ Ruling D104 (work-order photos go in the DATABASE, not on disk): the deployment 
       Cost if wrong: if photos outgrow the database, moving them to object storage is a migration
       of a single table whose interface is one endpoint — the decision is reversible, which is
       most of why it is the right default now.
+
+USER-REPORTED, from the running app: "can you make the note and reply two buttons, it is a little
+      confusing the way it is now." They are right about the symptom. ModeTab renders the INACTIVE
+      control as bare text with no button affordance at all, so the pair does not read as a
+      choice; the labels are 12px uppercase - the smallest type in the composer, for its most
+      consequential decision; and the active Reply state is bg-surface on a bg-surface2 track,
+      a very small step which an earlier reviewer showed INVERTS between themes. Three separate
+      reasons the control fails to communicate, none of them the user's fault to diagnose.
+
+Ruling D105 (make them two real buttons, but do NOT collapse the mode into two send buttons):
+      the obvious reading of "two buttons" is to delete the mode and offer "Send reply" and
+      "Add note" at submit time. That is tidier and MORE DANGEROUS, and I am not doing it.
+      Right now the mode is visible the ENTIRE time you type: the textarea is tinted
+      noteBg/noteText/noteBorder and the placeholder reads "Internal note — not sent to the
+      guest". That continuous signal is what stops an agent composing a staff-only note and
+      sending it to the guest. Deferring the choice to submit time turns a mis-click into a
+      message the guest receives and cannot unsee — and internal notes on this product routinely
+      carry exactly what you would not say to a guest.
+      So: keep the mode, keep the tint, keep the placeholder, and fix the thing that is actually
+      broken - the controls do not read as controls. Two equal-weight buttons, obvious selected
+      state in BOTH themes, sentence case at normal control size, labelled for what they act on.
+      Plus a submit button that names its destination instead of saying "Send".
+      Cost if wrong: if the user really did want the mode gone, the mode-free version is a smaller
+      change from here than the reverse, and I will have asked them first.
+
+Ruling D106 (regrouping the remaining web work by screen area rather than by origin): the
+      composer change, M11 and the photo UI are all inbox/work-order surfaces and share a review
+      surface; the analytics custom range and the simulator PMS buttons are different screens
+      entirely. So:
+        G2 — composer mode buttons (user-reported), M11 guest-panel work orders, photo upload UI
+        G3 — R3.2 analytics custom range, R3.3 simulator PMS buttons
+      Item 3 of G2 consumes G1's endpoint, which is why G1 goes first; items 1 and 2 do not, but
+      splitting them out would buy a dispatch seat to save no wall-clock, since one writer holds
+      the tree either way.
+      Cost if wrong: a grouping too large is split at its review, costing one dispatch.
