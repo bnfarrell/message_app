@@ -1,13 +1,16 @@
 import { Outlet } from 'react-router-dom'
+import { RealtimeProvider } from './api/ws'
 import { AppShell } from './components/AppShell'
 import { ThemeProvider } from './theme/ThemeContext'
 
 export function AppLayout() {
   return (
     <ThemeProvider>
-      <AppShell>
-        <Outlet />
-      </AppShell>
+      <RealtimeProvider>
+        <AppShell>
+          <Outlet />
+        </AppShell>
+      </RealtimeProvider>
     </ThemeProvider>
   )
 }
