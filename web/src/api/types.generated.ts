@@ -222,7 +222,6 @@ export type Departmentname = string;
 export type Meantimetoresolveseconds = number | null;
 export type Active6 = boolean;
 export type Escalationminutes = number;
-export type Id10 = string;
 export type Name7 = string;
 /**
  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
@@ -230,6 +229,13 @@ export type Name7 = string;
  */
 export type DepartmentType =
   'front_desk' | 'housekeeping' | 'engineering' | 'food_beverage' | 'spa' | 'security' | 'valet' | 'other';
+export type Active7 = boolean;
+export type Escalationminutes1 = number;
+export type Id10 = string;
+export type Name8 = string;
+export type Active8 = boolean | null;
+export type Escalationminutes2 = number | null;
+export type Name9 = string | null;
 export type Conversationids = string[];
 export type Stays = StayOut[];
 export type Body4 = string;
@@ -284,49 +290,78 @@ export type Workordersclosed = number;
 export type Workorderscreated1 = number;
 export type Workordersfromconversations = number;
 export type Theme = ('dark' | 'light' | 'system') | null;
-export type Active7 = boolean;
 export type Body6 = string;
+export type Conversationid1 = string | null;
+export type Address = string | null;
+export type Autoresolvehours = number;
+export type Brand = string | null;
+export type Code = string;
+export type Currency = string;
+export type Helptext = string | null;
+export type Id13 = string;
+export type Logourl = string | null;
+export type Name10 = string;
+export type Phone2 = string | null;
+export type Primarycolor = string | null;
+export type Slaminutes = number;
+export type Smsnumber = string | null;
+export type Timezone = string;
+export type Address1 = string | null;
+export type Autoresolvehours1 = number | null;
+export type Brand1 = string | null;
+export type Currency1 = string | null;
+export type Helptext1 = string | null;
+export type Logourl1 = string | null;
+export type Name11 = string | null;
+export type Phone3 = string | null;
+export type Primarycolor1 = string | null;
+export type Slaminutes1 = number | null;
+export type Smsnumber1 = string | null;
+export type Timezone1 = string | null;
+export type Active9 = boolean;
+export type Body7 = string;
 export type Category3 = string | null;
 export type Departmentid8 = string | null;
 export type Locale = string;
 export type Shortcut = string;
 export type Title3 = string;
-export type Active8 = boolean;
-export type Body7 = string;
+export type Active10 = boolean;
+export type Body8 = string;
 export type Category4 = string | null;
 export type Departmentid9 = string | null;
-export type Id13 = string;
+export type Id14 = string;
 export type Locale1 = string;
 export type Shortcut1 = string;
 export type Title4 = string;
 export type Usagecount = number;
-export type Active9 = boolean | null;
-export type Body8 = string | null;
+export type Active11 = boolean | null;
+export type Body9 = string | null;
 export type Category5 = string | null;
 export type Departmentid10 = string | null;
+export type Locale2 = string | null;
 export type Shortcut2 = string | null;
 export type Title5 = string | null;
-export type Conversationid1 = string;
-export type Body9 = string;
+export type Conversationid2 = string;
+export type Body10 = string;
 export type Characters = number;
 export type Segments = number;
-export type Body10 = string;
+export type Body11 = string;
 export type Digitalassetid1 = string | null;
 export type Draftpromptid = string | null;
 export type Memberships = MembershipOut[];
 export type Avatarurl = string | null;
 export type Email3 = string;
 export type Firstname2 = string;
-export type Id14 = string;
+export type Id15 = string;
 export type Lastname2 = string;
-export type Locale2 = string;
+export type Locale3 = string;
 export type At = string;
 export type Propertyid1 = string;
 export type Type1 = string;
 export type Guestid = string;
 export type Inhouse = boolean;
-export type Name8 = string;
-export type Phone2 = string;
+export type Name12 = string;
+export type Phone4 = string;
 export type Propertyid2 = string;
 export type Propertyname2 = string;
 export type Propertysmsnumber = string | null;
@@ -337,7 +372,7 @@ export type Avatarurl1 = string | null;
 export type Departmentid12 = string | null;
 export type Email4 = string;
 export type Firstname3 = string;
-export type Id15 = string;
+export type Id16 = string;
 export type Lastname3 = string;
 export type Status = string;
 export type Count3 = number;
@@ -351,7 +386,7 @@ export type Dueat1 = string | null;
 export type Comment = string | null;
 export type Createdat5 = string;
 export type Fromvalue = string | null;
-export type Id16 = string;
+export type Id17 = string;
 export type Tovalue = string | null;
 /**
  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
@@ -363,7 +398,7 @@ export type Username = string | null;
 export type Events = WorkOrderEventOut[];
 export type Guestname = string | null;
 export type Guestnotifiedat1 = string | null;
-export type Id17 = string;
+export type Id18 = string;
 export type Locationref1 = string | null;
 export type Reportedbyuserid = string | null;
 export type Roomnumber3 = string | null;
@@ -386,7 +421,7 @@ export type Departmentid14 = string | null;
 export type Description5 = string | null;
 export type Dueat2 = string | null;
 export type Guestnotifiedat2 = string | null;
-export type Id18 = string;
+export type Id19 = string;
 export type Locationref2 = string | null;
 export type Reportedbyuserid1 = string | null;
 export type Sourceconversationid2 = string | null;
@@ -709,14 +744,34 @@ export interface DepartmentBucket {
 }
 /**
  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * via the `definition` "DepartmentIn".
+ */
+export interface DepartmentIn {
+  active?: Active6;
+  escalationMinutes?: Escalationminutes;
+  name: Name7;
+  type: DepartmentType;
+}
+/**
+ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
  * via the `definition` "DepartmentOut".
  */
 export interface DepartmentOut {
-  active: Active6;
-  escalationMinutes: Escalationminutes;
+  active: Active7;
+  escalationMinutes: Escalationminutes1;
   id: Id10;
-  name: Name7;
+  name: Name8;
   type: DepartmentType;
+}
+/**
+ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * via the `definition` "DepartmentPatch".
+ */
+export interface DepartmentPatch {
+  active?: Active8;
+  escalationMinutes?: Escalationminutes2;
+  name?: Name9;
+  type?: DepartmentType | null;
 }
 /**
  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
@@ -842,12 +897,67 @@ export interface PrefsPatch {
   theme?: Theme;
 }
 /**
+ * Previews arbitrary body text, so the admin editor can render unsaved drafts.
+ *
+ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * via the `definition` "PreviewRequest".
+ */
+export interface PreviewRequest {
+  body: Body6;
+  conversationId?: Conversationid1;
+}
+/**
+ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * via the `definition` "PropertySettingsOut".
+ */
+export interface PropertySettingsOut {
+  address?: Address;
+  autoResolveHours: Autoresolvehours;
+  brand?: Brand;
+  code: Code;
+  currency: Currency;
+  helpText?: Helptext;
+  id: Id13;
+  logoUrl?: Logourl;
+  name: Name10;
+  phone?: Phone2;
+  primaryColor?: Primarycolor;
+  slaMinutes: Slaminutes;
+  smsNumber?: Smsnumber;
+  timezone: Timezone;
+}
+/**
+ * `code` is intentionally absent: it is unique across the whole install and identifies the
+ * property, so renaming it is not a settings edit. `Property.settings` (an untyped JSON bag) is
+ * intentionally absent too; its three live keys are exposed above as typed validated fields
+ * instead (`slaMinutes`, `autoResolveHours`, `helpText`). `timezone`, `phone` and `sms_number`
+ * carry only their column lengths here; their real validation lives in app/domain/properties.py
+ * beside the reason each one is load-bearing.
+ *
+ * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * via the `definition` "PropertySettingsPatch".
+ */
+export interface PropertySettingsPatch {
+  address?: Address1;
+  autoResolveHours?: Autoresolvehours1;
+  brand?: Brand1;
+  currency?: Currency1;
+  helpText?: Helptext1;
+  logoUrl?: Logourl1;
+  name?: Name11;
+  phone?: Phone3;
+  primaryColor?: Primarycolor1;
+  slaMinutes?: Slaminutes1;
+  smsNumber?: Smsnumber1;
+  timezone?: Timezone1;
+}
+/**
  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
  * via the `definition` "QuickReplyIn".
  */
 export interface QuickReplyIn {
-  active?: Active7;
-  body: Body6;
+  active?: Active9;
+  body: Body7;
   category?: Category3;
   departmentId?: Departmentid8;
   locale?: Locale;
@@ -859,11 +969,11 @@ export interface QuickReplyIn {
  * via the `definition` "QuickReplyOut".
  */
 export interface QuickReplyOut {
-  active: Active8;
-  body: Body7;
+  active: Active10;
+  body: Body8;
   category?: Category4;
   departmentId?: Departmentid9;
-  id: Id13;
+  id: Id14;
   locale: Locale1;
   shortcut: Shortcut1;
   title: Title4;
@@ -874,10 +984,11 @@ export interface QuickReplyOut {
  * via the `definition` "QuickReplyPatch".
  */
 export interface QuickReplyPatch {
-  active?: Active9;
-  body?: Body8;
+  active?: Active11;
+  body?: Body9;
   category?: Category5;
   departmentId?: Departmentid10;
+  locale?: Locale2;
   shortcut?: Shortcut2;
   title?: Title5;
 }
@@ -886,14 +997,14 @@ export interface QuickReplyPatch {
  * via the `definition` "RenderRequest".
  */
 export interface RenderRequest {
-  conversationId: Conversationid1;
+  conversationId: Conversationid2;
 }
 /**
  * This interface was referenced by `ConciergeAPI`'s JSON-Schema
  * via the `definition` "RenderedQuickReply".
  */
 export interface RenderedQuickReply {
-  body: Body9;
+  body: Body10;
   characters: Characters;
   segments: Segments;
 }
@@ -902,7 +1013,7 @@ export interface RenderedQuickReply {
  * via the `definition` "SendMessageRequest".
  */
 export interface SendMessageRequest {
-  body: Body10;
+  body: Body11;
   digitalAssetId?: Digitalassetid1;
   draftPromptId?: Draftpromptid;
 }
@@ -922,9 +1033,9 @@ export interface UserOut {
   avatarUrl?: Avatarurl;
   email: Email3;
   firstName: Firstname2;
-  id: Id14;
+  id: Id15;
   lastName: Lastname2;
-  locale: Locale2;
+  locale: Locale3;
   notificationPrefs?: Notificationprefs;
 }
 export interface Notificationprefs {
@@ -950,8 +1061,8 @@ export interface Payload {
 export interface SimGuest {
   guestId: Guestid;
   inHouse: Inhouse;
-  name: Name8;
-  phone: Phone2;
+  name: Name12;
+  phone: Phone4;
   propertyId: Propertyid2;
   propertyName: Propertyname2;
   propertySmsNumber?: Propertysmsnumber;
@@ -985,7 +1096,7 @@ export interface StaffUserOut {
   departmentId?: Departmentid12;
   email: Email4;
   firstName: Firstname3;
-  id: Id15;
+  id: Id16;
   lastName: Lastname3;
   role: Role;
   status: Status;
@@ -1012,7 +1123,7 @@ export interface WorkOrderDetail {
   events: Events;
   guestName?: Guestname;
   guestNotifiedAt?: Guestnotifiedat1;
-  id: Id17;
+  id: Id18;
   locationRef?: Locationref1;
   locationType: LocationType1;
   priority: Priority;
@@ -1035,7 +1146,7 @@ export interface WorkOrderEventOut {
   comment?: Comment;
   createdAt: Createdat5;
   fromValue?: Fromvalue;
-  id: Id16;
+  id: Id17;
   toValue?: Tovalue;
   type: WorkOrderEventType;
   userId?: Userid1;
@@ -1066,7 +1177,7 @@ export interface WorkOrderOut {
   description?: Description5;
   dueAt?: Dueat2;
   guestNotifiedAt?: Guestnotifiedat2;
-  id: Id18;
+  id: Id19;
   locationRef?: Locationref2;
   locationType: LocationType1;
   priority: Priority;
