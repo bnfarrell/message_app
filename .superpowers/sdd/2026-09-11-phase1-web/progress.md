@@ -3544,3 +3544,44 @@ Ruling D102 (the fix is right; the reported REASON for it is wrong, and that mat
 Task S1: COMPLETE (commits 8beea25..989ab7c, review clean after 1 fix round plus F7/F8).
       Web 520 passing, server 347. The reskin, the grouped navy rail, the top bar, the Ctrl+K
       palette and the user's centred search field are all in and independently measured.
+
+USER SCOPE DECISION (asked, not ruled — "go ahead and build those" was genuinely ambiguous: it
+      followed a list of four REMAINING planned items AND a list of seven DISCLOSED gaps, and the
+      planned four were already in flight, so the sentence most likely meant the gaps. Some of
+      those need new server capability and three of them have no spec at all, so the readings
+      differed by an order of magnitude. Asked with a concrete three-rung ladder.)
+      ANSWER: **"Fix the real defects"** — the gaps with one obviously-correct behaviour:
+        1. analytics hour AND day bucketing -> the property's timezone
+        2. the seed's self-contradictions (no multi-stay guest, Property B empty, no no-stay
+           conversation)
+        3. work-order photo upload
+        4. the guest panel's "Work orders + New" (M11)
+      NOT selected, and therefore still disclosed rather than built: inbox search (needs a real
+      search endpoint), and Automations / Blocked numbers / Integrations (no models, no endpoints,
+      no spec — building them means inventing what they do).
+
+Ruling D103 (how the gap work splits): server first, exactly as A1 -> A2/A3 worked.
+        G1 server — analytics timezone, seed, photo upload endpoint + model + migration.
+        G2 web    — photo upload UI, M11 guest-panel work orders, plus the two R3 leftovers
+                    (R3.2 analytics custom range, R3.3 simulator PMS buttons), which are web-only
+                    and were already queued.
+      G2 gains the analytics custom range specifically BECAUSE G1 fixes analytics bucketing first:
+      building a custom date range on top of a chart that is silently shifted four hours would
+      mean verifying the new control against wrong numbers.
+      Cost if wrong: a grouping too large gets split at its review.
+
+Ruling D104 (work-order photos go in the DATABASE, not on disk): the deployment target is Railway,
+      whose filesystem is EPHEMERAL. A disk-backed photo vanishes on the next redeploy, silently,
+      leaving a work order referencing an image that no longer exists — and the failure appears
+      days later, to a user, with no error anywhere. There is no object storage in this project
+      and adding one is outside the scope the user chose. Database bytes survive wherever
+      DATABASE_URL points and need no new infrastructure.
+      The mockup settles the shape: WorkOrder.dc.html:91-94 captions photos "Before - 18:47 - Eli"
+      and "After - 18:56 - Eli", and its timeline at :111 records "after photo attached", so a
+      photo carries a KIND, a TIME and an AUTHOR, and attaching one is a timeline event plus an
+      audit row.
+      Named the likeliest leak in the brief rather than leaving it to be found: a photo id is a
+      guessable handle, so the serve route must carry require_property like every sibling.
+      Cost if wrong: if photos outgrow the database, moving them to object storage is a migration
+      of a single table whose interface is one endpoint — the decision is reversible, which is
+      most of why it is the right default now.
