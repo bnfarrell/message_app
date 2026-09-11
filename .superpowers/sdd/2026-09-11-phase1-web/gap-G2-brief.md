@@ -86,6 +86,47 @@ Care:
   rather than a second copy.
 - Gate the add action on the capability G1 gates the endpoint on. Do not offer what will 403.
 
+## 4. Name the product **Relay** (USER-REQUESTED) — its own commit
+
+The user has named the app: **Relay**. `docs/design.md:5` has always said
+"Working name: Concierge (rename before build)", so this is the rename that was always intended,
+not a late change of mind.
+
+Rename these, and check for others rather than trusting this list:
+
+- `package.json` → `relay`; `web/package.json` → `relay-web`; `server/pyproject.toml` → `relay-server`.
+- `README.md`'s heading, and `docs/design.md:5`'s working-name line (which can simply state the
+  name now).
+- `server/app/schemas/export_json_schema.py` — `title="Concierge API"`. **This one cascades.**
+  That title becomes the JSON Schema document root, which json2ts turns into the interface name
+  `ConciergeAPI` in `web/src/api/types.generated.ts`, which `web/src/api/types.ts` refers to in
+  its header comment. So: change the title, re-run the export, run `npm run gen:types`, and commit
+  the regenerated files together. A staleness test asserts `types.generated.ts` matches
+  `schema.json`, so a partial rename turns the suite red — which is the good outcome, but do it
+  in one commit so the tree is never broken mid-rename.
+- **`web/index.html` says `<title>Harbourview — Guest Engagement</title>`.** That is wrong twice
+  over: it hardcodes a single property's name in a multi-property product, and the user has since
+  renamed that property, so the browser tab currently advertises a hotel that no longer exists in
+  their data. Make it the product name.
+
+**Leave `docs/superpowers/plans/*` alone.** Those are a record of what was planned at the time;
+rewriting them would falsify the history rather than update it.
+
+### Where Relay appears in the UI
+
+Today the rail's lockup is the property: a code tile, the property name, and the code. The
+reference the reskin was drawn from puts the *product* at the top of the rail — a mark, the
+product name, and a smaller subtitle beneath.
+
+Show both, in that order: a small **Relay** wordmark at the top of the rail as product identity,
+and beneath it the existing property lockup, which stays the property switcher. Two ideas, two
+rows — what the app is, then which property you are in. Do not merge them into one control: the
+lockup is a button that opens the switcher, and a product wordmark must not be clickable, or the
+switcher's target becomes ambiguous.
+
+Keep it quiet. This is a wordmark, not a logo treatment — it should read as chrome, not compete
+with the nav.
+
 ---
 
 ## Constraints
