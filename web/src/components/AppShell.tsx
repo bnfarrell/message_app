@@ -20,7 +20,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 const RAIL_ITEM = 'flex h-11 items-center gap-3 rounded-md px-3 text-[13px] font-semibold'
 const TOPBAR_BUTTON =
-  'inline-flex h-8 items-center gap-2 rounded-md border border-border3 bg-bg2 px-2.5 text-xs font-semibold text-text3 hover:text-text'
+  'inline-flex h-8 flex-none items-center gap-2 rounded-md border border-border3 bg-bg2 px-2.5 text-xs font-semibold text-text3 hover:text-text'
 
 export function AppShell({
   children,
@@ -144,22 +144,33 @@ export function AppShell({
       </nav>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* The rest of the bar is left empty on purpose: the screens carry their own headers,
-            and inventing breadcrumbs here would duplicate them. */}
-        <header className="relative flex h-12 flex-none items-center justify-end gap-2 border-b border-border bg-surface px-3">
-          {/*
-            Centred against the content column from `xl` up, by absolute positioning rather than
-            by flex order: ordering would make its position depend on the width of the right-hand
-            group, so it would visibly drift as the signed-in user's name changes length.
-            Below `xl` it returns to normal flow at the left of the bar — a truly centred control
-            cannot be both wide and clear of the right-hand group on a narrow laptop (at 1024px
-            the free half-width is about 90px), and a flex child cannot overlap its siblings.
-          */}
-          <span className="mr-auto min-w-0 w-[320px] max-w-[40vw] xl:absolute xl:inset-y-0 xl:left-1/2 xl:mr-0 xl:flex xl:w-[380px] xl:max-w-none xl:-translate-x-1/2 xl:items-center 2xl:w-[420px]">
+        {/*
+          Three tracks. The two `1fr` side tracks are equal by definition, so the middle track
+          is centred in the header at every width with no breakpoint and no dependence on how
+          wide the right-hand group happens to be — and grid tracks cannot overlap, so a long
+          signed-in name truncates (it carries min-w-0) instead of colliding with the search
+          field. The previous absolute centring could not be pushed by its siblings: its only
+          protection was arithmetic clearance measured against one particular user's name.
+
+          Each side track is `1fr` with its automatic (min-content) floor, so the right-hand
+          group can never be squeezed below its own controls; the middle track is
+          `minmax(0, <width>)`, so it is the one that gives way when the bar runs short. Both
+          side groups are `w-full` inside their tracks rather than shrink-to-fit, because a
+          `justify-self-end` item is only clamped to its track when it is told to fill it —
+          without that a long name overflowed its track leftwards and collided anyway, which
+          this layout was measured doing before the `w-full` went on.
+
+          The left track is left empty on purpose: the screens carry their own headers, and
+          inventing breadcrumbs here would duplicate them.
+        */}
+        <header className="grid h-12 flex-none grid-cols-[1fr_minmax(0,2.25rem)_1fr] items-center gap-2 border-b border-border bg-surface px-3 sm:grid-cols-[1fr_minmax(0,260px)_1fr] lg:grid-cols-[1fr_minmax(0,340px)_1fr] 2xl:grid-cols-[1fr_minmax(0,420px)_1fr]">
+          <span aria-hidden="true" />
+
+          <span className="w-full min-w-0">
             <CommandPalette />
           </span>
 
-          <span className="flex items-center gap-2 pl-1">
+          <span className="flex w-full min-w-0 items-center justify-end gap-2">
             <Avatar name={`${user.firstName} ${user.lastName}`} tone="accent" />
             <span className="hidden min-w-0 leading-tight md:block">
               <span className="block truncate text-xs font-semibold">
@@ -169,22 +180,22 @@ export function AppShell({
                 {ROLE_LABELS[role] ?? role}
               </span>
             </span>
+
+            <button
+              type="button"
+              aria-label={`Switch theme to ${nextTheme}`}
+              onClick={() => setTheme(nextTheme)}
+              className={TOPBAR_BUTTON}
+            >
+              <NavIcon name="theme" className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline capitalize">{nextTheme}</span>
+            </button>
+
+            <button type="button" onClick={() => logout()} className={TOPBAR_BUTTON}>
+              <NavIcon name="signout" className="h-3.5 w-3.5" />
+              Sign out
+            </button>
           </span>
-
-          <button
-            type="button"
-            aria-label={`Switch theme to ${nextTheme}`}
-            onClick={() => setTheme(nextTheme)}
-            className={TOPBAR_BUTTON}
-          >
-            <NavIcon name="theme" className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline capitalize">{nextTheme}</span>
-          </button>
-
-          <button type="button" onClick={() => logout()} className={TOPBAR_BUTTON}>
-            <NavIcon name="signout" className="h-3.5 w-3.5" />
-            Sign out
-          </button>
         </header>
 
         <main className="min-w-0 flex-1 overflow-hidden">{children}</main>

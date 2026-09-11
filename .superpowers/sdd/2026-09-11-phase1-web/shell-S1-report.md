@@ -535,3 +535,75 @@ Nothing about the palette itself moved. The suite is still green on all of it: C
 open it, Ctrl+K is still ignored while the caret is in a text box, focus still returns to this
 trigger on close, it still makes no server call, and the capability filtering is untouched.
 520 passing, 0 failed.
+
+---
+
+# F8 — F7's centring reworked as a grid
+
+The user reported "screen isn't wide enough now since moved search box". The review is right that
+this is structural, and **it also found a defect my own F7 verification could not have caught**:
+I measured clearance with one signed-in name. The right-hand group carries
+`{user.firstName} {user.lastName}` and only truncates below `md`, so its width is a property of
+whoever is logged in, and an absolutely positioned element cannot be pushed by a sibling.
+
+Screenshots: `s1-f8-search-1280-dark.png`, `s1-f8-search-1440-dark.png`,
+`s1-f8-search-1920-dark.png`.
+
+## What it is now
+
+```
+grid-cols-[1fr_minmax(0,2.25rem)_1fr]
+  sm:…minmax(0,260px)…  lg:…minmax(0,340px)…  2xl:…minmax(0,420px)…
+```
+
+- Side tracks are `1fr`, which keeps their automatic (min-content) floor, so the right-hand group
+  is never squeezed below its own controls.
+- The middle track is `minmax(0, <width>)` — not `auto` — so **it** is what gives way when the bar
+  runs short, instead of the grid overflowing. A definite-width middle item would have made the
+  track's min-content that same width and forced horizontal scroll at narrow viewports.
+- No breakpoint decides *whether* to centre any more, and no width depends on measuring a
+  sibling. The two `1fr` tracks are equal by definition.
+
+**One thing the review's sketch did not cover, and it mattered.** I first built it with
+`grid-cols-[1fr_auto_1fr]` and `justify-self-end` on the right group, and measured it **still
+overlapping by 2px** at 1440 with a long name: a `justify-self`-aligned grid item is sized
+shrink-to-fit from its own content, so when the content exceeded the track it overflowed the
+track *leftwards*, into the middle. Both side groups are now `w-full` inside their tracks, which
+pins each item's width to its track exactly. With that in place a long name truncates and the
+geometry does not move at all.
+
+## Measured, with a real name and with a long one
+
+`Bartholomew Featherstonehaugh-Smythe` / `Duty manager` substituted into the name block, measured
+in the same frame as the real name so the two rows are directly comparable.
+
+| viewport | header centre | trigger box | trigger centre | right group | gap | overlap | h-scroll |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1920 | 1064 | 854–1274, **420 × 36** | **1064** | 1282–1908 | 8px | no | no |
+| 1440 | 824 | 654–994, **340 × 36** | **824** | 1002–1428 | 8px | no | no |
+| 1366 | 787 | 617–957, **340 × 36** | **787** | 965–1354 | 8px | no | no |
+| 1280 | 744 | 574–914, **340 × 36** | **744** | 922–1268 | 8px | no | no |
+| 760 | 484 | 354–614, **260 × 36** | **484** | 622–748 | 8px | no | no |
+| 600 | 404 | 386–422, **36 × 36** icon only | **404** | 430–588 | 8px | no | no |
+| 420 | 314 | 296–332, **36 × 36** icon only | **314** | 340–408 | 8px | no | no |
+
+**Every row is identical for the long name and the real name** — the numbers above are the long-name
+run, and the real-name run differs in no field. That is the property being asked for: the layout no
+longer depends on the content of a sibling. Trigger centre equals header centre at every width.
+
+`document.documentElement.scrollWidth === clientWidth` at all seven widths, and the header's own
+`scrollWidth === clientWidth` even at 420px, so there is no horizontal scroll either.
+
+## Collapse to the icon
+
+Below `sm` the trigger is a 36 × 36 magnifier button: the label is `hidden sm:inline` and the
+`Ctrl K` badge is now `hidden md:inline-block`, and the button switches to `justify-center px-0`
+so the glyph is centred rather than stranded at the left of an empty box. Measured at 600px and
+420px: label `display: none`, badge `display: none`, icon visible, accessible name still
+`"Jump to a screen (Ctrl K)"`. It reads as a control and keeps its meaning.
+
+## Unchanged
+
+The palette's own behaviour is untouched again — navigation-only with no server call, Ctrl+K still
+ignored while the caret is in a text box, focus still returned to the trigger on close, capability
+filtering intact. 520 passing, 0 failed; `tsc -b` clean, lint 0, build clean, no React warnings.

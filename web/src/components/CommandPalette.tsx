@@ -154,12 +154,14 @@ export function CommandPalette() {
           setIndex(0)
           setOpen(true)
         }}
-        className="flex h-9 w-full items-center gap-2.5 rounded-md border border-border3 bg-bg2 px-3 text-sm font-semibold text-text3 hover:text-text"
+        className="flex h-9 w-full items-center justify-center gap-2.5 rounded-md border border-border3 bg-bg2 px-0 text-sm font-semibold text-text3 hover:text-text sm:justify-start sm:px-3"
       >
+        {/* Below `sm` this collapses to the magnifier alone rather than squeezing an
+            unreadable field; the accessible name carries the meaning either way. */}
         <NavIcon name="search" className="h-4 w-4" />
         <span className="hidden truncate sm:inline">Jump to</span>
         {/* Pushed to the far end the way a real search field puts its shortcut hint. */}
-        <kbd className="ml-auto flex-none rounded border border-border2 px-1.5 py-0.5 font-mono text-[11px] text-text3">
+        <kbd className="ml-auto hidden flex-none rounded border border-border2 px-1.5 py-0.5 font-mono text-[11px] text-text3 md:inline-block">
           Ctrl K
         </kbd>
       </button>
