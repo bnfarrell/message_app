@@ -2,27 +2,52 @@ import type { GuestThread } from '../../api/types'
 import { formatClock } from '../../lib/time'
 
 /**
- * These two bubble colours are hard-coded on purpose — they imitate iOS Messages,
- * not this product, so they must not follow the app theme. They are the only
- * hard-coded colours on this page; everything else uses the 45 design tokens.
+ * Every colour inside the frame is hard-coded on purpose — it imitates iOS Messages, not
+ * this product, so it must not follow the app theme. A guest's phone does not restyle
+ * itself when the staff app toggles to dark; themed chrome around fixed iOS bubbles is
+ * neither the mockup's phone nor a coherent dark theme, but a third thing that reads as a
+ * rendering bug. docs/mockups/Simulator.dc.html paints the phone in these same fixed
+ * colours for the same reason. The page AROUND the frame stays fully tokenised — this
+ * component is the only hard-coded colour in the app, and /sim is dev-only.
  */
 const RECEIVED = { background: '#e9e9eb', color: '#111111' }
 const SENT = { background: '#34c759', color: '#ffffff' }
+const PHONE = {
+  bezel: '#000000',
+  body: '#ffffff',
+  header: '#f7f7f8',
+  hairline: '#d1d1d6',
+  secondary: '#8e8e93',
+  text: '#111111',
+}
 
 export function PhoneFrame({ thread, smsNumber }: { thread: GuestThread; smsNumber: string | null }) {
   return (
-    <div className="mx-auto flex h-full w-full max-w-[380px] flex-col overflow-hidden rounded-[28px] border border-border3 bg-surface">
-      <header className="flex flex-col items-center gap-0.5 border-b border-border bg-surface2 px-4 py-3">
-        <span className="grid h-8 w-8 place-items-center rounded-md bg-accent font-mono text-[11px] font-bold text-accentText">
+    <div
+      className="mx-auto flex h-full w-full max-w-[380px] flex-col overflow-hidden rounded-[28px] border"
+      style={{ borderColor: PHONE.bezel, background: PHONE.body, color: PHONE.text }}
+    >
+      <header
+        className="flex flex-col items-center gap-0.5 border-b px-4 py-3"
+        style={{ borderColor: PHONE.hairline, background: PHONE.header }}
+      >
+        <span
+          className="grid h-8 w-8 place-items-center rounded-md font-mono text-[11px] font-bold"
+          style={{ background: PHONE.secondary, color: PHONE.body }}
+        >
           HV
         </span>
-        <p className="text-[13px] font-semibold text-text">{thread.propertyName}</p>
-        <p className="font-mono text-[11px] text-text3">{smsNumber ?? thread.phone}</p>
+        <p className="text-[13px] font-semibold">{thread.propertyName}</p>
+        <p className="font-mono text-[11px]" style={{ color: PHONE.secondary }}>
+          {smsNumber ?? thread.phone}
+        </p>
       </header>
 
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto bg-surface p-3">
+      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-3" style={{ background: PHONE.body }}>
         {thread.messages.length === 0 ? (
-          <p className="mt-6 text-center text-xs text-text3">No messages yet.</p>
+          <p className="mt-6 text-center text-xs" style={{ color: PHONE.secondary }}>
+            No messages yet.
+          </p>
         ) : (
           thread.messages.map((message) => {
             // We are the guest here: the hotel's outbound message is what we received.
