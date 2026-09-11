@@ -70,4 +70,10 @@ def create_app(config: Config | None = None) -> Flask:
             for job_type in _jobs.RECURRING:
                 _jobs.ensure_recurring(db, job_type)
         app.extensions["worker"].start()
+
+    from app.realtime.ws import sock, start_sweeper
+
+    sock.init_app(app)
+    if config.START_WORKER and (under_reloader or not app.debug):
+        start_sweeper(app)
     return app
