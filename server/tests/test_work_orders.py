@@ -9,6 +9,7 @@ from app.schemas.enums import (
     Direction,
     DraftPromptStatus,
     Priority,
+    Role,
     WorkOrderEventType,
     WorkOrderStatus,
     WorkOrderType,
@@ -247,7 +248,8 @@ def test_detail_renders_event_timeline(app, fx, client, database):
         work_orders.transition(db, fx.property_a.id, wo_id, fx.engineer_a.id,
                                WorkOrderStatus.in_progress, comment="On it")
     with database.session() as db:
-        d = work_orders.detail(db, fx.property_a.id, wo_id)
+        d = work_orders.detail(db, fx.property_a.id, wo_id, viewer_role=Role.agent,
+                               viewer_user_id=fx.agent_a.id, viewer_department_id=None)
         assert d.id == wo_id and d.guest_name == "Sarah Chen" and d.room_number == "412"
         assert [e.type.value for e in d.events] == ["created", "status_changed"]
         assert d.events[1].comment == "On it" and d.events[1].user_name == "Eli Engineer"

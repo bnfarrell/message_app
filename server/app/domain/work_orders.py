@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app import clock
 from app.domain import audit, draft_prompts, notifications
 from app.domain import conversations as conv_domain
-from app.errors import NotFound, TransitionError, ValidationFailed
+from app.errors import Forbidden, NotFound, TransitionError, ValidationFailed
 from app.models import (
     Conversation,
     Department,
@@ -24,6 +24,7 @@ from app.schemas.enums import (
     Direction,
     LocationType,
     Priority,
+    Role,
     WorkOrderEventType,
     WorkOrderStatus,
     WorkOrderType,
@@ -275,7 +276,23 @@ def list(db: Session, property_id: str, *, status: str | None = None,
     return [WorkOrderOut.model_validate(w) for w in rows]
 
 
-def detail(db: Session, property_id: str, work_order_id: str) -> WorkOrderDetail:
+def _can_see_conversation(conv: Conversation, viewer_role: Role, viewer_user_id: str,
+                          viewer_department_id: str | None) -> bool:
+    try:
+        conv_domain.assert_viewer_can_see(conv, viewer_role, viewer_user_id, viewer_department_id)
+    except Forbidden:
+        return False
+    return True
+
+
+def detail(db: Session, property_id: str, work_order_id: str, *, viewer_role: Role,
+           viewer_user_id: str, viewer_department_id: str | None) -> WorkOrderDetail:
+    """Work orders are property-wide by design (design.md §3.2 has no work-order-viewing
+    capability), but `guest_name` and `room_number` here are read *through*
+    `source_conversation_id` — so a dept_staff viewer who is 403'd from that conversation must
+    not receive them back from this route instead. The viewer arguments are required, not
+    optional, so a new caller cannot fail open by forgetting them.
+    """
     wo = get(db, property_id, work_order_id)
     rows = db.execute(select(WorkOrderEvent, UserAccount)
                       .outerjoin(UserAccount, UserAccount.id == WorkOrderEvent.user_id)
@@ -284,7 +301,8 @@ def detail(db: Session, property_id: str, work_order_id: str) -> WorkOrderDetail
     guest_name = room = None
     if wo.source_conversation_id:
         conv = db.get(Conversation, wo.source_conversation_id)
-        if conv:
+        if conv and _can_see_conversation(conv, viewer_role, viewer_user_id,
+                                          viewer_department_id):
             g = db.get(Guest, conv.guest_id)
             guest_name = f"{g.first_name or ''} {g.last_name or ''}".strip() or g.phone_e164
             st = db.get(Stay, conv.stay_id) if conv.stay_id else None

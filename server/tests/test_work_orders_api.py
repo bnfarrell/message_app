@@ -35,8 +35,12 @@ def test_prefill_create_transition_and_detail_via_api(app, fx, client, database,
     d = eng.get(f"{base}/{wo['id']}").get_json()
     assert [e["type"] for e in d["events"]] == ["created", "assigned", "status_changed",
                                                 "status_changed"]
-    assert d["events"][-1]["comment"] == "Cleared drain line" and d["guestName"] == "Sarah Chen"
+    assert d["events"][-1]["comment"] == "Cleared drain line"
     assert d["events"][1]["userName"] == "Eli Engineer"
+    # The engineer is dept_staff and this conversation is assigned to nobody, so the conversation
+    # routes 403 them; the work order must not hand the same guest identity back instead.
+    assert d["guestName"] is None
+    assert agent.get(f"{base}/{wo['id']}").get_json()["guestName"] == "Sarah Chen"
 
 
 def test_close_requires_capability_but_create_does_not(app, fx, client, database, login):

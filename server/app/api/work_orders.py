@@ -61,7 +61,9 @@ def create_work_order(property_id: str):
 @require_property
 def get_work_order(property_id: str, work_order_id: str):
     with db_session() as db:
-        return ok(work_orders.detail(db, g.property_id, work_order_id))
+        return ok(work_orders.detail(db, g.property_id, work_order_id,
+                                     viewer_role=g.membership.role, viewer_user_id=g.user.id,
+                                     viewer_department_id=g.membership.department_id))
 
 
 @bp.patch("/<work_order_id>")
@@ -83,4 +85,6 @@ def patch_work_order(property_id: str, work_order_id: str):
                                    comment=p.comment)
         elif p.comment:
             work_orders.comment(db, g.property_id, work_order_id, g.user.id, p.comment)
-        return ok(work_orders.detail(db, g.property_id, work_order_id))
+        return ok(work_orders.detail(db, g.property_id, work_order_id,
+                                     viewer_role=g.membership.role, viewer_user_id=g.user.id,
+                                     viewer_department_id=g.membership.department_id))
