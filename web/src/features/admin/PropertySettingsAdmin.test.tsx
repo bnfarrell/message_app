@@ -30,14 +30,70 @@ function json(body: unknown, status = 200): Response {
   })
 }
 
+// Fields the real server cannot store a null in: the NOT NULL columns on `Property`
+// (name, timezone, currency) plus `_BAG_REQUIRED` in server/app/domain/properties.py
+// (slaMinutes, autoResolveHours). `patch_changes` answers 400 `required` for every one of
+// them, so a mock that echoed a null back would put the form in a state production
+// cannot reach — which is exactly how a `value={null}` React warning got into this file
+// once without a single test going red (ruling D96).
+const NON_NULLABLE = ['name', 'timezone', 'currency', 'slaMinutes', 'autoResolveHours'] as const
+
+function failed(message: string, details: Record<string, string>): Response {
+  return json({ error: { code: 'VALIDATION_FAILED', message, details } }, 400)
+}
+
+/** guests.normalize_phone: E.164 out, or a refusal. MIN_SENDER_DIGITS is 2. */
+function e164(raw: string): string | null {
+  const trimmed = raw.trim()
+  const digits = trimmed.replace(/\D/g, '')
+  if (trimmed.startsWith('+')) return digits.length >= 2 ? `+${digits}` : null
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  return null
+}
+
+/**
+ * Models PATCH /properties/<id>/settings rather than echoing the patch back: it refuses what
+ * server/app/domain/_patch.py refuses and normalises what server/app/domain/properties.py
+ * normalises (currency upper-cased, phone and smsNumber to E.164, timezone checked against the
+ * zone database). The screen's own hint copy promises the admin that normalisation, so an
+ * echoing mock would let a test assert a lie and still pass.
+ */
+function patchSettings(sent: Record<string, unknown>): Response {
+  const cleared = NON_NULLABLE.filter((f) => f in sent && sent[f] === null)
+  if (cleared.length > 0) {
+    return failed(
+      `Cannot be cleared: ${cleared.join(', ')}`,
+      Object.fromEntries(cleared.map((f) => [f, 'required'])),
+    )
+  }
+
+  const stored = { ...sent }
+  for (const field of ['phone', 'smsNumber'] as const) {
+    const value = stored[field]
+    if (typeof value !== 'string') continue
+    const normalised = e164(value)
+    if (normalised === null) return failed('Invalid phone number', { [field]: 'invalid_phone_number' })
+    stored[field] = normalised
+  }
+  if (typeof stored.timezone === 'string') {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: stored.timezone })
+    } catch {
+      return failed('Invalid time zone', { timezone: 'invalid_timezone' })
+    }
+  }
+  if (typeof stored.currency === 'string') stored.currency = stored.currency.toUpperCase()
+  return json({ ...SETTINGS, ...stored })
+}
+
 function serve(override?: (url: string, init?: RequestInit) => Response | null) {
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const claimed = override?.(String(input), init)
     if (claimed) return Promise.resolve(claimed)
     if (init?.method === 'PATCH') {
       // The server answers with the full normalised record, not an echo of the patch.
-      const sent = JSON.parse(String(init.body)) as Record<string, unknown>
-      return Promise.resolve(json({ ...SETTINGS, ...sent }))
+      return Promise.resolve(patchSettings(JSON.parse(String(init.body)) as Record<string, unknown>))
     }
     return Promise.resolve(json(SETTINGS))
   })
@@ -107,6 +163,33 @@ describe('PropertySettingsAdmin', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Saved.')
   })
 
+  it('shows the currency the server stored, upper-cased, not the case that was typed', async () => {
+    const user = userEvent.setup()
+    mount()
+    const currency = await screen.findByLabelText('Currency')
+    await user.clear(currency)
+    await user.type(currency, 'eur')
+    // No override: properties.py does `v.upper()` before storing, so a form that redisplayed
+    // the typed string would misreport the stored value.
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(JSON.parse(String(patched()[0]![1]!.body))).toMatchObject({ currency: 'eur' })
+    await waitFor(() => expect(screen.getByLabelText('Currency')).toHaveValue('EUR'))
+  })
+
+  it('shows the SMS number in the E.164 form the server routes on, not as typed', async () => {
+    const user = userEvent.setup()
+    mount()
+    const sms = await screen.findByLabelText('SMS number')
+    await user.clear(sms)
+    await user.type(sms, '(555) 011-2222')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    // channels/inbound.py routes an inbound SMS by matching the stored E.164 form, so what
+    // the box shows after a save has to be what routing will match on.
+    await waitFor(() => expect(screen.getByLabelText('SMS number')).toHaveValue('+15550112222'))
+  })
+
   it('clears a nullable field to null rather than to an empty string', async () => {
     const user = userEvent.setup()
     mount()
@@ -119,12 +202,8 @@ describe('PropertySettingsAdmin', () => {
     const user = userEvent.setup()
     mount()
     await user.clear(await screen.findByLabelText('Currency'))
-    serve((_url, init) =>
-      init?.method === 'PATCH'
-        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: currency',
-                          details: { currency: 'required' } } }, 400)
-        : null,
-    )
+    // No per-test override: the default handler refuses a cleared required field the way
+    // patch_changes does (D96), so this asserts against a server the real one could be.
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     // `""` fails in Pydantic and the admin reads "String should match pattern ^[A-Za-z]{3}$".
@@ -141,15 +220,10 @@ describe('PropertySettingsAdmin', () => {
     const user = userEvent.setup()
     mount()
     await user.clear(await screen.findByLabelText('Property name'))
-    // The real server refuses this (`name` is NOT NULL) and never echoes a null name back, so the
-    // mock must refuse it too — a 200 here would make the form render `value={null}` in a state
-    // production cannot reach.
-    serve((_url, init) =>
-      init?.method === 'PATCH'
-        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: name',
-                          details: { name: 'required' } } }, 400)
-        : null,
-    )
+    // The real server refuses this (`name` is NOT NULL) and never echoes a null name back, and
+    // the default handler now refuses it too — a 200 here would make the form render
+    // `value={null}` in a state production cannot reach, which is how two React warnings got
+    // into this file with a green suite (D96).
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(JSON.parse(String(patched()[0]![1]!.body)).name).toBeNull()
