@@ -3620,3 +3620,54 @@ Ruling D106 (regrouping the remaining web work by screen area rather than by ori
       splitting them out would buy a dispatch seat to save no wall-clock, since one writer holds
       the tree either way.
       Cost if wrong: a grouping too large is split at its review, costing one dispatch.
+
+R2 RETURNED: **DONE** (not DONE_WITH_CONCERNS - the first clean status this session), 6 commits.
+      Web 520 -> **539 passed / 0 failed / 52 files**, stderr 0 BYTES, server 347 -> 348, tsc,
+      lint, build and ruff all clean. EVERY production change mutation-tested.
+      7323e9c port guard + zero-socket warning; 4ceeadd R2.0 single-select filter row (the user's
+      report); bd66fc1 R2.1 reveal verified/cancelled; 8208dd8 the rail pill; aab49e8 R2.2
+      standalone create; 7640b04 R2.3 standalone comment.
+
+      IT REFUSED TO TRUST MY BRIEF AND FOUND A SECOND INSTANCE OF THE SAME BUG. I wrote that
+      Inbox, Board, Alerts and Analytics "all point at their own section roots, so a child route
+      under them is a descendant and NavLink already handles it - but verify that rather than
+      trusting me". It verified, and **Board had the identical defect**: `/app/work-orders/:id` is
+      a SIBLING of `/app/board`, so the Board pill went dark on every work-order card. The user
+      had reported only the Admin case. So `match` shipped as `string[]` rather than the `string`
+      I specified, and NavLink became a plain Link because NavLink's isActive could not set
+      aria-current for the case it got wrong. That is the eleventh brief defect caught, and the
+      first one where the instruction to verify me was what found it.
+
+      IT ALSO ADDED A FIELD I DID NOT BRIEF, correctly: R2.2's standalone create needed a Location
+      TYPE select, because without it every standalone work order is filed as `room` - while the
+      mockup's own examples (POOL PUMP, 3F ICE, ELEV B) are all equipment. A create form that can
+      only produce one category of the thing the mockup illustrates is not the feature.
+
+      Disclosures carried forward:
+      - Single-select removes "mine and urgent", "mine within a department", and dept+urgent, with
+        NO replacement control. It did not invent one, as instructed. OWED TO THE USER.
+      - R2.1 renders a real count and deliberately does NOT claim the mockup's "this week" window,
+        since no such window is applied.
+      - The board flashes its full-page spinner whenever Mine/dept changes, because the query key
+        changes and nothing is cached. Pre-existing and untouched, but it is a likely next user
+        report and `keepPreviousData` is the one-line fix. Assigned to G2.
+
+Ruling D107 (a pre-existing AUTHORIZATION gap, disclosed not fixed, and sent for a second
+      opinion): `PATCH /work-orders/<id>` enforces only auth plus property membership. Its
+      close_work_order check covers CLOSING STATUSES ONLY. So any property member - including
+      **corporate, which has neither `reply` nor `create_work_order`** - can reassign and
+      reprioritise work orders. R2.3's comment box is therefore ungated too, correctly matching
+      the server rather than inventing a gate the API does not enforce.
+      This is privilege beyond intent, on a role the product treats as read-mostly. I am NOT
+      having R2 fix it inside a restoration wave: changing who may mutate work orders touches
+      dept_staff and supervisor flows and deserves its own diff and its own reviewer. Put to R2's
+      reviewer for an opinion on which capability each mutable field should require, then assign
+      deliberately.
+      Cost if wrong: if it is intended that any member may triage work orders, the answer is a
+      comment saying so - which is still better than the current silence.
+
+      A recurring nuisance worth naming: `two.png`, the user's own screenshot, was DELETED from
+      the repo root again by an agent tidying up. Unlike score.png it had been committed, so
+      `git checkout -- two.png` restored it. score.png was never committed and is gone for good.
+      Agents keep treating the repo root as scratch; the durable fix is that their screenshots go
+      to the workspace, which the briefs now say, but the user's own files keep getting swept.
