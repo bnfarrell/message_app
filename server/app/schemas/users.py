@@ -2,7 +2,7 @@ from pydantic import EmailStr, Field
 
 from app.schemas.common import CamelModel
 from app.schemas.conversations import GuestOut, StayOut
-from app.schemas.enums import DepartmentType, Role, UserStatus
+from app.schemas.enums import DepartmentType, Role
 
 
 class DepartmentOut(CamelModel):
@@ -35,12 +35,18 @@ class CreateStaffRequest(CamelModel):
 
 
 class StaffPatch(CamelModel):
+    """Per-property membership fields only.
+
+    `UserAccount` is global and one account may hold memberships at several properties, so an
+    endpoint authorised by a membership at the property in the URL must never write global
+    columns (password, status, name): an admin at one property could otherwise reset the password
+    of an account that is also an admin somewhere else and inherit its access everywhere. Revoking
+    a person's access to *this* property is DELETE /users/<id> (the membership), not a global
+    account disable.
+    """
+
     role: Role | None = None
     department_id: str | None = None
-    status: UserStatus | None = None
-    password: str | None = Field(default=None, min_length=8, max_length=200)
-    first_name: str | None = None
-    last_name: str | None = None
 
 
 class GuestDetail(CamelModel):

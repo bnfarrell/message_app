@@ -5,10 +5,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.passwords import hash_password
+from app.auth.permissions import has_capability
 from app.domain import audit
 from app.errors import Conflict, NotFound, ValidationFailed
 from app.models import Department, PropertyMembership, UserAccount
-from app.schemas.users import CreateStaffRequest, DepartmentOut, StaffPatch, StaffUserOut
+from app.schemas.enums import Role
+from app.schemas.users import (
+    CreateStaffRequest,
+    DepartmentOut,
+    StaffPatch,
+    StaffUserOut,
+)
 
 
 def list_departments(db: Session, property_id: str) -> list[DepartmentOut]:
@@ -91,33 +98,44 @@ def create_staff(db: Session, property_id: str, actor_user_id: str,
     return _staff_out(db, property_id, user.id)
 
 
+ADMIN_ROLES = [r for r in Role if has_capability(r, "manage_admin")]
+
+
+def _assert_not_last_admin(db: Session, property_id: str, m: PropertyMembership,
+                           new_role: Role | None = None) -> None:
+    """A property must keep at least one membership that can `manage_admin`.
+
+    `corporate` is a per-property role like any other, not a cross-property escape hatch, so
+    dropping the last one leaves the property with nobody who can add staff back — an in-app
+    lockout with no in-app remedy.
+    """
+    if m.role not in ADMIN_ROLES or (new_role is not None and new_role in ADMIN_ROLES):
+        return
+    if not db.scalar(select(PropertyMembership.id).where(
+            PropertyMembership.property_id == property_id,
+            PropertyMembership.role.in_(ADMIN_ROLES),
+            PropertyMembership.id != m.id)):
+        raise Conflict("This property would be left with no administrator")
+
+
 def update_staff(db: Session, property_id: str, actor_user_id: str, user_id: str,
                 data: StaffPatch) -> StaffUserOut:
     m = db.scalar(select(PropertyMembership).where(PropertyMembership.user_id == user_id,
                                                    PropertyMembership.property_id == property_id))
     if m is None:
         raise NotFound("User is not a member of this property")
-    u = db.get(UserAccount, user_id)
-    before = {"role": m.role.value, "department_id": m.department_id, "status": u.status.value}
+    before = {"role": m.role.value, "department_id": m.department_id}
     changes = data.model_dump(exclude_unset=True)
     if "department_id" in changes:
         _check_department(db, property_id, changes["department_id"])
         m.department_id = changes["department_id"]
     if data.role is not None:
+        _assert_not_last_admin(db, property_id, m, new_role=data.role)
         m.role = data.role
-    if data.status is not None:
-        u.status = data.status
-    if data.password:
-        u.password_hash = hash_password(data.password)
-    if data.first_name:
-        u.first_name = data.first_name
-    if data.last_name:
-        u.last_name = data.last_name
     db.flush()
     audit.record(db, property_id, actor_user_id, "membership.updated", "user_account", user_id,
                  before=before,
-                 after={"role": m.role.value, "department_id": m.department_id,
-                        "status": u.status.value, "password_reset": bool(data.password)})
+                 after={"role": m.role.value, "department_id": m.department_id})
     return _staff_out(db, property_id, user_id)
 
 
@@ -126,5 +144,6 @@ def remove_membership(db: Session, property_id: str, actor_user_id: str, user_id
                                                    PropertyMembership.property_id == property_id))
     if m is None:
         raise NotFound("User is not a member of this property")
+    _assert_not_last_admin(db, property_id, m)
     db.delete(m)
     audit.record(db, property_id, actor_user_id, "membership.removed", "user_account", user_id)

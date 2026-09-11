@@ -2507,6 +2507,7 @@
     },
     "StaffPatch": {
       "additionalProperties": false,
+      "description": "Per-property membership fields only.\n\n`UserAccount` is global and one account may hold memberships at several properties, so an\nendpoint authorised by a membership at the property in the URL must never write global\ncolumns (password, status, name): an admin at one property could otherwise reset the password\nof an account that is also an admin somewhere else and inherit its access everywhere. Revoking\na person's access to *this* property is DELETE /users/<id> (the membership), not a global\naccount disable.",
       "properties": {
         "departmentId": {
           "anyOf": [
@@ -2520,59 +2521,10 @@
           "default": null,
           "title": "Departmentid"
         },
-        "firstName": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Firstname"
-        },
-        "lastName": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Lastname"
-        },
-        "password": {
-          "anyOf": [
-            {
-              "maxLength": 200,
-              "minLength": 8,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Password"
-        },
         "role": {
           "anyOf": [
             {
               "$ref": "#/$defs/Role"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "status": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/UserStatus"
             },
             {
               "type": "null"
@@ -2790,14 +2742,6 @@
       ],
       "title": "UserOut",
       "type": "object"
-    },
-    "UserStatus": {
-      "enum": [
-        "active",
-        "disabled"
-      ],
-      "title": "UserStatus",
-      "type": "string"
     },
     "WorkOrderBrief": {
       "additionalProperties": false,
