@@ -1,10 +1,11 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useGuest } from '../../api/hooks/users'
 import type { ConversationDetail, StayOut } from '../../api/types'
 import { useSession } from '../../auth/SessionContext'
 import { Badge } from '../../components/ui'
 import { ordinal } from '../../lib/ordinal'
+import { CreateWorkOrderModal } from './CreateWorkOrderModal'
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 
@@ -59,6 +60,7 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
 export function GuestPanel({ conversation }: { conversation: ConversationDetail }) {
   const { guest, stay, workOrders, draftPrompts, notes } = conversation
   const { can } = useSession()
+  const [woOpen, setWoOpen] = useState(false)
   const name = [guest.firstName, guest.lastName].filter(Boolean).join(' ') || guest.phoneE164
   const consent = CONSENT[guest.smsConsentStatus] ?? CONSENT['unknown']!
   const pending = draftPrompts.filter((p) => p.status === 'pending')
@@ -100,7 +102,19 @@ export function GuestPanel({ conversation }: { conversation: ConversationDetail 
         <Badge tone={consent.tone}>{consent.label}</Badge>
       </Section>
 
-      <Section title="Work orders">
+      <section className="border-b border-border px-4 py-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-text3">Work orders</h3>
+          {can('create_work_order') ? (
+            <button
+              type="button"
+              onClick={() => setWoOpen(true)}
+              className="text-[13px] font-semibold text-roomNum hover:underline"
+            >
+              + New
+            </button>
+          ) : null}
+        </div>
         {workOrders.length === 0 ? (
           <p className="text-xs text-text3">None</p>
         ) : (
@@ -118,7 +132,7 @@ export function GuestPanel({ conversation }: { conversation: ConversationDetail 
             ))}
           </ul>
         )}
-      </Section>
+      </section>
 
       <Section title="Prompts">
         <p className="text-xs text-text3">
@@ -158,6 +172,12 @@ export function GuestPanel({ conversation }: { conversation: ConversationDetail 
             </ul>
           )}
         </Section>
+      ) : null}
+
+      {/* Mounted only while open: the modal needs a ToastProvider, matching the composer's
+          own "Work order" button (Composer.tsx). */}
+      {woOpen ? (
+        <CreateWorkOrderModal conversationId={conversation.id} open onClose={() => setWoOpen(false)} />
       ) : null}
     </aside>
   )

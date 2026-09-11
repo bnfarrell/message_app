@@ -1,13 +1,15 @@
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Role, StayOut } from '../../api/types'
 import { SessionProvider } from '../../auth/SessionContext'
-import { aConversationDetail, aGuest, aStay } from '../../test/factories'
+import { ToastProvider } from '../../components/ui'
+import { aConversationDetail, aDepartment, aGuest, aStaffUser, aStay } from '../../test/factories'
 import { renderWithProviders, sessionFixture } from '../../test/harness'
 import { GuestPanel } from './GuestPanel'
 import { aWorkOrder, aDraftPrompt, aNote } from '../../test/factories'
 
-/** GET /guests/<id> — the only call this panel makes. */
+/** GET /guests/<id> — the only call this panel makes on its own. */
 function serveStays(stays: StayOut[]) {
   vi.mocked(fetch).mockImplementation(() =>
     Promise.resolve(
@@ -19,10 +21,36 @@ function serveStays(stays: StayOut[]) {
   )
 }
 
+/** Also serves what the "+ New" work-order modal asks for once opened. */
+function serveWithWorkOrderModal() {
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    const body = url.includes('prefill')
+      ? {
+          title: 'AC not cooling', description: 'The AC in 412 is not working.',
+          type: 'maintenance', priority: 'urgent', locationType: 'room', locationRef: '412',
+          departmentId: 'dept-eng', guestName: 'Sarah Chen', sourceConversationId: 'c-1',
+          sourceMessageId: 'm-1',
+        }
+      : url.includes('/departments')
+        ? [aDepartment()]
+        : url.includes('/users')
+          ? [aStaffUser()]
+          : url.includes('/guests/')
+            ? { guest: aGuest(), stays: [], conversationIds: ['c-1'] }
+            : []
+    return Promise.resolve(
+      new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+  })
+}
+
 function mount(detail = aConversationDetail(), role: Role = 'agent') {
   return renderWithProviders(
     <SessionProvider>
-      <GuestPanel conversation={detail} />
+      <ToastProvider>
+        <GuestPanel conversation={detail} />
+      </ToastProvider>
     </SessionProvider>,
     { session: sessionFixture({ role }), route: '/app/inbox/c-1' },
   )
@@ -129,5 +157,29 @@ describe('GuestPanel', () => {
     await screen.findByText('Sarah Chen')
     expect(screen.queryByText('Previous stays')).not.toBeInTheDocument()
     expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('/guests/'))).toBe(false)
+  })
+
+  // M11: the guest panel's Work orders section had a list but no way to raise one.
+  it('offers + New to a role that can create work orders', async () => {
+    mount(aConversationDetail(), 'agent')
+    expect(await screen.findByRole('button', { name: '+ New' })).toBeInTheDocument()
+  })
+
+  it('hides + New from corporate, which lacks create_work_order', async () => {
+    mount(aConversationDetail(), 'corporate')
+    await screen.findByText('Sarah Chen')
+    expect(screen.queryByRole('button', { name: '+ New' })).not.toBeInTheDocument()
+  })
+
+  it('opens the create-work-order modal, prefilled from this conversation', async () => {
+    serveWithWorkOrderModal()
+    mount(aConversationDetail({ id: 'c-1' }), 'agent')
+    await userEvent.click(await screen.findByRole('button', { name: '+ New' }))
+    expect(await screen.findByRole('dialog', { name: 'Create work order' })).toBeInTheDocument()
+    // Prefilled from THIS conversation, the same path the composer's own button uses.
+    expect(await screen.findByDisplayValue('AC not cooling')).toBeInTheDocument()
+    expect(
+      vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('prefill') && String(u).includes('c-1')),
+    ).toBe(true)
   })
 })
