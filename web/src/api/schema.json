@@ -1,0 +1,3680 @@
+{
+  "$defs": {
+    "AgentStats": {
+      "additionalProperties": false,
+      "properties": {
+        "conversationsHandled": {
+          "title": "Conversationshandled",
+          "type": "integer"
+        },
+        "firstResponseP50Seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Firstresponsep50Seconds"
+        },
+        "firstResponseP90Seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Firstresponsep90Seconds"
+        },
+        "messagesSent": {
+          "title": "Messagessent",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "quickReplyShare": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quickreplyshare"
+        },
+        "slaBreaches": {
+          "title": "Slabreaches",
+          "type": "integer"
+        },
+        "userId": {
+          "title": "Userid",
+          "type": "string"
+        },
+        "workOrdersCreated": {
+          "title": "Workorderscreated",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "conversationsHandled",
+        "messagesSent",
+        "slaBreaches",
+        "workOrdersCreated"
+      ],
+      "title": "AgentStats",
+      "type": "object"
+    },
+    "AssetIn": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "default": true,
+          "title": "Active",
+          "type": "boolean"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "thumbnailUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thumbnailurl"
+        },
+        "type": {
+          "$ref": "#/$defs/AssetType",
+          "default": "link"
+        },
+        "url": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "validFrom": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validfrom"
+        },
+        "validUntil": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validuntil"
+        }
+      },
+      "required": [
+        "name",
+        "url"
+      ],
+      "title": "AssetIn",
+      "type": "object"
+    },
+    "AssetOut": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "sendCount": {
+          "title": "Sendcount",
+          "type": "integer"
+        },
+        "shortCode": {
+          "title": "Shortcode",
+          "type": "string"
+        },
+        "thumbnailUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thumbnailurl"
+        },
+        "type": {
+          "$ref": "#/$defs/AssetType"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "validFrom": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validfrom"
+        },
+        "validUntil": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validuntil"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type",
+        "url",
+        "shortCode",
+        "active",
+        "sendCount"
+      ],
+      "title": "AssetOut",
+      "type": "object"
+    },
+    "AssetPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "thumbnailUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thumbnailurl"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssetType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "validFrom": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validfrom"
+        },
+        "validUntil": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validuntil"
+        }
+      },
+      "title": "AssetPatch",
+      "type": "object"
+    },
+    "AssetType": {
+      "enum": [
+        "file",
+        "link",
+        "menu",
+        "map",
+        "form"
+      ],
+      "title": "AssetType",
+      "type": "string"
+    },
+    "AuthorType": {
+      "enum": [
+        "guest",
+        "staff",
+        "system",
+        "automation"
+      ],
+      "title": "AuthorType",
+      "type": "string"
+    },
+    "CategoryIn": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "default": true,
+          "title": "Active",
+          "type": "boolean"
+        },
+        "name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parentid"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "CategoryIn",
+      "type": "object"
+    },
+    "CategoryOut": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "children": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CategoryOut"
+          },
+          "title": "Children",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parentid"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "active"
+      ],
+      "title": "CategoryOut",
+      "type": "object"
+    },
+    "CategoryPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parentid"
+        }
+      },
+      "title": "CategoryPatch",
+      "type": "object"
+    },
+    "Channel": {
+      "enum": [
+        "sms",
+        "web",
+        "whatsapp",
+        "email"
+      ],
+      "title": "Channel",
+      "type": "string"
+    },
+    "ConversationDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "archivedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Archivedat"
+        },
+        "assignedDepartmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneddepartmentid"
+        },
+        "assignedUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneduserid"
+        },
+        "channelPrimary": {
+          "$ref": "#/$defs/Channel"
+        },
+        "draftPrompts": {
+          "items": {
+            "$ref": "#/$defs/DraftPromptOut"
+          },
+          "title": "Draftprompts",
+          "type": "array"
+        },
+        "firstResponseSeconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Firstresponseseconds"
+        },
+        "guest": {
+          "$ref": "#/$defs/GuestOut"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lastGuestMessageAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastguestmessageat"
+        },
+        "lastStaffMessageAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Laststaffmessageat"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/MessageOut"
+          },
+          "title": "Messages",
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "$ref": "#/$defs/NoteOut"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "resolutionCategoryId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolutioncategoryid"
+        },
+        "slaDueAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sladueat"
+        },
+        "snoozedUntil": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snoozeduntil"
+        },
+        "status": {
+          "$ref": "#/$defs/ConversationStatus"
+        },
+        "stay": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StayOut"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "workOrders": {
+          "items": {
+            "$ref": "#/$defs/WorkOrderBrief"
+          },
+          "title": "Workorders",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "guest",
+        "channelPrimary",
+        "messages",
+        "notes",
+        "workOrders",
+        "draftPrompts"
+      ],
+      "title": "ConversationDetail",
+      "type": "object"
+    },
+    "ConversationPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "assignedDepartmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneddepartmentid"
+        },
+        "assignedUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneduserid"
+        },
+        "clearAssignment": {
+          "default": false,
+          "title": "Clearassignment",
+          "type": "boolean"
+        },
+        "resolutionCategoryId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolutioncategoryid"
+        },
+        "snoozedUntil": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snoozeduntil"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConversationStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ConversationPatch",
+      "type": "object"
+    },
+    "ConversationStatus": {
+      "enum": [
+        "open",
+        "snoozed",
+        "archived"
+      ],
+      "title": "ConversationStatus",
+      "type": "string"
+    },
+    "ConversationSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "assignedDepartmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneddepartmentid"
+        },
+        "assignedUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneduserid"
+        },
+        "channelPrimary": {
+          "$ref": "#/$defs/Channel"
+        },
+        "guest": {
+          "$ref": "#/$defs/GuestOut"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lastGuestMessageAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastguestmessageat"
+        },
+        "lastMessagePreview": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastmessagepreview"
+        },
+        "lastStaffMessageAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Laststaffmessageat"
+        },
+        "openWorkOrderCount": {
+          "title": "Openworkordercount",
+          "type": "integer"
+        },
+        "roomNumber": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roomnumber"
+        },
+        "slaDueAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sladueat"
+        },
+        "snoozedUntil": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snoozeduntil"
+        },
+        "status": {
+          "$ref": "#/$defs/ConversationStatus"
+        },
+        "unanswered": {
+          "title": "Unanswered",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "guest",
+        "channelPrimary",
+        "unanswered",
+        "openWorkOrderCount"
+      ],
+      "title": "ConversationSummary",
+      "type": "object"
+    },
+    "CreateNoteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Body",
+          "type": "string"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "title": "CreateNoteRequest",
+      "type": "object"
+    },
+    "CreateStaffRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "email": {
+          "format": "email",
+          "title": "Email",
+          "type": "string"
+        },
+        "firstName": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Firstname",
+          "type": "string"
+        },
+        "lastName": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Lastname",
+          "type": "string"
+        },
+        "password": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password"
+        },
+        "phone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phone"
+        },
+        "role": {
+          "$ref": "#/$defs/Role"
+        }
+      },
+      "required": [
+        "email",
+        "firstName",
+        "lastName",
+        "role"
+      ],
+      "title": "CreateStaffRequest",
+      "type": "object"
+    },
+    "CreateWorkOrder": {
+      "additionalProperties": false,
+      "properties": {
+        "assignedUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneduserid"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "dueAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dueat"
+        },
+        "locationRef": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locationref"
+        },
+        "locationType": {
+          "$ref": "#/$defs/LocationType",
+          "default": "room"
+        },
+        "priority": {
+          "$ref": "#/$defs/Priority",
+          "default": "normal"
+        },
+        "sourceConversationId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourceconversationid"
+        },
+        "sourceMessageId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourcemessageid"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/WorkOrderType",
+          "default": "maintenance"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "CreateWorkOrder",
+      "type": "object"
+    },
+    "DayBucket": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "day": {
+          "title": "Day",
+          "type": "string"
+        }
+      },
+      "required": [
+        "day",
+        "count"
+      ],
+      "title": "DayBucket",
+      "type": "object"
+    },
+    "DeliveryStatus": {
+      "enum": [
+        "queued",
+        "sent",
+        "delivered",
+        "failed",
+        "undelivered"
+      ],
+      "title": "DeliveryStatus",
+      "type": "string"
+    },
+    "DepartmentBucket": {
+      "additionalProperties": false,
+      "properties": {
+        "closed": {
+          "title": "Closed",
+          "type": "integer"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "departmentName": {
+          "title": "Departmentname",
+          "type": "string"
+        },
+        "meanTimeToResolveSeconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Meantimetoresolveseconds"
+        }
+      },
+      "required": [
+        "departmentName",
+        "closed"
+      ],
+      "title": "DepartmentBucket",
+      "type": "object"
+    },
+    "DepartmentOut": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "escalationMinutes": {
+          "title": "Escalationminutes",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/DepartmentType"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type",
+        "escalationMinutes",
+        "active"
+      ],
+      "title": "DepartmentOut",
+      "type": "object"
+    },
+    "DepartmentType": {
+      "enum": [
+        "front_desk",
+        "housekeeping",
+        "engineering",
+        "food_beverage",
+        "spa",
+        "security",
+        "valet",
+        "other"
+      ],
+      "title": "DepartmentType",
+      "type": "string"
+    },
+    "Direction": {
+      "enum": [
+        "inbound",
+        "outbound"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "DraftPromptOut": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/DraftPromptStatus"
+        },
+        "workOrderId": {
+          "title": "Workorderid",
+          "type": "string"
+        },
+        "workOrderTitle": {
+          "title": "Workordertitle",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "workOrderId",
+        "workOrderTitle",
+        "body",
+        "status",
+        "createdAt"
+      ],
+      "title": "DraftPromptOut",
+      "type": "object"
+    },
+    "DraftPromptStatus": {
+      "enum": [
+        "pending",
+        "sent",
+        "dismissed"
+      ],
+      "title": "DraftPromptStatus",
+      "type": "string"
+    },
+    "GuestDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "conversationIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conversationids",
+          "type": "array"
+        },
+        "guest": {
+          "$ref": "#/$defs/GuestOut"
+        },
+        "stays": {
+          "items": {
+            "$ref": "#/$defs/StayOut"
+          },
+          "title": "Stays",
+          "type": "array"
+        }
+      },
+      "required": [
+        "guest",
+        "stays",
+        "conversationIds"
+      ],
+      "title": "GuestDetail",
+      "type": "object"
+    },
+    "GuestOut": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Email"
+        },
+        "firstName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Firstname"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lastName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastname"
+        },
+        "loyaltyTier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loyaltytier"
+        },
+        "notesSummary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notessummary"
+        },
+        "phoneE164": {
+          "title": "Phonee164",
+          "type": "string"
+        },
+        "smsConsentStatus": {
+          "$ref": "#/$defs/SmsConsentStatus"
+        },
+        "vip": {
+          "title": "Vip",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "phoneE164",
+        "vip",
+        "smsConsentStatus"
+      ],
+      "title": "GuestOut",
+      "type": "object"
+    },
+    "GuestThread": {
+      "additionalProperties": false,
+      "properties": {
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/GuestThreadMessage"
+          },
+          "title": "Messages",
+          "type": "array"
+        },
+        "phone": {
+          "title": "Phone",
+          "type": "string"
+        },
+        "propertyName": {
+          "title": "Propertyname",
+          "type": "string"
+        }
+      },
+      "required": [
+        "phone",
+        "propertyName",
+        "messages"
+      ],
+      "title": "GuestThread",
+      "type": "object"
+    },
+    "GuestThreadMessage": {
+      "additionalProperties": false,
+      "description": "What a guest could ever see. Deliberately has no field that could carry an internal note.",
+      "properties": {
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "deliveryStatus": {
+          "$ref": "#/$defs/DeliveryStatus"
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "sentAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sentat"
+        }
+      },
+      "required": [
+        "id",
+        "direction",
+        "body",
+        "deliveryStatus"
+      ],
+      "title": "GuestThreadMessage",
+      "type": "object"
+    },
+    "HourBucket": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "hour": {
+          "title": "Hour",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hour",
+        "count"
+      ],
+      "title": "HourBucket",
+      "type": "object"
+    },
+    "ListQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "dept": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dept"
+        },
+        "filter": {
+          "default": "all",
+          "title": "Filter",
+          "type": "string"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Offset",
+          "type": "integer"
+        }
+      },
+      "title": "ListQuery",
+      "type": "object"
+    },
+    "LocationType": {
+      "enum": [
+        "room",
+        "public_area",
+        "equipment",
+        "other"
+      ],
+      "title": "LocationType",
+      "type": "string"
+    },
+    "LoginRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "format": "email",
+          "title": "Email",
+          "type": "string"
+        },
+        "password": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Password",
+          "type": "string"
+        }
+      },
+      "required": [
+        "email",
+        "password"
+      ],
+      "title": "LoginRequest",
+      "type": "object"
+    },
+    "MembershipOut": {
+      "additionalProperties": false,
+      "properties": {
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "propertyCode": {
+          "title": "Propertycode",
+          "type": "string"
+        },
+        "propertyId": {
+          "title": "Propertyid",
+          "type": "string"
+        },
+        "propertyName": {
+          "title": "Propertyname",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/Role"
+        }
+      },
+      "required": [
+        "propertyId",
+        "propertyName",
+        "propertyCode",
+        "role"
+      ],
+      "title": "MembershipOut",
+      "type": "object"
+    },
+    "MessageOut": {
+      "additionalProperties": false,
+      "properties": {
+        "authorType": {
+          "$ref": "#/$defs/AuthorType"
+        },
+        "authorUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authoruserid"
+        },
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "conversationId": {
+          "title": "Conversationid",
+          "type": "string"
+        },
+        "deliveredAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deliveredat"
+        },
+        "deliveryStatus": {
+          "$ref": "#/$defs/DeliveryStatus"
+        },
+        "digitalAssetId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digitalassetid"
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "providerErrorCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Providererrorcode"
+        },
+        "providerErrorMessage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Providererrormessage"
+        },
+        "redacted": {
+          "title": "Redacted",
+          "type": "boolean"
+        },
+        "sentAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sentat"
+        }
+      },
+      "required": [
+        "id",
+        "conversationId",
+        "direction",
+        "authorType",
+        "channel",
+        "body",
+        "deliveryStatus",
+        "redacted"
+      ],
+      "title": "MessageOut",
+      "type": "object"
+    },
+    "NoteOut": {
+      "additionalProperties": false,
+      "properties": {
+        "authorName": {
+          "title": "Authorname",
+          "type": "string"
+        },
+        "authorUserId": {
+          "title": "Authoruserid",
+          "type": "string"
+        },
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "mentions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Mentions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "authorUserId",
+        "authorName",
+        "body",
+        "mentions",
+        "createdAt"
+      ],
+      "title": "NoteOut",
+      "type": "object"
+    },
+    "NotificationOut": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "entityId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entityid"
+        },
+        "entityType": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entitytype"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "readAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Readat"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "title",
+        "createdAt"
+      ],
+      "title": "NotificationOut",
+      "type": "object"
+    },
+    "Overview": {
+      "additionalProperties": false,
+      "properties": {
+        "conversations": {
+          "title": "Conversations",
+          "type": "integer"
+        },
+        "firstResponseDistribution": {
+          "items": {
+            "$ref": "#/$defs/ResponseBucket"
+          },
+          "title": "Firstresponsedistribution",
+          "type": "array"
+        },
+        "firstResponseP50Seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Firstresponsep50Seconds"
+        },
+        "firstResponseP90Seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Firstresponsep90Seconds"
+        },
+        "inboundByDay": {
+          "items": {
+            "$ref": "#/$defs/DayBucket"
+          },
+          "title": "Inboundbyday",
+          "type": "array"
+        },
+        "inboundByHour": {
+          "items": {
+            "$ref": "#/$defs/HourBucket"
+          },
+          "title": "Inboundbyhour",
+          "type": "array"
+        },
+        "inboundMessages": {
+          "title": "Inboundmessages",
+          "type": "integer"
+        },
+        "meanTimeToResolveSeconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Meantimetoresolveseconds"
+        },
+        "outboundMessages": {
+          "title": "Outboundmessages",
+          "type": "integer"
+        },
+        "since": {
+          "format": "date-time",
+          "title": "Since",
+          "type": "string"
+        },
+        "slaBreachRate": {
+          "title": "Slabreachrate",
+          "type": "number"
+        },
+        "slaBreaches": {
+          "title": "Slabreaches",
+          "type": "integer"
+        },
+        "until": {
+          "format": "date-time",
+          "title": "Until",
+          "type": "string"
+        },
+        "workOrdersByDepartment": {
+          "items": {
+            "$ref": "#/$defs/DepartmentBucket"
+          },
+          "title": "Workordersbydepartment",
+          "type": "array"
+        },
+        "workOrdersClosed": {
+          "title": "Workordersclosed",
+          "type": "integer"
+        },
+        "workOrdersCreated": {
+          "title": "Workorderscreated",
+          "type": "integer"
+        },
+        "workOrdersFromConversations": {
+          "title": "Workordersfromconversations",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "since",
+        "until",
+        "conversations",
+        "inboundMessages",
+        "outboundMessages",
+        "slaBreaches",
+        "slaBreachRate",
+        "workOrdersCreated",
+        "workOrdersClosed",
+        "workOrdersFromConversations",
+        "inboundByHour",
+        "inboundByDay",
+        "firstResponseDistribution",
+        "workOrdersByDepartment"
+      ],
+      "title": "Overview",
+      "type": "object"
+    },
+    "Priority": {
+      "enum": [
+        "low",
+        "normal",
+        "high",
+        "urgent"
+      ],
+      "title": "Priority",
+      "type": "string"
+    },
+    "QuickReplyIn": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "default": true,
+          "title": "Active",
+          "type": "boolean"
+        },
+        "body": {
+          "maxLength": 1600,
+          "minLength": 1,
+          "title": "Body",
+          "type": "string"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "locale": {
+          "default": "en",
+          "title": "Locale",
+          "type": "string"
+        },
+        "shortcut": {
+          "maxLength": 40,
+          "minLength": 2,
+          "pattern": "^/[a-z0-9_-]+$",
+          "title": "Shortcut",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "shortcut",
+        "title",
+        "body"
+      ],
+      "title": "QuickReplyIn",
+      "type": "object"
+    },
+    "QuickReplyOut": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "locale": {
+          "title": "Locale",
+          "type": "string"
+        },
+        "shortcut": {
+          "title": "Shortcut",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "usageCount": {
+          "title": "Usagecount",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "shortcut",
+        "title",
+        "body",
+        "locale",
+        "usageCount",
+        "active"
+      ],
+      "title": "QuickReplyOut",
+      "type": "object"
+    },
+    "QuickReplyPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "body": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "shortcut": {
+          "anyOf": [
+            {
+              "pattern": "^/[a-z0-9_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shortcut"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "title": "QuickReplyPatch",
+      "type": "object"
+    },
+    "RenderRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "conversationId": {
+          "title": "Conversationid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "conversationId"
+      ],
+      "title": "RenderRequest",
+      "type": "object"
+    },
+    "RenderedQuickReply": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "characters": {
+          "title": "Characters",
+          "type": "integer"
+        },
+        "segments": {
+          "title": "Segments",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "body",
+        "segments",
+        "characters"
+      ],
+      "title": "RenderedQuickReply",
+      "type": "object"
+    },
+    "ResponseBucket": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "share": {
+          "title": "Share",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "count",
+        "share"
+      ],
+      "title": "ResponseBucket",
+      "type": "object"
+    },
+    "Role": {
+      "enum": [
+        "agent",
+        "dept_staff",
+        "supervisor",
+        "manager",
+        "admin",
+        "corporate"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "SendMessageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 1600,
+          "minLength": 1,
+          "title": "Body",
+          "type": "string"
+        },
+        "digitalAssetId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digitalassetid"
+        },
+        "draftPromptId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Draftpromptid"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "title": "SendMessageRequest",
+      "type": "object"
+    },
+    "SessionOut": {
+      "additionalProperties": false,
+      "properties": {
+        "memberships": {
+          "items": {
+            "$ref": "#/$defs/MembershipOut"
+          },
+          "title": "Memberships",
+          "type": "array"
+        },
+        "user": {
+          "$ref": "#/$defs/UserOut"
+        }
+      },
+      "required": [
+        "user",
+        "memberships"
+      ],
+      "title": "SessionOut",
+      "type": "object"
+    },
+    "SimEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "propertyId": {
+          "title": "Propertyid",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "propertyId",
+        "at",
+        "payload"
+      ],
+      "title": "SimEvent",
+      "type": "object"
+    },
+    "SimGuest": {
+      "additionalProperties": false,
+      "properties": {
+        "guestId": {
+          "title": "Guestid",
+          "type": "string"
+        },
+        "inHouse": {
+          "title": "Inhouse",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "phone": {
+          "title": "Phone",
+          "type": "string"
+        },
+        "propertyId": {
+          "title": "Propertyid",
+          "type": "string"
+        },
+        "propertyName": {
+          "title": "Propertyname",
+          "type": "string"
+        },
+        "propertySmsNumber": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Propertysmsnumber"
+        },
+        "roomNumber": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roomnumber"
+        },
+        "smsConsentStatus": {
+          "$ref": "#/$defs/SmsConsentStatus"
+        },
+        "willFail": {
+          "title": "Willfail",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "propertyId",
+        "propertyName",
+        "guestId",
+        "name",
+        "phone",
+        "inHouse",
+        "smsConsentStatus",
+        "willFail"
+      ],
+      "title": "SimGuest",
+      "type": "object"
+    },
+    "SmsConsentStatus": {
+      "enum": [
+        "unknown",
+        "opted_in",
+        "opted_out"
+      ],
+      "title": "SmsConsentStatus",
+      "type": "string"
+    },
+    "StaffPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "firstName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Firstname"
+        },
+        "lastName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastname"
+        },
+        "password": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Role"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UserStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "StaffPatch",
+      "type": "object"
+    },
+    "StaffUserOut": {
+      "additionalProperties": false,
+      "properties": {
+        "avatarUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatarurl"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "firstName": {
+          "title": "Firstname",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lastName": {
+          "title": "Lastname",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/Role"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "firstName",
+        "lastName",
+        "role",
+        "status"
+      ],
+      "title": "StaffUserOut",
+      "type": "object"
+    },
+    "StayOut": {
+      "additionalProperties": false,
+      "properties": {
+        "adults": {
+          "title": "Adults",
+          "type": "integer"
+        },
+        "arrivalDate": {
+          "format": "date",
+          "title": "Arrivaldate",
+          "type": "string"
+        },
+        "children": {
+          "title": "Children",
+          "type": "integer"
+        },
+        "departureDate": {
+          "format": "date",
+          "title": "Departuredate",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "isReturnGuest": {
+          "title": "Isreturnguest",
+          "type": "boolean"
+        },
+        "roomNumber": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roomnumber"
+        },
+        "roomType": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roomtype"
+        },
+        "status": {
+          "$ref": "#/$defs/StayStatus"
+        },
+        "stayCount": {
+          "title": "Staycount",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "arrivalDate",
+        "departureDate",
+        "adults",
+        "children",
+        "isReturnGuest",
+        "stayCount"
+      ],
+      "title": "StayOut",
+      "type": "object"
+    },
+    "StayStatus": {
+      "enum": [
+        "reserved",
+        "checked_in",
+        "checked_out",
+        "cancelled",
+        "no_show"
+      ],
+      "title": "StayStatus",
+      "type": "string"
+    },
+    "UnreadCount": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count"
+      ],
+      "title": "UnreadCount",
+      "type": "object"
+    },
+    "UserOut": {
+      "additionalProperties": false,
+      "properties": {
+        "avatarUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatarurl"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "firstName": {
+          "title": "Firstname",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lastName": {
+          "title": "Lastname",
+          "type": "string"
+        },
+        "locale": {
+          "title": "Locale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "firstName",
+        "lastName",
+        "locale"
+      ],
+      "title": "UserOut",
+      "type": "object"
+    },
+    "UserStatus": {
+      "enum": [
+        "active",
+        "disabled"
+      ],
+      "title": "UserStatus",
+      "type": "string"
+    },
+    "WorkOrderBrief": {
+      "additionalProperties": false,
+      "properties": {
+        "assignedUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneduserid"
+        },
+        "completedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completedat"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "guestNotifiedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guestnotifiedat"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "priority": {
+          "$ref": "#/$defs/Priority"
+        },
+        "status": {
+          "$ref": "#/$defs/WorkOrderStatus"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/WorkOrderType"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "status",
+        "priority",
+        "type",
+        "createdAt"
+      ],
+      "title": "WorkOrderBrief",
+      "type": "object"
+    },
+    "WorkOrderDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledgedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Acknowledgedat"
+        },
+        "assignedUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneduserid"
+        },
+        "completedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completedat"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "dueAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dueat"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/WorkOrderEventOut"
+          },
+          "title": "Events",
+          "type": "array"
+        },
+        "guestName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guestname"
+        },
+        "guestNotifiedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guestnotifiedat"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "locationRef": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locationref"
+        },
+        "locationType": {
+          "$ref": "#/$defs/LocationType"
+        },
+        "priority": {
+          "$ref": "#/$defs/Priority"
+        },
+        "reportedByUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reportedbyuserid"
+        },
+        "roomNumber": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roomnumber"
+        },
+        "sourceConversationId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourceconversationid"
+        },
+        "sourceMessageId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourcemessageid"
+        },
+        "startedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Startedat"
+        },
+        "status": {
+          "$ref": "#/$defs/WorkOrderStatus"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/WorkOrderType"
+        },
+        "updatedAt": {
+          "format": "date-time",
+          "title": "Updatedat",
+          "type": "string"
+        },
+        "verifiedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verifiedat"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "type",
+        "priority",
+        "status",
+        "locationType",
+        "createdAt",
+        "updatedAt",
+        "events"
+      ],
+      "title": "WorkOrderDetail",
+      "type": "object"
+    },
+    "WorkOrderEventOut": {
+      "additionalProperties": false,
+      "properties": {
+        "comment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "fromValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fromvalue"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "toValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tovalue"
+        },
+        "type": {
+          "$ref": "#/$defs/WorkOrderEventType"
+        },
+        "userId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Userid"
+        },
+        "userName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Username"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "createdAt"
+      ],
+      "title": "WorkOrderEventOut",
+      "type": "object"
+    },
+    "WorkOrderEventType": {
+      "enum": [
+        "created",
+        "status_changed",
+        "assigned",
+        "commented",
+        "priority_changed"
+      ],
+      "title": "WorkOrderEventType",
+      "type": "string"
+    },
+    "WorkOrderListQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "assignee": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assignee"
+        },
+        "dept": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dept"
+        },
+        "includeClosed": {
+          "default": false,
+          "title": "Includeclosed",
+          "type": "boolean"
+        },
+        "mine": {
+          "default": false,
+          "title": "Mine",
+          "type": "boolean"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkOrderType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "WorkOrderListQuery",
+      "type": "object"
+    },
+    "WorkOrderOut": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledgedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Acknowledgedat"
+        },
+        "assignedUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneduserid"
+        },
+        "completedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completedat"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "dueAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dueat"
+        },
+        "guestNotifiedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guestnotifiedat"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "locationRef": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locationref"
+        },
+        "locationType": {
+          "$ref": "#/$defs/LocationType"
+        },
+        "priority": {
+          "$ref": "#/$defs/Priority"
+        },
+        "reportedByUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reportedbyuserid"
+        },
+        "sourceConversationId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourceconversationid"
+        },
+        "sourceMessageId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourcemessageid"
+        },
+        "startedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Startedat"
+        },
+        "status": {
+          "$ref": "#/$defs/WorkOrderStatus"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/WorkOrderType"
+        },
+        "updatedAt": {
+          "format": "date-time",
+          "title": "Updatedat",
+          "type": "string"
+        },
+        "verifiedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verifiedat"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "type",
+        "priority",
+        "status",
+        "locationType",
+        "createdAt",
+        "updatedAt"
+      ],
+      "title": "WorkOrderOut",
+      "type": "object"
+    },
+    "WorkOrderPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "assignedUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneduserid"
+        },
+        "clearAssignee": {
+          "default": false,
+          "title": "Clearassignee",
+          "type": "boolean"
+        },
+        "comment": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Priority"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkOrderStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "WorkOrderPatch",
+      "type": "object"
+    },
+    "WorkOrderPrefill": {
+      "additionalProperties": false,
+      "properties": {
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "guestName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guestname"
+        },
+        "locationRef": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locationref"
+        },
+        "locationType": {
+          "$ref": "#/$defs/LocationType"
+        },
+        "priority": {
+          "$ref": "#/$defs/Priority"
+        },
+        "sourceConversationId": {
+          "title": "Sourceconversationid",
+          "type": "string"
+        },
+        "sourceMessageId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourcemessageid"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/WorkOrderType"
+        }
+      },
+      "required": [
+        "title",
+        "description",
+        "type",
+        "priority",
+        "locationType",
+        "sourceConversationId"
+      ],
+      "title": "WorkOrderPrefill",
+      "type": "object"
+    },
+    "WorkOrderStatus": {
+      "enum": [
+        "open",
+        "assigned",
+        "in_progress",
+        "blocked",
+        "complete",
+        "verified",
+        "cancelled"
+      ],
+      "title": "WorkOrderStatus",
+      "type": "string"
+    },
+    "WorkOrderType": {
+      "enum": [
+        "maintenance",
+        "housekeeping",
+        "guest_request",
+        "pm",
+        "other"
+      ],
+      "title": "WorkOrderType",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Concierge API"
+}
