@@ -1,0 +1,5 @@
+# A CRLF shebang is "exec format error" inside the container. This repo is developed on
+# Windows, so pin the files the image actually executes.
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker-entrypoint.sh text eol=lf
