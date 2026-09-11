@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useConversation, useRetryMessage } from '../../api/hooks/conversations'
 import { useStaff } from '../../api/hooks/users'
 import { useRealtime } from '../../api/ws'
@@ -7,6 +7,7 @@ import { EmptyState, Spinner } from '../../components/ui'
 import { formatClock } from '../../lib/time'
 import { Composer } from './Composer'
 import { ConversationHeader } from './ConversationHeader'
+import { DraftPromptBanner } from './DraftPromptBanner'
 import { GuestPanel } from './GuestPanel'
 import { MessageBubble } from './MessageBubble'
 
@@ -19,6 +20,7 @@ export function ConversationView({ conversationId }: { conversationId: string })
   const { data: staff } = useStaff()
   const { setPresence } = useRealtime()
   const retry = useRetryMessage(conversationId)
+  const [draft, setDraft] = useState<{ body: string; promptId: string } | null>(null)
 
   // Tell everyone else we are on this conversation; clear it on the way out.
   useEffect(() => {
@@ -89,7 +91,17 @@ export function ConversationView({ conversationId }: { conversationId: string })
             ),
           )}
         </div>
-        <Composer conversationId={conversationId} conversation={data} />
+        <DraftPromptBanner
+          conversation={data}
+          onUseDraft={(prompt) => setDraft({ body: prompt.body, promptId: prompt.id })}
+        />
+        <Composer
+          conversationId={conversationId}
+          conversation={data}
+          draftBody={draft?.body}
+          draftPromptId={draft?.promptId}
+          onDraftConsumed={() => setDraft(null)}
+        />
       </div>
       <GuestPanel conversation={data} />
     </div>

@@ -3,6 +3,7 @@ import { useRealtime } from '../../api/ws'
 import { useSession } from '../../auth/SessionContext'
 import { SlaChip } from '../../components/SlaChip'
 import { Badge } from '../../components/ui'
+import { ConversationActions } from './ConversationActions'
 
 /** Exported for its own unit test — the copy is the spec (§5.3), not an implementation detail. */
 export function presenceLine(names: string[], composing: boolean): string {
@@ -48,6 +49,7 @@ export function ConversationHeader({ conversation }: { conversation: Conversatio
               conversation.lastStaffMessageAt > conversation.lastGuestMessageAt,
           )}
         />
+        <ConversationActions conversation={conversation} />
       </div>
     </header>
   )

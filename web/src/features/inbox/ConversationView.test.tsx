@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RealtimeProvider } from '../../api/ws'
 import { SessionProvider } from '../../auth/SessionContext'
+import { ToastProvider } from '../../components/ui'
 import { aConversationDetail, aGuest, aMessage, aNote, aStaffUser } from '../../test/factories'
 import { renderWithProviders, sessionFixture } from '../../test/harness'
 import { ConversationView } from './ConversationView'
@@ -26,9 +27,11 @@ function serve(detail: unknown) {
 function mount() {
   return renderWithProviders(
     <SessionProvider>
-      <RealtimeProvider>
-        <ConversationView conversationId="c-1" />
-      </RealtimeProvider>
+      <ToastProvider>
+        <RealtimeProvider>
+          <ConversationView conversationId="c-1" />
+        </RealtimeProvider>
+      </ToastProvider>
     </SessionProvider>,
     { session: sessionFixture({ role: 'agent' }), route: '/app/inbox/c-1' },
   )
