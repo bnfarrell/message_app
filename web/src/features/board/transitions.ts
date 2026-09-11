@@ -21,6 +21,9 @@ export const OPEN_STATUSES: WorkOrderStatus[] = [
 
 export const BOARD_COLUMNS = OPEN_STATUSES
 
+/** The terminal states. The server leaves them out of a list unless `includeClosed` is set. */
+export const CLOSED_STATUSES: WorkOrderStatus[] = ['verified', 'cancelled']
+
 export const STATUS_LABELS: Record<WorkOrderStatus, string> = {
   open: 'Open',
   assigned: 'Assigned',

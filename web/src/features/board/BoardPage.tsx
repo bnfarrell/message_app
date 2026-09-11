@@ -5,7 +5,7 @@ import { useDepartments, useStaff } from '../../api/hooks/users'
 import type { WorkOrderOut } from '../../api/types'
 import { Button, EmptyState, Spinner } from '../../components/ui'
 import { cn } from '../../lib/cn'
-import { BOARD_COLUMNS, STATUS_LABELS } from './transitions'
+import { BOARD_COLUMNS, CLOSED_STATUSES, OPEN_STATUSES, STATUS_LABELS } from './transitions'
 import { WorkOrderCard } from './WorkOrderCard'
 
 type Filter = { kind: 'all' } | { kind: 'mine' } | { kind: 'dept'; id: string } | { kind: 'urgent' }
@@ -29,10 +29,14 @@ export function BoardPage() {
   const selected = selectedFilter(params)
   const urgentOnly = selected.kind === 'urgent'
   const view = params.get('view') === 'list' ? 'list' : 'board'
+  // Verified and cancelled are left out of the list entirely unless asked for, so revealing
+  // them is a refetch, not a client-side filter. In the URL so the reveal survives a reload.
+  const showClosed = params.get('closed') === '1'
 
   const { data, isPending, error } = useWorkOrders({
     mine: selected.kind === 'mine',
     dept: selected.kind === 'dept' ? selected.id : null,
+    includeClosed: showClosed,
   })
   const { data: departments } = useDepartments()
   const { data: staff } = useStaff()
@@ -41,7 +45,12 @@ export function BoardPage() {
     () => (urgentOnly ? (data ?? []).filter((w) => w.priority === 'urgent') : (data ?? [])),
     [data, urgentOnly],
   )
-  const urgentCount = (data ?? []).filter((w) => w.priority === 'urgent').length
+  const active = rows.filter((w) => OPEN_STATUSES.includes(w.status))
+  const closed = rows.filter((w) => CLOSED_STATUSES.includes(w.status))
+  const urgentCount = (data ?? []).filter(
+    (w) => w.priority === 'urgent' && OPEN_STATUSES.includes(w.status),
+  ).length
+  const columns = showClosed ? [...BOARD_COLUMNS, ...CLOSED_STATUSES] : BOARD_COLUMNS
 
   function setParam(key: string, value: string | null) {
     const next = new URLSearchParams(params)
@@ -66,6 +75,15 @@ export function BoardPage() {
   }
   const deptFor = (id: string | null | undefined) =>
     departments?.find((d) => d.id === id)?.name ?? null
+
+  const card = (workOrder: WorkOrderOut) => (
+    <WorkOrderCard
+      key={workOrder.id}
+      workOrder={workOrder}
+      assigneeName={nameFor(workOrder.assignedUserId)}
+      departmentName={deptFor(workOrder.departmentId)}
+    />
+  )
 
   const tab = (label: string, active: boolean, onClick: () => void, count?: number) => (
     <button
@@ -98,7 +116,7 @@ export function BoardPage() {
         <div>
           <h1 className="text-base font-bold">Work orders</h1>
           <p className="text-xs text-text3">
-            {rows.length} active · {urgentCount} urgent
+            {active.length} active · {urgentCount} urgent
           </p>
         </div>
         <div role="tablist" className="ml-4 flex flex-wrap gap-1.5">
@@ -121,10 +139,12 @@ export function BoardPage() {
       </header>
 
       {rows.length === 0 ? (
-        <EmptyState title="Nothing on the board" hint="No work orders match this filter." />
+        <div className="flex-1">
+          <EmptyState title="Nothing on the board" hint="No work orders match this filter." />
+        </div>
       ) : view === 'board' ? (
         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
-          {BOARD_COLUMNS.map((status) => {
+          {columns.map((status) => {
             const column = rows.filter((w) => w.status === status)
             return (
               <div key={status} className="flex min-w-[240px] flex-1 flex-col gap-2.5">
@@ -132,32 +152,61 @@ export function BoardPage() {
                   {STATUS_LABELS[status]}
                   <span className="font-mono text-xs text-text3">{column.length}</span>
                 </h2>
-                {column.map((workOrder: WorkOrderOut) => (
-                  <WorkOrderCard
-                    key={workOrder.id}
-                    workOrder={workOrder}
-                    assigneeName={nameFor(workOrder.assignedUserId)}
-                    departmentName={deptFor(workOrder.departmentId)}
-                  />
-                ))}
+                {column.map(card)}
               </div>
             )
           })}
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="flex flex-col gap-2">
-            {rows.map((workOrder) => (
-              <WorkOrderCard
-                key={workOrder.id}
-                workOrder={workOrder}
-                assigneeName={nameFor(workOrder.assignedUserId)}
-                departmentName={deptFor(workOrder.departmentId)}
-              />
-            ))}
-          </div>
+          <div className="flex flex-col gap-2">{active.map(card)}</div>
+          {/* The card carries no status, so closed work cannot simply be mixed into the list:
+              it gets one group per terminal state, the same split the board columns make. */}
+          {CLOSED_STATUSES.map((status) => {
+            const group = closed.filter((w) => w.status === status)
+            if (group.length === 0) return null
+            return (
+              <section key={status} className="mt-5 flex flex-col gap-2">
+                <h2 className="flex items-center gap-2 border-b-2 border-border2 pb-1.5 text-[13px] font-bold uppercase tracking-wider text-text2">
+                  {STATUS_LABELS[status]}
+                  <span className="font-mono text-xs text-text3">{group.length}</span>
+                </h2>
+                {group.map(card)}
+              </section>
+            )
+          })}
         </div>
       )}
+
+      <footer className="flex flex-wrap items-center gap-1.5 border-t border-border px-4 py-2 text-xs text-text3">
+        {showClosed ? (
+          <>
+            <span>
+              Showing <span className="font-mono">{closed.length}</span> verified and cancelled
+            </span>
+            <span aria-hidden="true">·</span>
+            <button
+              type="button"
+              onClick={() => setParam('closed', null)}
+              className="rounded font-semibold text-accent hover:underline"
+            >
+              hide them
+            </button>
+          </>
+        ) : (
+          <>
+            <span>Verified and cancelled hidden</span>
+            <span aria-hidden="true">·</span>
+            <button
+              type="button"
+              onClick={() => setParam('closed', '1')}
+              className="rounded font-semibold text-accent hover:underline"
+            >
+              show closed
+            </button>
+          </>
+        )}
+      </footer>
     </div>
   )
 }
