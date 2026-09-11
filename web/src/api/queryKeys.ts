@@ -1,0 +1,36 @@
+export const qk = {
+  session: ['session'] as const,
+
+  conversations: (propertyId: string, filter: string, dept?: string | null) =>
+    ['conversations', propertyId, filter, dept ?? null] as const,
+  conversationsAll: (propertyId: string) => ['conversations', propertyId] as const,
+  conversation: (propertyId: string, id: string) => ['conversation', propertyId, id] as const,
+
+  workOrders: (propertyId: string, params: Record<string, string | boolean | null>) =>
+    ['workOrders', propertyId, params] as const,
+  workOrdersAll: (propertyId: string) => ['workOrders', propertyId] as const,
+  workOrder: (propertyId: string, id: string) => ['workOrder', propertyId, id] as const,
+  workOrderPrefill: (propertyId: string, conversationId: string) =>
+    ['workOrderPrefill', propertyId, conversationId] as const,
+
+  quickReplies: (propertyId: string, q?: string) => ['quickReplies', propertyId, q ?? ''] as const,
+  assets: (propertyId: string) => ['assets', propertyId] as const,
+  categories: (propertyId: string) => ['categories', propertyId] as const,
+  departments: (propertyId: string) => ['departments', propertyId] as const,
+  staff: (propertyId: string) => ['staff', propertyId] as const,
+  guest: (propertyId: string, id: string) => ['guest', propertyId, id] as const,
+
+  notifications: (propertyId: string, unreadOnly: boolean) =>
+    ['notifications', propertyId, unreadOnly] as const,
+  notificationsAll: (propertyId: string) => ['notifications', propertyId] as const,
+  unreadCount: (propertyId: string) => ['unreadCount', propertyId] as const,
+
+  analyticsOverview: (propertyId: string, from: string, to: string) =>
+    ['analytics', 'overview', propertyId, from, to] as const,
+  analyticsAgents: (propertyId: string, from: string, to: string) =>
+    ['analytics', 'agents', propertyId, from, to] as const,
+
+  simGuests: ['sim', 'guests'] as const,
+  simThread: (propertyId: string, phone: string) => ['sim', 'thread', propertyId, phone] as const,
+  simEvents: ['sim', 'events'] as const,
+}
