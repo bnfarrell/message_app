@@ -8,6 +8,7 @@ import { SessionProvider } from '../auth/SessionContext'
 import { ThemeProvider } from '../theme/ThemeContext'
 import { renderWithProviders, sessionFixture } from '../test/harness'
 import { AppShell } from './AppShell'
+import { visibleNavGroups } from './navModel'
 
 // Reports where the router actually landed after a property switch — the thing at risk
 // is the navigation target, not just that setPropertyId was called.
@@ -108,8 +109,48 @@ describe('AppShell', () => {
 
   it('names the signed-in user and their role', async () => {
     mount({ role: 'agent' })
-    expect(await screen.findByText('Ava')).toBeInTheDocument()
+    expect(await screen.findByText('Ava Nolan')).toBeInTheDocument()
     expect(screen.getByText('Agent')).toBeInTheDocument()
+  })
+
+  it('groups the rail under uppercase section headings', async () => {
+    mount({ role: 'admin' })
+    // The headings are structure, not decoration: they are what tells an operator that
+    // Analytics is a different kind of destination from Inbox.
+    expect(await screen.findByText('Overview')).toBeInTheDocument()
+    expect(screen.getByText('Insights')).toBeInTheDocument()
+    expect(screen.getByText('Admin', { selector: 'p' })).toBeInTheDocument()
+  })
+
+  it('renders nothing at all for a group whose every item is filtered out', async () => {
+    // An agent has neither view_property_analytics nor manage_admin, so INSIGHTS and ADMIN
+    // are empty. An empty heading would advertise a section the user cannot enter.
+    mount({ role: 'agent' })
+    expect(await screen.findByText('Overview')).toBeInTheDocument()
+    expect(screen.queryByText('Insights')).not.toBeInTheDocument()
+    expect(screen.queryByText('Admin', { selector: 'p' })).not.toBeInTheDocument()
+  })
+
+  it('keeps only the capability-free items when a role can do nothing at all', () => {
+    // Asserted on the model rather than mimed through a role: no role in the product holds
+    // zero capabilities, and this is what guarantees the rail never renders a bare heading.
+    const groups = visibleNavGroups(() => false)
+    expect(groups.map((g) => g.heading)).toEqual(['Overview'])
+    expect(groups[0]!.items.map((i) => i.label)).toEqual(['Alerts'])
+  })
+
+  it('keeps the property lockup as plain text, not a dead button, for one membership', async () => {
+    mount({ role: 'agent' })
+    expect(await screen.findByText('Harbourview Hotel')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /switch property/i })).not.toBeInTheDocument()
+  })
+
+  it('carries the property switcher on the lockup, not at the foot of the rail', async () => {
+    mount({ role: 'agent', withSecondProperty: true })
+    // Ruling D64. The accessible name has to survive the move: the visible label is now the
+    // property itself, so the intent is carried by a visually hidden word.
+    const trigger = await screen.findByRole('button', { name: /switch property/i })
+    expect(trigger).toHaveTextContent('Harbourview Hotel')
   })
 
   it('toggles the theme from the nav', async () => {

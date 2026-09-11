@@ -2,11 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Dark is the default; the light block below is the theme the reference screenshot is
+   drawn in. Two invariants hold across both blocks:
+   - `--surface` sits ABOVE `--surface2` in lightness, so a selected/raised element on a
+     recessed track reads the same way in both themes (ruling D74).
+   - the `--nav*` family is rail-scoped: the rail is its own deep-navy ground in both
+     themes, and `--text3` on navy is illegible. */
 :root {
-  --bg: #0f141a; --bg2: #131a21; --nav: #0b0f14; --surface: #171d26;
-  --surface2: #1c2430; --border: #232b36; --border2: #2a3441; --border3: #35414f;
+  --bg: #0f141a; --bg2: #131a21; --nav: #0a101c; --surface: #1c2430;
+  --surface2: #171d26; --border: #232b36; --border2: #2a3441; --border3: #35414f;
   --text: #e6eaf0; --text2: #a8b3c2; --text3: #8792a3; --text4: #5a6473;
-  --accent: #4f8fd4; --accentText: #0b1016; --roomNum: #7ab3ea; --sel: #172231;
+  --accent: #4f8fd4; --accentText: #0b1016; --roomNum: #7ab3ea; --sel: #1d2a40;
+  --navText: #e8edf5; --navTextMuted: #93a2b8; --navSection: #8797ae;
+  --navActiveBg: #2f66c2; --navActiveText: #ffffff; --navBorder: #1c2740;
+  --navFocus: #9dc2ff;
   --outBg: #1e3a5f; --outText: #e6eaf0;
   --autoBg: #1c2430; --autoText: #a8b3c2; --autoBorder: #35414f;
   --noteBg: #2a2410; --noteBorder: #5a4a12; --noteText: #f5dfa0; --noteIcon: #f5a623;
@@ -21,10 +30,13 @@
 }
 
 [data-theme='light'] {
-  --bg: #f5f7fa; --bg2: #fafbfc; --nav: #ffffff; --surface: #ffffff;
+  --bg: #f5f7fa; --bg2: #fafbfc; --nav: #111b2e; --surface: #ffffff;
   --surface2: #eef2f7; --border: #dfe4ec; --border2: #d2d9e4; --border3: #c3ccd9;
   --text: #0f141a; --text2: #3c4757; --text3: #667286; --text4: #97a1b0;
-  --accent: #2563eb; --accentText: #ffffff; --roomNum: #1d4ed8; --sel: #eff4fb;
+  --accent: #2563eb; --accentText: #ffffff; --roomNum: #1d4ed8; --sel: #e9f0fd;
+  --navText: #f4f7fb; --navTextMuted: #a7b6cd; --navSection: #8296b4;
+  --navActiveBg: #2563eb; --navActiveText: #ffffff; --navBorder: #2b3a57;
+  --navFocus: #9dc2ff;
   --outBg: #1e3a5f; --outText: #ffffff;
   --autoBg: #eef2f7; --autoText: #3c4757; --autoBorder: #d2d9e4;
   --noteBg: #fff8e1; --noteBorder: #e6c96a; --noteText: #5c4300; --noteIcon: #9a6b00;
@@ -44,13 +56,22 @@
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+    font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
+  /* Tabular figures where numbers stack into columns — room numbers, counts, SLA timers,
+     property codes and shortcut badges all carry .font-mono. Deliberately not global: the
+     UI face's proportional figures read better in prose. */
+  .font-mono { font-variant-numeric: tabular-nums; }
   /* 44px controls, 8-10px radii, 1px borders, no shadows - mockup shape language. */
   button:focus-visible, a:focus-visible, input:focus-visible,
   textarea:focus-visible, [tabindex]:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+  /* --accent is only 3.33:1 on the light theme's navy rail. The rail gets its own focus
+     colour so a keyboard user can actually see where they are (9.5:1 / 10.5:1). */
+  [data-nav-surface] button:focus-visible, [data-nav-surface] a:focus-visible {
+    outline-color: var(--navFocus);
   }
 }

@@ -1,5 +1,6 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { cn } from '../../lib/cn'
+import { ADMIN_SECTIONS } from '../../components/navModel'
 import { AssetsAdmin } from './AssetsAdmin'
 import { CategoriesAdmin } from './CategoriesAdmin'
 import { DepartmentsAdmin } from './DepartmentsAdmin'
@@ -7,18 +8,8 @@ import { PropertySettingsAdmin } from './PropertySettingsAdmin'
 import { QuickRepliesAdmin } from './QuickRepliesAdmin'
 import { UsersAdmin } from './UsersAdmin'
 
-// Absolute targets: AdminPage is mounted at the "admin/*" splat, and this project's router
-// future flags (v7_relativeSplatPath) resolve a plain relative `to` against the full current
-// splat path rather than the section's own directory, so a relative "users" link from
-// "/app/admin/quick-replies" resolves to ".../quick-replies/users" instead of ".../users".
-const LIVE = [
-  { to: '/app/admin/users', label: 'Users & roles' },
-  { to: '/app/admin/departments', label: 'Departments' },
-  { to: '/app/admin/quick-replies', label: 'Quick replies' },
-  { to: '/app/admin/assets', label: 'Digital assets' },
-  { to: '/app/admin/categories', label: 'Resolution categories' },
-  { to: '/app/admin/property', label: 'Property settings' },
-]
+// Shared with the Ctrl+K palette so the two can never disagree about what Admin contains;
+// the reason the targets are absolute is recorded beside the list.
 
 // Shown deliberately (mockup Admin.dc.html): an admin should see the product's shape.
 const PHASE_2 = ['Automations', 'Blocked numbers', 'Integrations']
@@ -29,7 +20,7 @@ export function AdminPage() {
       <nav className="w-[220px] flex-none border-r border-border p-3">
         <h1 className="mb-3 px-2 text-base font-bold">Admin</h1>
         <ul className="flex flex-col gap-0.5">
-          {LIVE.map((item) => (
+          {ADMIN_SECTIONS.map((item) => (
             <li key={item.to}>
               <NavLink
                 to={item.to}

@@ -1,14 +1,21 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { cn } from '../../lib/cn'
 
+// Replaced wholesale rather than merged when a caller passes its own: the rail sits on a
+// different ground from every other Dropdown in the app, so it wants none of this.
+const TRIGGER =
+  'inline-flex h-11 items-center gap-2 rounded border border-border3 bg-surface px-4 text-sm font-semibold text-text'
+
 export function Dropdown({
   label,
   children,
   align = 'left',
+  triggerClassName,
 }: {
   label: ReactNode
   children: (close: () => void) => ReactNode
   align?: 'left' | 'right'
+  triggerClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -43,7 +50,7 @@ export function Dropdown({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-11 items-center gap-2 rounded border border-border3 bg-surface px-4 text-sm font-semibold text-text"
+        className={triggerClassName ?? TRIGGER}
       >
         {label}
       </button>

@@ -1,6 +1,8 @@
 const tokens = [
   'bg', 'bg2', 'nav', 'surface', 'surface2', 'border', 'border2', 'border3',
   'text', 'text2', 'text3', 'text4', 'accent', 'accentText', 'roomNum', 'sel',
+  'navText', 'navTextMuted', 'navSection', 'navActiveBg', 'navActiveText', 'navBorder',
+  'navFocus',
   'outBg', 'outText', 'autoBg', 'autoText', 'autoBorder',
   'noteBg', 'noteBorder', 'noteText', 'noteIcon',
   'okBg', 'okText', 'okBorder', 'okBtn', 'okBtnText', 'okBanner',
@@ -15,7 +17,7 @@ export default {
     extend: {
       colors: Object.fromEntries(tokens.map((t) => [t, `var(--${t})`])),
       fontFamily: {
-        ui: ['"Space Grotesk"', '"Segoe UI"', 'system-ui', 'sans-serif'],
+        ui: ['Inter', '-apple-system', '"Segoe UI"', 'Roboto', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'Consolas', 'monospace'],
       },
       borderRadius: { DEFAULT: '8px', card: '10px' },

@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useSession } from '../auth/SessionContext'
-import { landingPath, type Capability } from '../auth/capabilities'
+import { landingPath } from '../auth/capabilities'
 import { useTheme } from '../theme/ThemeContext'
 import { cn } from '../lib/cn'
 import { Avatar, Badge, Dropdown } from './ui'
-import { NavIcon, type IconName } from './NavIcon'
+import { NavIcon } from './NavIcon'
+import { CommandPalette } from './CommandPalette'
+import { visibleNavGroups } from './navModel'
 
 const ROLE_LABELS: Record<string, string> = {
   agent: 'Agent',
@@ -16,19 +18,9 @@ const ROLE_LABELS: Record<string, string> = {
   corporate: 'Corporate',
 }
 
-type NavItem = { label: string; to: string; icon: IconName; needs: Capability[] }
-
-// `needs` is an OR: any one capability is enough to see the item.
-const NAV: NavItem[] = [
-  // Corporate has view_all_conversations + add_note on the server (permissions.py) with no
-  // @require_capability gate on the list endpoint, so it genuinely can read (and note) every
-  // conversation — the Inbox stays visible, read-only until Task 14 hides the composer.
-  { label: 'Inbox', to: '/app/inbox', icon: 'inbox', needs: ['reply', 'view_all_conversations'] },
-  { label: 'Board', to: '/app/board', icon: 'board', needs: ['create_work_order', 'close_work_order'] },
-  { label: 'Analytics', to: '/app/analytics', icon: 'analytics', needs: ['view_property_analytics'] },
-  { label: 'Alerts', to: '/app/notifications', icon: 'alerts', needs: [] },
-  { label: 'Admin', to: '/app/admin/users', icon: 'admin', needs: ['manage_admin'] },
-]
+const RAIL_ITEM = 'flex h-11 items-center gap-3 rounded-md px-3 text-[13px] font-semibold'
+const TOPBAR_BUTTON =
+  'inline-flex h-8 items-center gap-2 rounded-md border border-border3 bg-bg2 px-2.5 text-xs font-semibold text-text3 hover:text-text'
 
 export function AppShell({
   children,
@@ -41,100 +33,152 @@ export function AppShell({
   const { resolved, setTheme } = useTheme()
   const navigate = useNavigate()
 
-  const visible = NAV.filter((item) => item.needs.length === 0 || item.needs.some(can))
+  const groups = visibleNavGroups(can)
+  const nextTheme = resolved === 'dark' ? 'light' : 'dark'
+
+  // Ruling D64: tenant identity carries the switcher. Single-membership users get no
+  // switcher affordance at all — the lockup is then plain text, not a dead button.
+  const lockup = (
+    <>
+      <span className="grid h-8 w-8 flex-none place-items-center rounded-md bg-navActiveBg font-mono text-xs font-bold text-navActiveText">
+        {membership.propertyCode.slice(0, 2).toUpperCase()}
+      </span>
+      <span className="min-w-0 text-left">
+        <span className="block truncate text-[13px] font-bold text-navText">
+          {membership.propertyName}
+        </span>
+        <span className="block truncate font-mono text-[11px] text-navTextMuted">
+          {membership.propertyCode}
+        </span>
+      </span>
+    </>
+  )
 
   return (
     <div className="flex h-full bg-bg">
-      <nav className="flex w-[184px] flex-none flex-col border-r border-border bg-nav p-3">
-        <div className="mb-5 flex items-center gap-2.5 px-1">
-          <span className="grid h-8 w-8 flex-none place-items-center rounded-md bg-accent font-mono text-xs font-bold text-accentText">
-            {membership.propertyCode.slice(0, 2).toUpperCase()}
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-[13px] font-bold">{membership.propertyName}</p>
-            <p className="truncate font-mono text-[11px] text-text3">{membership.propertyCode}</p>
-          </div>
-        </div>
+      <nav
+        data-nav-surface="true"
+        className="flex w-[208px] flex-none flex-col border-r border-navBorder bg-nav p-3"
+      >
+        {memberships.length > 1 ? (
+          <Dropdown
+            triggerClassName="flex w-full items-center gap-2.5 rounded-md px-1 py-1 text-left hover:bg-navBorder"
+            label={
+              <>
+                {lockup}
+                <span className="sr-only">Switch property</span>
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  className="ml-auto h-3.5 w-3.5 flex-none text-navTextMuted"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m7 10 5 5 5-5" />
+                </svg>
+              </>
+            }
+          >
+            {(close) => (
+              <>
+                {memberships.map((m) => (
+                  <button
+                    key={m.propertyId}
+                    role="menuitem"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface2"
+                    onClick={() => {
+                      close()
+                      setPropertyId(m.propertyId)
+                      // The new property's role may differ; land where it belongs.
+                      navigate(landingPath(m.role), { replace: true })
+                    }}
+                  >
+                    <span className="font-mono text-xs text-roomNum">{m.propertyCode}</span>
+                    <span className="truncate">{m.propertyName}</span>
+                  </button>
+                ))}
+              </>
+            )}
+          </Dropdown>
+        ) : (
+          <div className="flex items-center gap-2.5 px-1 py-1">{lockup}</div>
+        )}
 
-        <ul className="flex flex-col gap-1">
-          {visible.map((item) => (
-            <li key={item.to}>
-              <NavLink
-                to={item.to}
-                className={({ isActive }) =>
-                  cn(
-                    'flex h-11 items-center gap-3 rounded px-3.5 text-sm font-semibold',
-                    isActive ? 'bg-surface2 text-roomNum' : 'text-text3 hover:text-text',
-                  )
-                }
-              >
-                <NavIcon name={item.icon} />
-                <span className="flex-1">{item.label}</span>
-                {item.to === '/app/notifications' && unreadCount ? (
-                  <Badge tone="danger" className="font-mono">
-                    <span data-testid="unread-badge">{unreadCount}</span>
-                  </Badge>
-                ) : null}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-
-        <div className="mt-auto flex flex-col gap-2 border-t border-border pt-3">
-          {memberships.length > 1 ? (
-            <Dropdown label={<span className="text-xs">Switch property</span>}>
-              {(close) => (
-                <>
-                  {memberships.map((m) => (
-                    <button
-                      key={m.propertyId}
-                      role="menuitem"
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface2"
-                      onClick={() => {
-                        close()
-                        setPropertyId(m.propertyId)
-                        // The new property's role may differ; land where it belongs.
-                        navigate(landingPath(m.role), { replace: true })
-                      }}
+        <div className="mt-5 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
+          {groups.map((group) => (
+            <div key={group.heading}>
+              <p className="mb-1 px-3 text-[10px] font-bold uppercase tracking-[0.12em] text-navSection">
+                {group.heading}
+              </p>
+              <ul className="flex flex-col gap-0.5">
+                {group.items.map((item) => (
+                  <li key={item.to}>
+                    <NavLink
+                      to={item.to}
+                      className={({ isActive }) =>
+                        cn(
+                          RAIL_ITEM,
+                          isActive
+                            ? 'bg-navActiveBg text-navActiveText'
+                            : 'text-navTextMuted hover:text-navText',
+                        )
+                      }
                     >
-                      <span className="font-mono text-xs text-roomNum">{m.propertyCode}</span>
-                      <span className="truncate">{m.propertyName}</span>
-                    </button>
-                  ))}
-                </>
-              )}
-            </Dropdown>
-          ) : null}
-
-          <button
-            type="button"
-            onClick={() => setTheme(resolved === 'dark' ? 'light' : 'dark')}
-            className="flex h-11 items-center gap-3 rounded px-3.5 text-sm font-semibold text-text3 hover:text-text"
-          >
-            <NavIcon name="theme" />
-            Theme
-          </button>
-
-          <button
-            type="button"
-            onClick={() => logout()}
-            className="flex h-11 items-center gap-3 rounded px-3.5 text-sm font-semibold text-text3 hover:text-text"
-          >
-            <NavIcon name="signout" />
-            Sign out
-          </button>
-
-          <div className="flex items-center gap-2.5 px-1 py-2">
-            <Avatar name={`${user.firstName} ${user.lastName}`} tone="accent" />
-            <div className="min-w-0">
-              <p className="truncate text-[13px] font-semibold">{user.firstName}</p>
-              <p className="truncate text-[11px] text-text3">{ROLE_LABELS[role] ?? role}</p>
+                      <NavIcon name={item.icon} />
+                      <span className="flex-1">{item.label}</span>
+                      {item.to === '/app/notifications' && unreadCount ? (
+                        <Badge tone="danger" className="font-mono">
+                          <span data-testid="unread-badge">{unreadCount}</span>
+                        </Badge>
+                      ) : null}
+                    </NavLink>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
+          ))}
         </div>
       </nav>
 
-      <main className="min-w-0 flex-1 overflow-hidden">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Left of the palette trigger is left empty on purpose: the screens carry their own
+            headers, and inventing breadcrumbs here would duplicate them. */}
+        <header className="flex h-12 flex-none items-center justify-end gap-2 border-b border-border bg-surface px-3">
+          <CommandPalette />
+
+          <span className="flex items-center gap-2 pl-1">
+            <Avatar name={`${user.firstName} ${user.lastName}`} tone="accent" />
+            <span className="hidden min-w-0 leading-tight md:block">
+              <span className="block truncate text-xs font-semibold">
+                {user.firstName} {user.lastName}
+              </span>
+              <span className="block truncate text-[11px] text-text3">
+                {ROLE_LABELS[role] ?? role}
+              </span>
+            </span>
+          </span>
+
+          <button
+            type="button"
+            aria-label={`Switch theme to ${nextTheme}`}
+            onClick={() => setTheme(nextTheme)}
+            className={TOPBAR_BUTTON}
+          >
+            <NavIcon name="theme" className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline capitalize">{nextTheme}</span>
+          </button>
+
+          <button type="button" onClick={() => logout()} className={TOPBAR_BUTTON}>
+            <NavIcon name="signout" className="h-3.5 w-3.5" />
+            Sign out
+          </button>
+        </header>
+
+        <main className="min-w-0 flex-1 overflow-hidden">{children}</main>
+      </div>
     </div>
   )
 }
