@@ -13,8 +13,10 @@ COPY web/package.json web/package-lock.json ./
 RUN npm ci
 
 COPY web/ ./
-# The golden-vector fixture lives at the repo root so neither language owns it; the
-# web suite reaches it at ../../../fixtures. Copied so `tsc -b` can resolve it.
+# The golden-vector fixture lives at the repo root so neither language owns it. The web
+# suite reads it with readFileSync at ../../../fixtures, so `tsc -b` does NOT need it and
+# the build would succeed without this line — it is here so `npm test` works in this
+# stage, which is the only way to run the drift check against the image's own sources.
 COPY fixtures/ /src/fixtures/
 
 RUN npm run build
