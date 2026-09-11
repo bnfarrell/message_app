@@ -318,8 +318,8 @@ describe('Composer', () => {
       'placeholder',
       'Internal note — not sent to the guest',
     )
-    expect(screen.getByRole('button', { name: 'Note' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.queryByRole('button', { name: 'Reply' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Internal note' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('button', { name: 'Reply to guest' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^send$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /attach/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /quick/i })).not.toBeInTheDocument()
@@ -345,15 +345,37 @@ describe('Composer', () => {
   // corporate with nothing it could do anywhere in the inbox.
   it('shows the Reply/Note toggle to a role that holds both capabilities', async () => {
     mount()
-    expect(await screen.findByRole('button', { name: 'Reply' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Note' })).toHaveAttribute('aria-pressed', 'false')
+    expect(await screen.findByRole('button', { name: 'Reply to guest' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Internal note' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  // The user reported the pair "confusing... it is a little confusing the way it is now"
+  // because the inactive tab was bare text with no button affordance at all. Both must
+  // always carry their own border and fill, active or not, so they read as one choice
+  // rather than a label plus a toggle.
+  it('gives both mode buttons a real border and fill whether active or not', async () => {
+    mount()
+    const reply = await screen.findByRole('button', { name: 'Reply to guest' })
+    const note = screen.getByRole('button', { name: 'Internal note' })
+    expect(reply.className).toMatch(/\bborder-/)
+    expect(reply.className).toMatch(/\bbg-/)
+    expect(note.className).toMatch(/\bborder-/)
+    expect(note.className).toMatch(/\bbg-/)
+  })
+
+  it('names the destination on the submit button instead of a bare "Send"', async () => {
+    mount()
+    expect(await screen.findByRole('button', { name: 'Send to guest' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Internal note' }))
+    expect(screen.getByRole('button', { name: 'Add note' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Send to guest' })).not.toBeInTheDocument()
   })
 
   it('drops the SMS-only affordances when switched to Note mode', async () => {
     mount()
     await userEvent.type(await screen.findByRole('textbox'), 'Hello there')
     expect(screen.getByTestId('segment-counter')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Note' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Internal note' }))
     expect(screen.queryByTestId('segment-counter')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /attach/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /quick/i })).not.toBeInTheDocument()
@@ -362,7 +384,7 @@ describe('Composer', () => {
 
   it('does not open the quick-reply palette in Note mode', async () => {
     mount()
-    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Internal note' }))
     await userEvent.type(screen.getByRole('textbox'), '/wifi')
     expect(screen.queryByTestId('qr-q-1')).not.toBeInTheDocument()
   })
@@ -371,7 +393,7 @@ describe('Composer', () => {
   // staff recording one.
   it('posts a note for an opted-out guest, and hides the SMS consent warning', async () => {
     mount(aConversationDetail({ guest: aGuest({ smsConsentStatus: 'opted_out' }) }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Internal note' }))
     expect(screen.queryByText(/opted out of SMS/i)).not.toBeInTheDocument()
     const box = screen.getByRole('textbox')
     expect(box).toBeEnabled()
@@ -385,7 +407,7 @@ describe('Composer', () => {
 
   it('gives the note text back when the server rejects it', async () => {
     mount()
-    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Internal note' }))
     const box = screen.getByRole('textbox')
     await userEvent.type(box, 'A note')
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -457,11 +479,11 @@ describe('Composer', () => {
     await userEvent.click(await screen.findByRole('menuitem', { name: /WiFi card/ }))
     const box = screen.getByRole('textbox')
     await waitFor(() => expect((box as HTMLTextAreaElement).value).toContain('/a/wifi1'))
-    await userEvent.click(screen.getByRole('button', { name: 'Note' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Internal note' }))
     await userEvent.click(screen.getByRole('button', { name: /add note/i }))
     await waitFor(() => expect(notePosts()).toHaveLength(1))
 
-    await userEvent.click(screen.getByRole('button', { name: 'Reply' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Reply to guest' }))
     await userEvent.type(screen.getByRole('textbox'), 'Someone is on the way')
     await userEvent.keyboard('{Control>}{Enter}{/Control}')
     const sent = vi
@@ -477,7 +499,7 @@ describe('Composer', () => {
   // and a plain one loses to the important !border-noteBorder that tints Note mode.
   it('keeps a focus indicator in Note mode', async () => {
     mount()
-    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Internal note' }))
     expect(screen.getByRole('textbox').className).toContain('focus:!border-accent')
   })
 

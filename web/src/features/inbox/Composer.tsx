@@ -129,12 +129,12 @@ export function Composer({
       ) : null}
 
       {canNote ? (
-        <div className="mb-2 inline-flex gap-1 rounded border border-border3 bg-surface2 p-0.5">
+        <div className="mb-2 flex gap-1.5">
           {canReply ? (
-            <ModeTab label="Reply" active={!noteMode} onClick={() => setMode('reply')} />
+            <ModeTab label="Reply to guest" active={!noteMode} onClick={() => setMode('reply')} />
           ) : null}
           <ModeTab
-            label="Note"
+            label="Internal note"
             active={noteMode}
             onClick={() => {
               setMode('note')
@@ -257,7 +257,7 @@ export function Composer({
           onClick={submit}
           title="Ctrl+Enter"
         >
-          {noteMode ? 'Add note' : 'Send'}
+          {noteMode ? 'Add note' : 'Send to guest'}
         </Button>
       </div>
 
@@ -274,6 +274,11 @@ export function Composer({
   )
 }
 
+// Sentence case at normal control size, and always a real button — even the inactive one
+// carries its own border and fill, so the pair reads as a choice rather than a label plus
+// a toggle. The active state borrows the mode's own tint (accent for reply, the note
+// colours the textarea itself uses for note) rather than a same-surface shade step, so it
+// stays unmistakable in both themes rather than depending on the surface/surface2 relationship.
 function ModeTab({
   label,
   active,
@@ -291,12 +296,15 @@ function ModeTab({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'rounded px-3 py-1 text-xs font-bold uppercase tracking-wide',
+        'rounded border px-3 py-1.5 text-sm font-semibold',
         active
           ? note
-            ? 'bg-noteBg text-noteText'
-            : 'bg-surface text-text'
-          : 'text-text3 hover:text-text',
+            // noteBorder itself is a decorative tint (checked: ~1.5:1 against the page
+            // ground, both themes) so the active Note button borrows noteIcon for its
+            // actual boundary — that clears 3:1 against the page in both themes.
+            ? 'border-noteIcon bg-noteBg text-noteText'
+            : 'border-accent bg-sel text-text'
+          : 'border-border3 bg-surface text-text3 hover:text-text',
       )}
     >
       {label}

@@ -132,7 +132,7 @@ describe('ConversationView', () => {
       )
     })
     mount()
-    await userEvent.click(await screen.findByRole('button', { name: 'Note' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Internal note' }))
     await userEvent.type(screen.getByRole('textbox'), 'Raised WO #204 to Engineering.')
     await userEvent.click(screen.getByRole('button', { name: /add note/i }))
     expect(await screen.findByTestId('note')).toHaveTextContent('Raised WO #204 to Engineering.')
