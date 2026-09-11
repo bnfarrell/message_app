@@ -1,8 +1,11 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSession } from '../../auth/SessionContext'
 import { ApiError, api, propertyPath } from '../client'
 import { qk } from '../queryKeys'
-import type { AssetOut, CategoryOut, QuickReplyOut, RenderedQuickReply } from '../types'
+import type {
+  AssetIn, AssetOut, AssetPatch, CategoryIn, CategoryOut, CategoryPatch,
+  QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderedQuickReply,
+} from '../types'
 
 export function useQuickReplies(q?: string) {
   const { propertyId } = useSession()
@@ -44,3 +47,46 @@ export function useCategories() {
     staleTime: 5 * 60_000,
   })
 }
+
+// Create/patch share a body shape per resource; delete only ever needs the id. Invalidating the
+// `*All` prefix (not the exact list key, which for quick replies varies by search term) is what
+// makes a write show up in every active view of that resource, filtered or not.
+function useWrite<TBody, TResult>(
+  path: string,
+  method: 'POST' | 'PATCH' | 'DELETE',
+  invalidate: (propertyId: string) => readonly unknown[],
+) {
+  const { propertyId } = useSession()
+  const client = useQueryClient()
+  return useMutation<TResult, ApiError, TBody & { id?: string }>({
+    mutationFn: (body) => {
+      const { id, ...rest } = body as { id?: string }
+      const url = propertyPath(propertyId, id ? `${path}/${id}` : path)
+      return api<TResult>(url, { method, json: method === 'DELETE' ? undefined : rest })
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: invalidate(propertyId) })
+    },
+  })
+}
+
+export const useCreateQuickReply = () =>
+  useWrite<QuickReplyIn, QuickReplyOut>('quick-replies', 'POST', (p) => qk.quickRepliesAll(p))
+export const usePatchQuickReply = () =>
+  useWrite<QuickReplyPatch, QuickReplyOut>('quick-replies', 'PATCH', (p) => qk.quickRepliesAll(p))
+export const useDeleteQuickReply = () =>
+  useWrite<{ id: string }, void>('quick-replies', 'DELETE', (p) => qk.quickRepliesAll(p))
+
+export const useCreateAsset = () =>
+  useWrite<AssetIn, AssetOut>('assets', 'POST', (p) => qk.assetsAll(p))
+export const usePatchAsset = () =>
+  useWrite<AssetPatch, AssetOut>('assets', 'PATCH', (p) => qk.assetsAll(p))
+export const useDeleteAsset = () =>
+  useWrite<{ id: string }, void>('assets', 'DELETE', (p) => qk.assetsAll(p))
+
+export const useCreateCategory = () =>
+  useWrite<CategoryIn, CategoryOut>('resolution-categories', 'POST', (p) => qk.categoriesAll(p))
+export const usePatchCategory = () =>
+  useWrite<CategoryPatch, CategoryOut>('resolution-categories', 'PATCH', (p) => qk.categoriesAll(p))
+export const useDeleteCategory = () =>
+  useWrite<{ id: string }, void>('resolution-categories', 'DELETE', (p) => qk.categoriesAll(p))

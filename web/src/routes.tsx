@@ -4,18 +4,14 @@ import { useSession } from './auth/SessionContext'
 import { RequireAuth } from './auth/RequireAuth'
 import { landingPath } from './auth/capabilities'
 import { AppLayout } from './AppLayout'
-import { EmptyState, Spinner } from './components/ui'
+import { Spinner } from './components/ui'
 import { LoginPage } from './features/login/LoginPage'
 import { InboxPage } from './features/inbox/InboxPage'
 import { BoardPage } from './features/board/BoardPage'
 import { WorkOrderDetailPage } from './features/board/WorkOrderDetailPage'
 import { AnalyticsPage } from './features/analytics/AnalyticsPage'
 import { NotificationsPage } from './features/notifications/NotificationsPage'
-
-/** Temporary: each feature task replaces one of these with the real screen. */
-function Placeholder({ name }: { name: string }) {
-  return <EmptyState title={name} hint="Not built yet." />
-}
+import { AdminPage } from './features/admin/AdminPage'
 
 function LandingRedirect() {
   const { role } = useSession()
@@ -63,7 +59,7 @@ export function AppRoutes() {
             path="admin/*"
             element={
               <RequireCapability capability="manage_admin">
-                <Placeholder name="Admin" />
+                <AdminPage />
               </RequireCapability>
             }
           />

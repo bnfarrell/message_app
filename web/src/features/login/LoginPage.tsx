@@ -6,13 +6,18 @@ import { Button, Input } from '../../components/ui'
 
 export function LoginPage() {
   const login = useLogin()
-  const { data: session } = useSessionQuery()
+  // `isSuccess`, not just `data`: react-query keeps the last-good session payload cached
+  // through a subsequent error (e.g. the cookie dying mid-session, surfaced when some other
+  // request 401s and RequireAuth's refetch fails too). Trusting stale `data` alone bounced a
+  // dead session straight back into the app, which RequireAuth would then bounce right back
+  // out to /login — an instant redirect loop between the two.
+  const { data: session, isSuccess } = useSessionQuery()
   const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
   // Already signed in (or just signed in): go where the role belongs, or back where we came from.
-  if (session && session.memberships.length > 0) {
+  if (isSuccess && session && session.memberships.length > 0) {
     const from = (location.state as { from?: string } | null)?.from
     return <Navigate to={from ?? landingPath(session.memberships[0]!.role)} replace />
   }

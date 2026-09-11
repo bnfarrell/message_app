@@ -43,7 +43,10 @@ describe('AppRoutes', () => {
     // not — under a blanket 401 that trips RequireAuth's onUnauthorized handler and bounces a
     // role-seeded test straight to /login, which is not what any of these tests are about (the
     // admin route previously never fetched anything, so this race did not exist before Task 18).
-    // Only that one endpoint is special-cased; everything else keeps 401ing as before.
+    // Task 19 gave the admin/users screen its own real fetches (staff, departments), which hit
+    // the same landmine: a 401 from either one also trips onUnauthorized, and since RequireAuth's
+    // own refetch of /api/auth/me then 401s too, the session query settles into an error state.
+    // Those two are special-cased the same way unread-count is; everything else keeps 401ing.
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation((input: RequestInfo | URL) => {
@@ -53,6 +56,11 @@ describe('AppRoutes', () => {
               status: 200,
               headers: { 'Content-Type': 'application/json' },
             }),
+          )
+        }
+        if (String(input).includes('/users') || String(input).includes('/departments')) {
+          return Promise.resolve(
+            new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }),
           )
         }
         return Promise.resolve(
