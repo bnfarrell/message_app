@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
-from app.domain._patch import patch_changes
+from app.domain._patch import patch_changes, wire_name
 from app.domain.guests import normalize_phone
 from app.errors import NotFound, ValidationFailed
 from app.models import Property
@@ -23,14 +23,15 @@ _BAG_DEFAULTS: dict[str, object] = {"sla_minutes": 15, "auto_resolve_hours": 4, 
 _BAG_REQUIRED = ("sla_minutes", "auto_resolve_hours")  # `_setting` does int(...); None would 500
 
 
-def normalize_timezone(raw: str) -> str:
+def normalize_timezone(raw: str, *, field: str = "timezone") -> str:
     """The zone is the intended basis for analytics bucketing, so a typo must be rejected rather
     than persisted. Validated here rather than in a Pydantic validator to match `normalize_phone`,
     the codebase's existing field-normalisation precedent."""
     try:
         ZoneInfo(raw)
     except (ZoneInfoNotFoundError, ValueError) as e:
-        raise ValidationFailed("Invalid time zone", details={"timezone": raw}) from e
+        raise ValidationFailed("Invalid time zone",
+                               details={field: "invalid_timezone"}) from e
     return raw
 
 
@@ -71,9 +72,9 @@ def update_settings(db: Session, property_id: str,
     for k, v in changes.items():
         if v is not None:
             if k in _PHONE_FIELDS:
-                v = normalize_phone(v)
+                v = normalize_phone(v, field=wire_name(data, k))
             elif k == "timezone":
-                v = normalize_timezone(v)
+                v = normalize_timezone(v, field=wire_name(data, k))
             elif k == "currency":
                 v = v.upper()
         setattr(p, k, v)

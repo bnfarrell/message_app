@@ -58,6 +58,8 @@ def test_patch_settings_rejects_a_bad_timezone(app, fx, database, login):
     for bad in ("America/Nowhere", "EST5EDT7", "../../etc/passwd", ""):
         res = admin.patch(_settings_url(fx.property_a.id), json={"timezone": bad})
         assert res.status_code == 400, (bad, res.status_code)
+        if bad:  # "" fails Pydantic's max_length path, which carries the pydantic error list
+            assert res.get_json()["error"]["details"] == {"timezone": "invalid_timezone"}, bad
     assert admin.patch(_settings_url(fx.property_a.id),
                        json={"timezone": "Asia/Tokyo"}).status_code == 200
     with database.session() as db:
@@ -118,7 +120,13 @@ def test_patch_settings_rejects_a_sender_number_that_would_break_inbound(app, fx
     url = _settings_url(fx.property_a.id)
     admin = login("admin@hvh.test")
     for junk in ("+", "+1-", "+ "):
-        assert admin.patch(url, json={"smsNumber": junk}).status_code == 400, junk
+        res = admin.patch(url, json={"smsNumber": junk})
+        assert res.status_code == 400, junk
+        # names the box the admin typed in, not "phone" (the settings form carries both), and
+        # carries a reason code rather than echoing the raw input back
+        err = res.get_json()["error"]
+        assert err["details"] == {"smsNumber": "invalid_phone_number"}, junk
+        assert junk not in str(err["details"]), junk
     assert admin.patch(url, json={"smsNumber": "+55512"}).get_json()["smsNumber"] == "+55512"
     with database.session() as db:
         assert db.get(Property, fx.property_a.id).sms_number == "+55512"  # short codes still work
@@ -159,3 +167,20 @@ def test_patch_help_text_changes_the_guest_visible_help_reply(app, fx, client, d
     with database.session() as db:
         out = db.scalar(select(Message).where(Message.direction == Direction.outbound))
         assert out.body == "Harbourview: text us, or call +1 555 0199."
+
+
+def test_a_field_level_400_names_the_field_that_was_patched(app, fx, login):
+    """normalize_phone hardcoded `details={"phone": raw}` for every caller, so a bad smsNumber was
+    reported against Phone — and the settings form has both inputs. The detail is now a reason
+    code keyed by the camelCase field actually being patched."""
+    url = _settings_url(fx.property_a.id)
+    admin = login("admin@hvh.test")
+    for field, value, code in (("phone", "nope", "invalid_phone_number"),
+                               ("smsNumber", "+", "invalid_phone_number"),
+                               ("timezone", "Mars/Olympus", "invalid_timezone")):
+        err = admin.patch(url, json={field: value}).get_json()["error"]
+        assert err["details"] == {field: code}, (field, err)
+    # the guest-facing callers keep the default field name, which is correct for them
+    assert login("agent@hvh.test").get(
+        f"/api/dev/sim/thread?phone=nope&propertyId={fx.property_a.id}"
+    ).get_json()["error"]["details"] == {"phone": "invalid_phone_number"}

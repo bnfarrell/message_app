@@ -6,6 +6,17 @@ from sqlalchemy import inspect
 from app.errors import ValidationFailed
 
 
+def wire_name(data: BaseModel, key: str) -> str:
+    """The camelCase name the caller sent for `key`, derived from the schema's alias generator.
+
+    Field-level 400s name this rather than the snake_case attribute, so a form can map the failure
+    back to the input the admin typed. Derived, never hand-maintained: a renamed field cannot go
+    stale here.
+    """
+    field = type(data).model_fields.get(key)
+    return (field.alias if field and field.alias else key)
+
+
 def patch_changes(model: type, data: BaseModel, *, required: tuple[str, ...] = ()) -> dict:
     """`model_dump(exclude_unset=True)`, refusing an explicit `null` on a field that cannot hold
     one (ruling D82).
@@ -31,8 +42,7 @@ def patch_changes(model: type, data: BaseModel, *, required: tuple[str, ...] = (
     if cleared:
         # Report the camelCase names the caller actually sent, so a form can map the failure back
         # to the input the admin cleared; `changes` stays snake_case for setattr.
-        fields = type(data).model_fields
-        wire = [fields[k].alias or k for k in cleared]
+        wire = [wire_name(data, k) for k in cleared]
         raise ValidationFailed(f"Cannot be cleared: {', '.join(wire)}",
                                details={name: "required" for name in wire})
     return changes

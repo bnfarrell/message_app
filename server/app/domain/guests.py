@@ -23,18 +23,25 @@ from app.models import Guest
 MIN_SENDER_DIGITS = 2
 
 
-def normalize_phone(raw: str) -> str:
+def normalize_phone(raw: str, *, field: str = "phone") -> str:
+    """`field` is the camelCase name of the input being validated, so the 400 names the box the
+    admin actually typed in. Without it every caller got `{"phone": ...}` — and the settings form
+    carries both a Phone and an SMS number input, so a mistyped sender number was flagged on
+    Phone. The detail is a reason code rather than the raw input: it is what a form maps to a
+    message, and echoing what the admin typed back at them says nothing they do not know.
+    """
     raw = raw.strip()
     digits = re.sub(r"\D", "", raw)
     if raw.startswith("+"):
         if len(digits) < MIN_SENDER_DIGITS:
-            raise ValidationFailed("Invalid phone number", details={"phone": raw})
+            raise ValidationFailed("Invalid phone number",
+                                   details={field: "invalid_phone_number"})
         return "+" + digits
     if len(digits) == 10:
         return "+1" + digits
     if len(digits) == 11 and digits.startswith("1"):
         return "+" + digits
-    raise ValidationFailed("Invalid phone number", details={"phone": raw})
+    raise ValidationFailed("Invalid phone number", details={field: "invalid_phone_number"})
 
 
 def find_by_phone(db: Session, property_id: str, phone: str) -> Guest | None:
