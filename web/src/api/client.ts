@@ -16,7 +16,7 @@ export class ApiError extends Error {
 
 let unauthorizedHandler: (() => void) | null = null
 
-/** One global hook, installed by SessionProvider, so an expired session lands on /login once. */
+/** One global hook, installed by RequireAuth, so an expired session lands on /login once. */
 export function onUnauthorized(fn: (() => void) | null): void {
   unauthorizedHandler = fn
 }

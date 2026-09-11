@@ -33,6 +33,14 @@ export function BoardPage() {
     setParams(next, { replace: true })
   }
 
+  // "All" clears the filters only. Resetting the whole query string also dropped view=list,
+  // silently throwing the user back to the board they had switched away from.
+  function clearFilters() {
+    const next = new URLSearchParams(params)
+    for (const key of ['mine', 'dept', 'urgent']) next.delete(key)
+    setParams(next, { replace: true })
+  }
+
   const nameFor = (id: string | null | undefined) => {
     const person = staff?.find((s) => s.id === id)
     return person ? `${person.firstName} ${person.lastName}` : null
@@ -75,7 +83,7 @@ export function BoardPage() {
           </p>
         </div>
         <div role="tablist" className="ml-4 flex flex-wrap gap-1.5">
-          {tab('All', !mine && !dept && !urgentOnly, () => setParams(new URLSearchParams(), { replace: true }), data?.length)}
+          {tab('All', !mine && !dept && !urgentOnly, clearFilters, data?.length)}
           {tab('Mine', mine, () => setParam('mine', mine ? null : '1'))}
           {(departments ?? []).map((department) =>
             tab(department.name, dept === department.id, () =>

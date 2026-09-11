@@ -1,5 +1,6 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithProviders, sessionFixture } from '../../test/harness'
 import { LoginPage } from './LoginPage'
@@ -88,6 +89,21 @@ describe('LoginPage', () => {
     expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === '/api/auth/login')).toBe(
       false,
     )
+  })
+
+  it('sends an already-authenticated visitor to their landing screen, not to the form', async () => {
+    // The session is already in the cache with staleTime: Infinity, so nothing is fetched and
+    // the redirect branch (the only untested one on this screen) runs on the first render.
+    renderWithProviders(
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/app/analytics" element={<div>Analytics Screen</div>} />
+      </Routes>,
+      { route: '/login', session: sessionFixture({ role: 'manager' }) },
+    )
+
+    expect(await screen.findByText('Analytics Screen')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Email')).not.toBeInTheDocument()
   })
 
   it('marks the password field as a password so browsers do not autofill it as text', () => {

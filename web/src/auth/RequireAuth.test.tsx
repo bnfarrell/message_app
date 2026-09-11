@@ -59,7 +59,9 @@ describe('RequireAuth — mid-session expiry', () => {
 
     mount()
 
-    expect(await screen.findByText('Login Screen')).toBeInTheDocument()
+    // Bounded on purpose: if the redirect never happens this must fail legibly rather than
+    // hang the run out to the suite-level timeout.
+    expect(await screen.findByText('Login Screen', undefined, { timeout: 2000 })).toBeInTheDocument()
     // Two 401s fired close together must coalesce into a single refetch of /api/auth/me,
     // not one per 401 — that's the loop the useRef guard in RequireAuth prevents.
     expect(meCalls).toBe(1)

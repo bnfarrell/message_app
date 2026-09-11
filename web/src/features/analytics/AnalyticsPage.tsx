@@ -148,6 +148,8 @@ export function AnalyticsPage() {
         <h2 className={H}>Agents</h2>
         {agents.isPending ? (
           <Spinner />
+        ) : agents.error ? (
+          <EmptyState title="Could not load agent activity" hint={agents.error.message} />
         ) : (agents.data ?? []).length === 0 ? (
           <p className="text-xs text-text3">No agent activity in this range.</p>
         ) : (

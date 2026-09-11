@@ -1,3 +1,4 @@
+from app.models import UserAccount
 from tests.fixtures import PASSWORD
 
 
@@ -30,12 +31,23 @@ def test_patch_prefs_survives_a_new_session(fx, login):
     assert fresh.get("/api/auth/me").get_json()["user"]["notificationPrefs"]["theme"] == "light"
 
 
-def test_patch_prefs_merges_rather_than_replacing(fx, login):
+def test_patch_prefs_merges_rather_than_replacing(fx, database, login):
+    """A PATCH of one key must leave the rest of the blob alone.
+
+    Two PATCHes of `theme` cannot show this: replacing the whole dict each time still ends
+    with the last theme. The unrelated key seeded directly below is the only thing that can
+    tell a merge from a replace, and Phase 1 has no second writable pref to set over HTTP.
+    """
+    with database.session() as db:
+        user = db.get(UserAccount, fx.agent_a.id)
+        user.notification_prefs = {"digestHour": 7}
+
     c = login(fx.agent_a.email)
-    c.patch("/api/auth/prefs", json={"theme": "light"})
     c.patch("/api/auth/prefs", json={"theme": "dark"})
+
     prefs = c.get("/api/auth/me").get_json()["user"]["notificationPrefs"]
     assert prefs["theme"] == "dark"
+    assert prefs["digestHour"] == 7
 
 
 def test_patch_prefs_rejects_an_unknown_theme(fx, login):

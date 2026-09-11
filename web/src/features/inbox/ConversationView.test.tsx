@@ -98,6 +98,8 @@ describe('ConversationView', () => {
     // Both the header chip and the guest panel's consent section show it (§5.2/§5.3) — any is proof of the warning.
     const warnings = await screen.findAllByText(/opted out/i)
     expect(warnings.length).toBeGreaterThan(0)
+    // "does not disable the thread" is half the title and was never asserted.
+    expect(screen.getByRole('textbox')).toBeEnabled()
   })
 
   it('shows an error state when the conversation cannot be loaded', async () => {

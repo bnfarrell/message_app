@@ -91,6 +91,19 @@ describe('BoardPage', () => {
     expect(screen.queryByRole('heading', { name: /In progress/ })).not.toBeInTheDocument()
   })
 
+  it('keeps the list view when All clears the filters', async () => {
+    mount()
+    await userEvent.click(await screen.findByRole('button', { name: 'List' }))
+    await userEvent.click(screen.getByRole('tab', { name: /Urgent/ }))
+    await userEvent.click(screen.getByRole('tab', { name: /All/ }))
+
+    // All resets the filters, not the whole query string: view=list is not a filter, and
+    // dropping it threw the user back to the board they had deliberately switched away from.
+    expect(screen.getByRole('button', { name: 'Board' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /In progress/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Urgent/ })).toHaveAttribute('aria-selected', 'false')
+  })
+
   it('links each card to its detail screen', async () => {
     mount()
     expect(await screen.findByRole('link', { name: /Faucet dripping/ })).toHaveAttribute(

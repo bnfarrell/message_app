@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { ConversationDetail } from '../../api/types'
 import { Badge } from '../../components/ui'
+import { ordinal } from '../../lib/ordinal'
 
 const CONSENT: Record<string, { tone: 'ok' | 'danger' | 'neutral'; label: string }> = {
   opted_in: { tone: 'ok', label: 'Opted in' },
@@ -53,7 +54,7 @@ export function GuestPanel({ conversation }: { conversation: ConversationDetail 
             <Field label="Room" value={[stay.roomNumber, stay.roomType].filter(Boolean).join(' · ')} />
             <Field label="Dates" value={`${stay.arrivalDate} → ${stay.departureDate}`} />
             <Field label="Party" value={`${stay.adults} adults · ${stay.children} children`} />
-            <Field label="History" value={`${stay.stayCount}th stay`} />
+            <Field label="History" value={`${ordinal(stay.stayCount)} stay`} />
             <Field label="Status" value={stay.status.replace('_', ' ')} />
           </>
         ) : (
