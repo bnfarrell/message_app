@@ -3396,3 +3396,31 @@ Ruling D99 (this was MY process failure, and the guard is the remedy): the dupli
       reuseExistingServer: !process.env.CI, so Playwright silently adopts whatever is on 5200
       rather than owning it. The fix is not to tell agents to be careful; it is the port guard,
       which makes the mistake impossible to make silently.
+
+USER-REPORTED DEFECT (they found it in the running app and sent a screenshot): the board's filter
+      row lets TWO tabs be selected at once. They are right and the mockup agrees.
+      Board.dc.html:59-63 draws five controls of ONE kind - All, Mine, a tab per department, and
+      Urgent - all class `.tab`, `.tab.on` is the accent fill, and EXACTLY ONE carries `on`.
+      Urgent is a tab like the others, merely tinted with var(--danger); it is not a separate
+      toggle, which is what I first assumed when I saw it styled differently.
+      BoardPage.tsx:86-93 instead built three INDEPENDENT URL filters that combine freely, so
+      "Mine + Engineering" is genuine behaviour - my Engineering work orders - wearing a visual
+      language that promises you may pick only one. The mismatch is the defect, not the behaviour.
+      Briefed into R2 as R2.0 with its own commit, since R2 already owns this file. The lost
+      combinations (mine+urgent, mine-within-a-department) must be DISCLOSED rather than silently
+      removed, so the user can ask for a secondary control if they miss them.
+
+Ruling D100 (MY OWN MISTAKE, recorded because the remedy is a rule I should have been following):
+      I ran `git add -A && git commit` to save that brief WHILE THE S1 FIXER WAS WRITING THE TREE.
+      It swept up web/src/index.css and web/src/index.css.test.ts mid-edit and I pushed them.
+      index.css.test.ts does not currently parse - an unterminated regular expression literal,
+      because the fixer is part-way through hardening block()'s selector match, which is exactly
+      the F5 item I gave it. So main is transiently broken and I broke it.
+      I am NOT reverting: the agent is actively writing that file and a revert would destroy live
+      work for no gain. Its next commit repairs the file, and the breakage never reached a
+      reviewer or a release.
+      THE RULE, which I have been enforcing on dispatches all session and then broke myself:
+      one writer in the tree at a time, and when the controller must commit while an agent holds
+      it, **stage explicit paths - never `git add -A`**. The whole point of the one-writer
+      discipline is that a shared index has no locking.
+      Cost if wrong: none beyond a broken commit in history and this note.
