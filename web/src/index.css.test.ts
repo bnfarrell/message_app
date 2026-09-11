@@ -32,9 +32,9 @@ describe('design tokens', () => {
   })
 
   it('pins the approved accent and danger values in both palettes', () => {
-    expect(block(':root')).toContain('--accent: #f0b323')
-    expect(block("[data-theme='light']")).toContain('--accent: #f0b323')
-    expect(block(':root')).toContain('--danger: #ff5d5d')
+    expect(block(':root')).toContain('--accent: #4f8fd4')
+    expect(block("[data-theme='light']")).toContain('--accent: #2563eb')
+    expect(block(':root')).toContain('--danger: #f26d6d')
     expect(block("[data-theme='light']")).toContain('--danger: #dc2626')
   })
 
