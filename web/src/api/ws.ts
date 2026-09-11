@@ -128,7 +128,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const setPresence = useCallback(
     (conversationId: string | null, state: 'viewing' | 'composing') => {
       lastPresence.current = { conversationId, state }
-      if (conversationId) send({ type: 'presence', conversationId, state })
+      // A null conversationId is the CLEAR, and it has to go on the wire like any other:
+      // the server pops the entry and broadcasts the previous conversation's new list.
+      // Guarding this on a truthy id left the entry alive until the socket died.
+      send({ type: 'presence', conversationId, state })
     },
     [send],
   )

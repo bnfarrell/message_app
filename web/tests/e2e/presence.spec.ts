@@ -36,10 +36,12 @@ test('two agents on one conversation each see the other within 2 seconds', async
   await marcus.getByRole('textbox').click()
   await expect(ava.getByText('Marcus is replying')).toBeVisible({ timeout: 3000 })
 
-  // Leaving clears it. A hard navigation drops the socket, and the server clears that user on
-  // disconnect; the 10s sweeper is the backstop for a connection that dies without saying so.
-  await marcus.goto('/app/board')
-  await expect(ava.getByText(/Marcus is/)).toHaveCount(0, { timeout: 20_000 })
+  // Leaving clears it. This is an IN-APP click, not a goto: the socket stays open, so the clear
+  // has to come from the app's own `presence` frame with a null conversationId. A hard navigation
+  // would drop the socket and let the server's disconnect handler do the work instead, which is a
+  // different mechanism and would stay green even if the app never sent the frame.
+  await marcus.getByRole('link', { name: 'Board' }).click()
+  await expect(ava.getByText(/Marcus is/)).toHaveCount(0, { timeout: 3000 })
 
   await first.close()
   await second.close()
