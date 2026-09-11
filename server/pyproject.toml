@@ -11,6 +11,10 @@ dependencies = [
   "bcrypt>=4.2",
   "flask-sock>=0.7",
   "python-dotenv>=1.0",
+  # zoneinfo has no tz database on Windows (and on slim Linux images); the property
+  # timezone validator in app/domain/properties.py would otherwise reject every
+  # valid IANA zone there.
+  "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]

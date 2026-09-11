@@ -52,6 +52,7 @@ def create_app(config: Config | None = None) -> Flask:
         health,
         hooks,
         notifications,
+        properties,
         quick_replies,
         short_links,
         users,
@@ -61,6 +62,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(health.bp)
     app.register_blueprint(auth.bp)
     app.register_blueprint(departments.bp)
+    app.register_blueprint(properties.bp)
     app.register_blueprint(users.bp)
     app.register_blueprint(guests.bp)
     app.register_blueprint(notifications.bp)
