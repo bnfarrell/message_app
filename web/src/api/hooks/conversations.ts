@@ -1,8 +1,8 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSession } from '../../auth/SessionContext'
 import { ApiError, api, propertyPath } from '../client'
 import { qk } from '../queryKeys'
-import type { ConversationDetail, ConversationSummary } from '../types'
+import type { ConversationDetail, ConversationPatch, ConversationSummary, NoteOut } from '../types'
 
 export type ConversationFilter =
   | 'all'
@@ -41,5 +41,37 @@ export function useConversation(id: string | undefined) {
     queryKey: qk.conversation(propertyId, id ?? ''),
     queryFn: () => api<ConversationDetail>(propertyPath(propertyId, `conversations/${id}`)),
     enabled: Boolean(id),
+  })
+}
+
+export function useAddNote(conversationId: string) {
+  const { propertyId } = useSession()
+  const client = useQueryClient()
+  return useMutation<NoteOut, ApiError, { body: string }>({
+    mutationFn: (body) =>
+      api<NoteOut>(propertyPath(propertyId, `conversations/${conversationId}/notes`), {
+        method: 'POST',
+        json: body,
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: qk.conversation(propertyId, conversationId) })
+    },
+  })
+}
+
+export function usePatchConversation(conversationId: string) {
+  const { propertyId } = useSession()
+  const client = useQueryClient()
+  return useMutation<ConversationDetail, ApiError, ConversationPatch>({
+    mutationFn: (patch) =>
+      api<ConversationDetail>(propertyPath(propertyId, `conversations/${conversationId}`), {
+        method: 'PATCH',
+        json: patch,
+      }),
+    onSuccess: () => {
+      // Assignment, status and snooze all change which filters this belongs to.
+      void client.invalidateQueries({ queryKey: qk.conversation(propertyId, conversationId) })
+      void client.invalidateQueries({ queryKey: qk.conversationsAll(propertyId) })
+    },
   })
 }
