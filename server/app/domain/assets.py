@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.domain._patch import patch_changes
 from app.errors import Conflict, NotFound
 from app.models import DigitalAsset
 from app.schemas.content import AssetIn, AssetOut, AssetPatch
@@ -61,7 +62,7 @@ def create(db: Session, property_id: str, data: AssetIn) -> DigitalAsset:
 
 def update(db: Session, property_id: str, asset_id: str, data: AssetPatch) -> DigitalAsset:
     a = get(db, property_id, asset_id)
-    for k, v in data.model_dump(exclude_unset=True).items():
+    for k, v in patch_changes(DigitalAsset, data).items():
         setattr(a, k, v)
     db.flush()
     return a

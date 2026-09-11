@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain._patch import patch_changes
 from app.errors import Conflict, NotFound
 from app.models import Conversation, ResolutionCategory
 from app.schemas.content import CategoryIn, CategoryOut, CategoryPatch
@@ -40,7 +41,7 @@ def create(db: Session, property_id: str, data: CategoryIn) -> ResolutionCategor
 def update(db: Session, property_id: str, category_id: str,
           data: CategoryPatch) -> ResolutionCategory:
     c = get(db, property_id, category_id)
-    for k, v in data.model_dump(exclude_unset=True).items():
+    for k, v in patch_changes(ResolutionCategory, data).items():
         setattr(c, k, v)
     db.flush()
     return c

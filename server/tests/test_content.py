@@ -210,3 +210,41 @@ def test_preview_counts_segments_the_same_way_the_sender_does(app, fx, login):
         out = admin.post(url, json={"body": body}).get_json()
         assert (out["segments"], out["characters"]) == (segment_count(body), len(body)), body
     assert admin.post(url, json={"body": ""}).status_code == 400
+
+
+def test_patching_a_not_null_field_to_null_is_a_400_not_a_500(app, fx, login):
+    """Ruling D82. A PATCH schema declares every field `T | None = None` so `exclude_unset` can
+    tell absent from present, which makes an explicit null indistinguishable at the edge. Before
+    the shared `patch_changes` guard these reached the NOT NULL constraint: an unhandled
+    IntegrityError (500) everywhere, except on quick replies, where the nested flush's
+    `except IntegrityError` blamed the shortcut and returned 409 "Shortcut None is already in use".
+    """
+    admin = login("admin@hvh.test")
+    base = f"/api/p/{fx.property_a.id}"
+    qr = admin.post(f"{base}/quick-replies", json={"shortcut": "/null", "title": "T",
+                                                   "body": "B"}).get_json()
+    cat = admin.post(f"{base}/resolution-categories", json={"name": "Maintenance"}).get_json()
+    asset = admin.post(f"{base}/assets", json={"name": "Menu",
+                                               "url": "https://example.test/m.pdf"}).get_json()
+    cases = [
+        (f"{base}/quick-replies/{qr['id']}", "locale"),
+        (f"{base}/quick-replies/{qr['id']}", "shortcut"),
+        (f"{base}/quick-replies/{qr['id']}", "body"),
+        (f"{base}/resolution-categories/{cat['id']}", "name"),
+        (f"{base}/resolution-categories/{cat['id']}", "active"),
+        (f"{base}/assets/{asset['id']}", "name"),
+        (f"{base}/assets/{asset['id']}", "url"),
+    ]
+    for url, field in cases:
+        res = admin.patch(url, json={field: None})
+        assert res.status_code == 400, (url, field, res.status_code, res.get_json())
+        body = res.get_json()["error"]
+        assert body["code"] == "VALIDATION_FAILED" and field in body["message"], (url, field)
+
+    # the nullable neighbours on the same models must still be clearable
+    assert admin.patch(f"{base}/quick-replies/{qr['id']}",
+                       json={"departmentId": None, "category": None}).status_code == 200
+    assert admin.patch(f"{base}/resolution-categories/{cat['id']}",
+                       json={"parentId": None}).status_code == 200
+    assert admin.patch(f"{base}/assets/{asset['id']}",
+                       json={"description": None}).status_code == 200

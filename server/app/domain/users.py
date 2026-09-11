@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.auth.passwords import hash_password
 from app.auth.permissions import has_capability
 from app.domain import audit
+from app.domain._patch import patch_changes
 from app.errors import Conflict, NotFound, ValidationFailed
 from app.models import (
     Conversation,
@@ -53,7 +54,7 @@ def create_department(db: Session, property_id: str, data: DepartmentIn) -> Depa
 def update_department(db: Session, property_id: str, department_id: str,
                       data: DepartmentPatch) -> Department:
     d = get_department(db, property_id, department_id)
-    for k, v in data.model_dump(exclude_unset=True).items():
+    for k, v in patch_changes(Department, data).items():
         setattr(d, k, v)
     db.flush()
     return d

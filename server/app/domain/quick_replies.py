@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain import conversations as conv_domain
+from app.domain._patch import patch_changes
 from app.domain.sms import segment_count
 from app.errors import Conflict, NotFound
 from app.models import Guest, Property, QuickReply, Stay, UserAccount
@@ -88,7 +89,7 @@ def create(db: Session, property_id: str, data: QuickReplyIn) -> QuickReply:
 
 def update(db: Session, property_id: str, quick_reply_id: str, data: QuickReplyPatch) -> QuickReply:
     r = get(db, property_id, quick_reply_id)
-    changes = data.model_dump(exclude_unset=True)
+    changes = patch_changes(QuickReply, data)
     if "shortcut" in changes and changes["shortcut"]:
         _assert_shortcut_free(db, property_id, changes["shortcut"], exclude_id=r.id)
     for k, v in changes.items():

@@ -135,3 +135,17 @@ def test_department_delete_is_refused_while_anything_references_it(app, fx, data
 
     # deactivating is the documented escape hatch and must still work
     assert admin.patch(f"{base}/{d['id']}", json={"active": False}).get_json()["active"] is False
+
+
+@pytest.mark.parametrize("field", ["name", "type", "escalationMinutes", "active"])
+def test_department_patch_rejects_an_explicit_null(app, fx, login, field):
+    """Ruling D82: every DepartmentOut field maps to a NOT NULL column, so a cleared form input
+    serialised as null used to reach the constraint as an unhandled 500."""
+    admin = login("admin@hvh.test")
+    d = _make_department(admin, fx)
+    res = admin.patch(f"/api/p/{fx.property_a.id}/departments/{d['id']}", json={field: None})
+    assert res.status_code == 400, res.get_json()
+    err = res.get_json()["error"]
+    assert err["code"] == "VALIDATION_FAILED"
+    # named in the camelCase the client sent, so a form can map it back to the cleared input
+    assert err["details"] == {field: "required"} and field in err["message"]
