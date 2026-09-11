@@ -16,10 +16,20 @@ const TOKENS = [
   'avMuted', 'avText', 'tagBg', 'tagText', 'timerDoneBg', 'timerDoneText',
 ]
 
+/**
+ * The declaration block for `selector`, from its `{` up to (not including) its `}`.
+ *
+ * Anchored to the start of a line and required to be unique. The `indexOf` version of this
+ * silently matched the selector inside a *comment*, so a comment mentioning the light theme
+ * pointed every light-theme assertion at the comment instead — a helper that can assert
+ * against the wrong block is the same family of defect as a test that cannot fail.
+ */
 function block(selector: string): string {
-  const start = css.indexOf(selector)
-  expect(start, `${selector} block is missing`).toBeGreaterThan(-1)
-  return css.slice(css.indexOf('{', start), css.indexOf('}', start))
+  const pattern = new RegExp(`^${selector.replace(/[.*+?^${}()|[\]\]/g, '\$&')}\s*\{`, 'gm')
+  const found = [...css.matchAll(pattern)]
+  expect(found, `${selector} must open exactly one block at the start of a line`).toHaveLength(1)
+  const open = found[0]!.index! + found[0]![0].length - 1
+  return css.slice(open, css.indexOf('}', open))
 }
 
 describe('design tokens', () => {

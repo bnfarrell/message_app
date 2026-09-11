@@ -10,7 +10,7 @@
      themes, and `--text3` on navy is illegible. */
 :root {
   --bg: #0f141a; --bg2: #131a21; --nav: #0a101c; --surface: #1c2430;
-  --surface2: #171d26; --border: #232b36; --border2: #2a3441; --border3: #35414f;
+  --surface2: #171d26; --border: #232b36; --border2: #2a3441; --border3: #66748a;
   --text: #e6eaf0; --text2: #a8b3c2; --text3: #8792a3; --text4: #5a6473;
   --accent: #4f8fd4; --accentText: #0b1016; --roomNum: #7ab3ea; --sel: #1d2a40;
   --navText: #e8edf5; --navTextMuted: #93a2b8; --navSection: #8797ae;
@@ -31,7 +31,7 @@
 
 [data-theme='light'] {
   --bg: #f5f7fa; --bg2: #fafbfc; --nav: #111b2e; --surface: #ffffff;
-  --surface2: #eef2f7; --border: #dfe4ec; --border2: #d2d9e4; --border3: #c3ccd9;
+  --surface2: #eef2f7; --border: #dfe4ec; --border2: #d2d9e4; --border3: #7e8a9e;
   --text: #0f141a; --text2: #3c4757; --text3: #667286; --text4: #97a1b0;
   --accent: #2563eb; --accentText: #ffffff; --roomNum: #1d4ed8; --sel: #e9f0fd;
   --navText: #f4f7fb; --navTextMuted: #a7b6cd; --navSection: #8296b4;
@@ -73,5 +73,11 @@
      colour so a keyboard user can actually see where they are (9.5:1 / 10.5:1). */
   [data-nav-surface] button:focus-visible, [data-nav-surface] a:focus-visible {
     outline-color: var(--navFocus);
+  }
+  /* ...but the property switcher's menu is rendered inside the rail while sitting on
+     --surface, and --navFocus is only 1.81:1 on white. It keeps the page's own ring
+     (5.17:1 / 4.62:1). This rule is more specific than the one above, so it wins. */
+  [data-nav-surface] [role='menu'] button:focus-visible {
+    outline-color: var(--accent);
   }
 }

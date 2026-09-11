@@ -100,6 +100,43 @@ Requirements:
 
 ---
 
+## R2.0 — The board's filter row lets two tabs be selected at once (USER-REPORTED)
+
+**The user hit this in the running app and reported it with a screenshot: "two tabs can be
+selected at same time. Only one tab should be able to be selected."** They are right, and the
+mockup agrees with them.
+
+`docs/mockups/Board.dc.html:59-63` draws five controls of one kind — `All`, `Mine`, a tab per
+department, and `Urgent` — all class `.tab`, with `.tab.on` as the accent fill, and **exactly one
+carries `on`**. `Urgent` is a tab like the others, merely tinted with `var(--danger)`; it is not a
+separate toggle.
+
+`web/src/features/board/BoardPage.tsx:86-93` built them instead as **three independent URL
+filters** that combine freely:
+
+- `mine=1` toggles on and off,
+- `dept=<id>` replaces itself,
+- `urgent=1` toggles on and off,
+- `All` clears all three.
+
+So `Mine` + `Engineering` is genuine behaviour — "my Engineering work orders" — rendered in a
+visual language that promises you can only pick one. That mismatch is the defect.
+
+**Make the row single-select**, as the mockup draws it and the user asked: choosing any tab clears
+the others; `All` means no filter. Keep them in the URL so a filtered board is still linkable and
+so `landingPath`'s `?mine=1` entry for dept_staff and supervisors keeps working — check that path
+still lands correctly.
+
+**Disclose what this removes.** Combinations become unreachable: "mine and urgent", and "mine
+within a department". Say so plainly in your report so the user can ask for a secondary control if
+they miss them. Do not invent one pre-emptively — they asked for single-select.
+
+The `All` tab has a subtlety already fixed once and worth not regressing: `clearFilters()` must
+delete only `mine`, `dept` and `urgent`, preserving `view=list`, so clearing filters does not also
+throw the user out of list view.
+
+Its own commit, with a test asserting that selecting a second tab deselects the first.
+
 ## Constraints
 
 - TypeScript `strict`. No `any`; no `@ts-ignore` without a comment naming the reason.
