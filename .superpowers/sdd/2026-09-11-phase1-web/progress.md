@@ -3733,3 +3733,59 @@ Ruling D110 (the work-order PATCH authorization gap - reviewer AGREES and the sc
 
 R2 FIX ROUND IS HELD until G1 finishes - G1 is the only writer in the tree and the fix round
       touches server files (broadcast.py, dev_start.py, work_orders.py) that G1 may be near.
+
+CLAUDE DESIGN IMPORT. The user pointed me at a Claude Design project, "Relay hotel management
+      software" (78aa685a), and asked me to implement `Relay Directions.dc.html`. Read it, plus
+      `Relay Triage.dc.html` and the project's github.md.
+      **github.md shows the design project was generated FROM THIS REPO** - its screen map cites
+      server/app/schemas/enums.py, server/app/schemas/work_orders.py, web/src/routes.tsx,
+      server/app/models/core.py and the README. That is why it lines up so well.
+
+      THE FILE NAMED IS NOT A SCREEN. `Relay Directions.dc.html` presents THREE ALTERNATIVES to a
+      screen - 1b act-in-place, 1c dense console, 1d time-to-breach - each with a trade-off note,
+      and says outright "The built prototype is the fourth option." The prototype is the sibling
+      file, a working interactive design of a NEW supervisor Triage screen (escalation queue plus
+      detail pane, with Board and Shift tabs).
+      Implementing the named file literally would mean building three mutually exclusive layouts,
+      which is a design artifact rather than product work. So the request was genuinely ambiguous
+      in a way worth one question rather than a guess.
+
+USER SCOPE DECISION (asked, not ruled): shown the four readings, they chose **the Triage screen,
+      in Relay's CURRENT visual language**.
+      This matters because the prototype ships its own design system, "Broadsheet": Source Serif 4
+      on warm paper #f3f2f2/#201e1d, magenta #d6006c, teal #006786, 2px radii, hairline rules and
+      NO CARDS - its own notes call a table "the one boxed structure this system tolerates". That
+      is a different product visually from the navy/Inter reskin approved four hours earlier and
+      measured for contrast throughout. Adopting it - for one screen or app-wide - was offered
+      and DECLINED.
+
+Ruling D111 (build the Triage tab ONLY): the prototype also carries Board and Shift tabs. We
+      already ship a Board screen and an Analytics screen that cover them, and rebuilding either
+      would be duplicate product surface competing with the thing it duplicates. Briefed to build
+      Triage alone and to REPORT anything genuinely missing from our Board or Analytics rather
+      than building it.
+      Cost if wrong: if the user wants the prototype's Shift framing specifically, it is an
+      analytics variant and a separate, smaller piece of work.
+
+      IT MAPS ONTO EXISTING ENDPOINTS ALMOST EXACTLY, which I verified rather than assuming:
+        prototype `slaMin`   -> WorkOrderOut.dueAt          (18m past SLA = now - dueAt)
+        prototype `notified` -> WorkOrderOut.guestNotifiedAt (complete/verified + null = "guest
+                                 not told", the screen's most valuable state)
+        activity timeline    -> WorkOrderDetail.events
+        guest thread         -> sourceConversationId (null for a floor-raised item, which the
+                                 prototype itself handles - its Lobby spill has an empty thread)
+      And the detail pane is largely components we already have: TransitionButtons, CommentBox,
+      WorkOrderDetailPage. transitions.ts encodes the legal state machine, so a second copy would
+      drift from it - briefed not to write one.
+
+Ruling D112 (T1 gates its controls on capabilities the server does not yet enforce): the
+      prototype's detail pane changes department, priority and status, and PATCH /work-orders/<id>
+      is exactly the route R2's reviewer found UNDER-GATED (D110). Rather than sequence T1 behind
+      that server fix, T1 gates the CLIENT controls on the capabilities D110 will enforce - assign
+      for routing, create_work_order for priority and non-closing status, close_work_order for
+      closing. The screen is then correct the moment the server catches up and never offers an
+      action that 403s in the meantime.
+      Cost if wrong: if D110's final mapping differs, one constant changes in one file.
+
+T1 brief written at triage-T1-brief.md. HELD until G1 finishes - G1 is the writer and has just
+      committed the photo endpoint (38984a1), so it is close.
