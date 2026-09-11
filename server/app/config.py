@@ -10,6 +10,21 @@ from dotenv import load_dotenv
 INSECURE_SESSION_SECRETS = frozenset({"dev-secret-change-me", "change-me-in-production"})
 
 
+def normalise_database_url(raw: str) -> str:
+    """Point bare Postgres URLs at psycopg 3, which is the driver this project ships.
+
+    Managed providers (Railway, Heroku, Fly) hand out `postgresql://` or the older
+    `postgres://`. SQLAlchemy resolves both to psycopg2, which is not installed here, so
+    pasting a provider's URL verbatim would fail at the first connection with a
+    ModuleNotFoundError rather than anything that names the real problem. An explicit
+    `postgresql+driver://` is left alone, so choosing psycopg2 deliberately still works.
+    """
+    for prefix in ("postgres://", "postgresql://"):
+        if raw.startswith(prefix):
+            return "postgresql+psycopg://" + raw[len(prefix):]
+    return raw
+
+
 def _optional_bool(raw: str | None) -> bool | None:
     return None if raw is None else raw == "1"
 
@@ -56,7 +71,7 @@ class Config:
     def from_env(cls) -> Config:
         load_dotenv()
         return cls(
-            DATABASE_URL=os.getenv("DATABASE_URL", cls.DATABASE_URL),
+            DATABASE_URL=normalise_database_url(os.getenv("DATABASE_URL", cls.DATABASE_URL)),
             SESSION_SECRET=os.getenv("SESSION_SECRET", cls.SESSION_SECRET),
             MOCK_SMS_SECRET=os.getenv("MOCK_SMS_SECRET", cls.MOCK_SMS_SECRET),
             SMS_ADAPTER=os.getenv("SMS_ADAPTER", cls.SMS_ADAPTER),

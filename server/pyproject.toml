@@ -22,6 +22,10 @@ dependencies = [
   # Production WSGI server. run.py's docstring has named this command since the server
   # phase; it was never actually installable.
   "gunicorn>=23",
+  # Postgres driver. The README documented `pip install "psycopg[binary]"` as a manual
+  # step, which a container image cannot rely on — and managed providers hand out
+  # `postgresql://`, which SQLAlchemy resolves to psycopg2, not this.
+  "psycopg[binary]>=3.2",
 ]
 
 [project.optional-dependencies]

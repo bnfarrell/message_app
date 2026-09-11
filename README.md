@@ -127,6 +127,22 @@ In production (`FLASK_ENV=production`) the app refuses to start while `SESSION_S
 placeholder.
 
 ## Moving to PostgreSQL
-`pip install "psycopg[binary]"`, set `DATABASE_URL=postgresql+psycopg://…`, run `cd server && alembic upgrade head`.
-Migrations use portable types; nothing else changes. Run one web process (`gunicorn -w 1 --threads 16`) because
-presence and the realtime registry are in-memory.
+Set `DATABASE_URL` and run `cd server && alembic upgrade head`. `psycopg[binary]` is a dependency, so there is
+nothing to install by hand, and a provider's bare `postgresql://` (or the older `postgres://`) is pointed at
+psycopg 3 automatically — SQLAlchemy would otherwise resolve it to psycopg2, which is not shipped here. An
+explicit `postgresql+driver://` is left alone. Migrations use portable types; nothing else changes.
+
+Run **one** web process (`gunicorn -w 1 --threads 16`) and one replica: presence, the WebSocket registry and the
+background job worker are all in process memory, so a second worker splits presence and double-processes the queue.
+
+### Deploying to Railway
+The repo ships a `Dockerfile` that builds the client and serves it and the API from a single Flask process — one
+origin, because auth is a cookie and the inbox holds a WebSocket open. `railway.json` points the healthcheck at
+`/api/health`; `GET /` is a 404 by design, so the default would fail every deploy. Set `SESSION_SECRET` (the app
+refuses to boot in production with the placeholder), `START_WORKER=1` (it defaults to `0`, and without it SLA
+sweeps and delivery-status transitions silently never run), `FLASK_ENV=production`, and `DATABASE_URL` from a
+Railway Postgres — the filesystem is ephemeral, so SQLite there is wiped on every redeploy.
+
+A fresh database has no users. Seed it once from the Railway console with `python -m seed.seed`, or copy an
+existing SQLite database with `python -m tools.sqlite_to_postgres --target …` (see that module's docstring;
+connecting from outside Railway needs the Postgres service's **public** URL, not the `.railway.internal` one).
