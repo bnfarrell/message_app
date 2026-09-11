@@ -1,4 +1,5 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Route, Routes } from 'react-router-dom'
 import { SessionProvider } from '../../auth/SessionContext'
@@ -6,14 +7,18 @@ import { aDepartment, aStaffUser, aWorkOrderDetail } from '../../test/factories'
 import { renderWithProviders, sessionFixture } from '../../test/harness'
 import { WorkOrderDetailPage } from './WorkOrderDetailPage'
 
-function serve(detail: unknown) {
-  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+// A PATCH answers with the updated detail and every later GET sees it, the way the real route
+// does — the client only learns a comment landed by refetching the detail.
+function serve(detail: unknown, afterPatch?: unknown) {
+  let current = detail
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
+    if (init?.method === 'PATCH') current = afterPatch ?? detail
     const body = url.includes('/departments')
       ? [aDepartment()]
       : url.includes('/users')
         ? [aStaffUser({ id: 'u-eli', firstName: 'Eli', lastName: 'Engineer' })]
-        : detail
+        : current
     return Promise.resolve(
       new Response(JSON.stringify(body), {
         status: 200,
@@ -111,5 +116,40 @@ describe('WorkOrderDetailPage', () => {
     )
     mount()
     expect(await screen.findByText('Waiting on a part')).toBeInTheDocument()
+  })
+
+  it('posts a standalone comment and shows it in the timeline', async () => {
+    serve(
+      aWorkOrderDetail({ events: [] }),
+      aWorkOrderDetail({
+        events: [
+          { id: 'e9', type: 'commented', userId: 'u-ava', userName: 'Ava', fromValue: null, toValue: null, comment: 'Parts ordered, ETA Thursday', createdAt: '2026-09-10T19:10:00Z' },
+        ],
+      }),
+    )
+    mount()
+    const box = await screen.findByLabelText('Comment')
+    await userEvent.type(box, 'Parts ordered, ETA Thursday')
+    await userEvent.click(screen.getByRole('button', { name: 'Comment' }))
+
+    const patch = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'PATCH')
+    // Comment only: no status rides along, which is what made the server branch reachable.
+    expect(JSON.parse(String(patch![1]!.body))).toEqual({ comment: 'Parts ordered, ETA Thursday' })
+
+    await waitFor(() => expect(box).toHaveValue(''))
+    expect(await screen.findByRole('listitem')).toHaveTextContent('Parts ordered, ETA Thursday')
+  })
+
+  it('will not post an empty or whitespace-only comment', async () => {
+    serve(aWorkOrderDetail())
+    mount()
+    await screen.findByLabelText('Comment')
+    expect(screen.getByRole('button', { name: 'Comment' })).toBeDisabled()
+
+    await userEvent.type(screen.getByLabelText('Comment'), '   ')
+    expect(screen.getByRole('button', { name: 'Comment' })).toBeDisabled()
+
+    await userEvent.type(screen.getByLabelText('Comment'), 'x')
+    expect(screen.getByRole('button', { name: 'Comment' })).toBeEnabled()
   })
 })

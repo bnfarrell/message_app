@@ -4,6 +4,7 @@ import { useWorkOrder } from '../../api/hooks/workOrders'
 import { useDepartments, useStaff } from '../../api/hooks/users'
 import { Avatar, Badge, EmptyState, Spinner } from '../../components/ui'
 import { formatClock, formatDuration } from '../../lib/time'
+import { CommentBox } from './CommentBox'
 import { PRIORITY_TONE, STATUS_LABELS } from './transitions'
 import { TransitionButtons } from './TransitionButtons'
 
@@ -102,28 +103,34 @@ export function WorkOrderDetailPage() {
           </section>
         </div>
 
-        <section className="rounded-card border border-border2 bg-surface p-4">
-          <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-text3">Timeline</h2>
-          {data.events.length === 0 ? (
-            <p className="text-xs text-text3">Nothing yet</p>
-          ) : (
-            <ol className="flex flex-col gap-3">
-              {/* Newest first: the last thing that happened is what a reader wants. */}
-              {[...data.events].reverse().map((event) => (
-                <li key={event.id} className="border-l-2 border-border2 pl-3">
-                  <p className="text-[13px] font-semibold">
-                    {event.type.replace('_', ' ')}
-                    {event.toValue ? ` → ${event.toValue.replace('_', ' ')}` : ''}
-                  </p>
-                  <p className="text-xs text-text3">
-                    {[event.userName, formatClock(event.createdAt)].filter(Boolean).join(' · ')}
-                  </p>
-                  {event.comment ? <p className="mt-1 text-xs text-text2">{event.comment}</p> : null}
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
+        <div className="flex flex-col gap-4">
+          <section className="rounded-card border border-border2 bg-surface p-4">
+            <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-text3">Timeline</h2>
+            {data.events.length === 0 ? (
+              <p className="text-xs text-text3">Nothing yet</p>
+            ) : (
+              <ol className="flex flex-col gap-3">
+                {/* Newest first: the last thing that happened is what a reader wants. */}
+                {[...data.events].reverse().map((event) => (
+                  <li key={event.id} className="border-l-2 border-border2 pl-3">
+                    <p className="text-[13px] font-semibold">
+                      {event.type.replace('_', ' ')}
+                      {event.toValue ? ` → ${event.toValue.replace('_', ' ')}` : ''}
+                    </p>
+                    <p className="text-xs text-text3">
+                      {[event.userName, formatClock(event.createdAt)].filter(Boolean).join(' · ')}
+                    </p>
+                    {event.comment ? (
+                      <p className="mt-1 text-xs text-text2">{event.comment}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+
+          <CommentBox workOrderId={data.id} />
+        </div>
       </div>
     </div>
   )
