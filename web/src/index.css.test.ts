@@ -39,7 +39,10 @@ describe('design tokens', () => {
   })
 
   it('has 45 tokens and no more, so a stray colour cannot sneak in', () => {
-    const declared = new Set([...block(':root').matchAll(/--([a-zA-Z0-9]+):/g)].map((m) => m[1]))
-    expect([...declared].sort()).toEqual([...TOKENS].sort())
+    const declaredTokens = (selector: string) =>
+      [...new Set([...block(selector).matchAll(/--([a-zA-Z0-9]+):/g)].map((m) => m[1]))].sort()
+
+    expect(declaredTokens(':root')).toEqual([...TOKENS].sort())
+    expect(declaredTokens("[data-theme='light']")).toEqual([...TOKENS].sort())
   })
 })
