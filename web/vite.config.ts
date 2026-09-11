@@ -36,6 +36,11 @@ const webStorageExecArgv = webStorageFlag ? [webStorageFlag] : []
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Bind IPv4 explicitly. Vite's default host resolves per-OS, and on Windows it
+    // can end up listening on [::1] only -- which makes http://127.0.0.1:5173
+    // refuse connections while http://localhost:5173 works, or vice versa,
+    // depending on how the browser resolves the name. Pinning it removes that coin flip.
+    host: '127.0.0.1',
     port: 5173,
     proxy: {
       '/api': { target: API, changeOrigin: true },
