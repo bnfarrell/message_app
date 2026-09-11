@@ -8,11 +8,21 @@ from app.auth.passwords import hash_password
 from app.auth.permissions import has_capability
 from app.domain import audit
 from app.errors import Conflict, NotFound, ValidationFailed
-from app.models import Department, PropertyMembership, UserAccount
+from app.models import (
+    Conversation,
+    Department,
+    DigitalAsset,
+    PropertyMembership,
+    QuickReply,
+    UserAccount,
+    WorkOrder,
+)
 from app.schemas.enums import Role
 from app.schemas.users import (
     CreateStaffRequest,
+    DepartmentIn,
     DepartmentOut,
+    DepartmentPatch,
     StaffPatch,
     StaffUserOut,
 )
@@ -23,6 +33,52 @@ def list_departments(db: Session, property_id: str) -> list[DepartmentOut]:
         select(Department).where(Department.property_id == property_id).order_by(Department.name)
     ).all()
     return [DepartmentOut.model_validate(d) for d in rows]
+
+
+def get_department(db: Session, property_id: str, department_id: str) -> Department:
+    d = db.scalar(select(Department).where(Department.id == department_id,
+                                           Department.property_id == property_id))
+    if d is None:
+        raise NotFound("Department not found")
+    return d
+
+
+def create_department(db: Session, property_id: str, data: DepartmentIn) -> Department:
+    d = Department(property_id=property_id, **data.model_dump())
+    db.add(d)
+    db.flush()
+    return d
+
+
+def update_department(db: Session, property_id: str, department_id: str,
+                      data: DepartmentPatch) -> Department:
+    d = get_department(db, property_id, department_id)
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(d, k, v)
+    db.flush()
+    return d
+
+
+# Every nullable FK to department.id, with the message the admin sees if it still points here.
+# Phase 1 does not soft-delete (design.md line 86) and these columns have no ON DELETE behaviour,
+# so a delete that went through would either fail at the constraint or silently orphan the
+# reference — e.g. null out a work order's owning department. Deactivating the department
+# (active=False) is the escape hatch, so every message says so.
+_DEPARTMENT_REFERENCES = (
+    (PropertyMembership.department_id, "Move the staff members in this department to another one"),
+    (QuickReply.department_id, "Reassign the quick replies in this department"),
+    (DigitalAsset.department_id, "Reassign the digital assets in this department"),
+    (Conversation.assigned_department_id, "Reassign the conversations assigned to this department"),
+    (WorkOrder.department_id, "Reassign the work orders assigned to this department"),
+)
+
+
+def delete_department(db: Session, property_id: str, department_id: str) -> None:
+    d = get_department(db, property_id, department_id)
+    for column, fix in _DEPARTMENT_REFERENCES:
+        if db.scalar(select(column).where(column == d.id).limit(1)):
+            raise Conflict(f"{fix} first, or deactivate the department instead")
+    db.delete(d)
 
 
 def list_staff(db: Session, property_id: str) -> list[StaffUserOut]:

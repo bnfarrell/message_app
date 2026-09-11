@@ -5,6 +5,20 @@ from app.schemas.conversations import GuestOut, StayOut
 from app.schemas.enums import DepartmentType, Role
 
 
+class DepartmentIn(CamelModel):
+    name: str = Field(min_length=1, max_length=100)
+    type: DepartmentType
+    escalation_minutes: int = Field(default=15, gt=0)
+    active: bool = True
+
+
+class DepartmentPatch(CamelModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    type: DepartmentType | None = None
+    escalation_minutes: int | None = Field(default=None, gt=0)
+    active: bool | None = None
+
+
 class DepartmentOut(CamelModel):
     id: str
     name: str

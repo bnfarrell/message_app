@@ -1249,6 +1249,37 @@
       "title": "DepartmentBucket",
       "type": "object"
     },
+    "DepartmentIn": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "default": true,
+          "title": "Active",
+          "type": "boolean"
+        },
+        "escalationMinutes": {
+          "default": 15,
+          "exclusiveMinimum": 0,
+          "title": "Escalationminutes",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/DepartmentType"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "DepartmentIn",
+      "type": "object"
+    },
     "DepartmentOut": {
       "additionalProperties": false,
       "properties": {
@@ -1280,6 +1311,63 @@
         "active"
       ],
       "title": "DepartmentOut",
+      "type": "object"
+    },
+    "DepartmentPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "escalationMinutes": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Escalationminutes"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DepartmentType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "DepartmentPatch",
       "type": "object"
     },
     "DepartmentType": {
