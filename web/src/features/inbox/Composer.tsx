@@ -8,6 +8,7 @@ import { Button, Textarea } from '../../components/ui'
 import { cn } from '../../lib/cn'
 import { charCount, segmentCount } from '../../lib/segments'
 import { AssetPicker } from './AssetPicker'
+import { CreateWorkOrderModal } from './CreateWorkOrderModal'
 import { QuickReplyPalette } from './QuickReplyPalette'
 
 type Mode = 'reply' | 'note'
@@ -36,6 +37,10 @@ export function Composer({
   const [mode, setMode] = useState<Mode>(canReply ? 'reply' : 'note')
   // Escape hides the palette without touching the draft; typing again reopens it.
   const [paletteDismissed, setPaletteDismissed] = useState(false)
+  // The "Quick" button opens the same palette the '/' prefix opens, without rewriting a
+  // draft the agent has already typed.
+  const [paletteForced, setPaletteForced] = useState(false)
+  const [woOpen, setWoOpen] = useState(false)
   const box = useRef<HTMLTextAreaElement>(null)
   const send = useSendMessage(conversationId)
   const addNote = useAddNote(conversationId)
@@ -57,13 +62,8 @@ export function Composer({
   }, [draftBody, draftPromptIdIn, onDraftConsumed, canReply])
 
   // The palette opens only when '/' starts the draft — 'either/or' must not trigger it.
-  // A note is not an SMS, so it never offers quick replies either.
-  const paletteOpen =
-    mode === 'reply' &&
-    body.startsWith('/') &&
-    !body.includes(' ') &&
-    !body.includes('\n') &&
-    !paletteDismissed
+  const slashOpen = body.startsWith('/') && !body.includes(' ') && !body.includes('\n')
+  const paletteOpen = mode === 'reply' && !paletteDismissed && (slashOpen || paletteForced)
   const segments = segmentCount(body)
   const characters = charCount(body)
   const optedOut = conversation.guest.smsConsentStatus === 'opted_out'
@@ -129,7 +129,10 @@ export function Composer({
           <ModeTab
             label="Note"
             active={noteMode}
-            onClick={() => setMode('note')}
+            onClick={() => {
+              setMode('note')
+              setPaletteForced(false)
+            }}
             note
           />
         </div>
@@ -139,9 +142,15 @@ export function Composer({
         {paletteOpen && replies ? (
           <QuickReplyPalette
             replies={replies}
-            term={body}
-            onClose={() => setPaletteDismissed(true)}
+            // A forced-open palette over an existing draft lists everything rather than
+            // filtering by prose that was never a shortcut.
+            term={slashOpen ? body : ''}
+            onClose={() => {
+              setPaletteDismissed(true)
+              setPaletteForced(false)
+            }}
             onPick={(reply) => {
+              setPaletteForced(false)
               // The server interpolates; we never substitute tokens client-side.
               render.mutate(
                 { id: reply.id, conversationId },
@@ -191,12 +200,26 @@ export function Composer({
         {/* A note is not an SMS: no quick replies, no asset link, no segment cost. */}
         {!noteMode ? (
           <>
+            <Button
+              onClick={() => {
+                setPaletteDismissed(false)
+                setPaletteForced(true)
+                box.current?.focus()
+              }}
+            >
+              Quick
+            </Button>
             <AssetPicker
               onPick={(asset) => {
                 setAssetId(asset.id)
                 setBody((current) => `${current}${current ? ' ' : ''}${window.location.origin}/a/${asset.shortCode}`)
               }}
             />
+            {can('create_work_order') ? (
+              <Button onClick={() => setWoOpen(true)}>
+                Work order
+              </Button>
+            ) : null}
             {segments > 0 ? (
               <span
                 data-testid="segment-counter"
@@ -220,6 +243,16 @@ export function Composer({
           {noteMode ? 'Add note' : 'Send'}
         </Button>
       </div>
+
+      {/* Mounted only while open: the modal needs a ToastProvider, and an always-mounted
+          copy would impose that on every consumer of the composer for nothing. */}
+      {woOpen ? (
+        <CreateWorkOrderModal
+          conversationId={conversationId}
+          open
+          onClose={() => setWoOpen(false)}
+        />
+      ) : null}
     </div>
   )
 }

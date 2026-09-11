@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RealtimeProvider } from '../../api/ws'
 import type { Role } from '../../api/types'
 import { SessionProvider } from '../../auth/SessionContext'
+import { ToastProvider } from '../../components/ui'
 import { aAsset, aConversationDetail, aGuest, aMessage, aNote, aQuickReply } from '../../test/factories'
 import { renderWithProviders, sessionFixture } from '../../test/harness'
 import { Composer } from './Composer'
@@ -64,9 +65,11 @@ function routes(overrides: Record<string, unknown> = {}) {
 function mount(detail = aConversationDetail(), role: Role = 'agent') {
   return renderWithProviders(
     <SessionProvider>
-      <RealtimeProvider>
-        <Composer conversationId={detail.id} conversation={detail} />
-      </RealtimeProvider>
+      <ToastProvider>
+        <RealtimeProvider>
+          <Composer conversationId={detail.id} conversation={detail} />
+        </RealtimeProvider>
+      </ToastProvider>
     </SessionProvider>,
     { session: sessionFixture({ role }), route: `/app/inbox/${detail.id}` },
   )
@@ -319,6 +322,8 @@ describe('Composer', () => {
     expect(screen.queryByRole('button', { name: 'Reply' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^send$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /attach/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /quick/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /work order/i })).not.toBeInTheDocument()
   })
 
   it('posts a note through the notes endpoint, not the messages endpoint', async () => {
@@ -351,6 +356,8 @@ describe('Composer', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Note' }))
     expect(screen.queryByTestId('segment-counter')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /attach/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /quick/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /work order/i })).not.toBeInTheDocument()
   })
 
   it('does not open the quick-reply palette in Note mode', async () => {
@@ -392,4 +399,35 @@ describe('Composer', () => {
     await waitFor(() => expect(box).toHaveValue('A note'))
   })
 
+  // R1.3 — the palette was reachable only by typing '/', which nothing advertises.
+  it('opens the quick-reply palette from the Quick button', async () => {
+    mount()
+    await userEvent.click(await screen.findByRole('button', { name: /quick/i }))
+    expect(await screen.findByTestId('qr-q-1')).toBeInTheDocument()
+  })
+
+  it('keeps an existing draft when the Quick button opens the palette', async () => {
+    mount()
+    const box = await screen.findByRole('textbox')
+    await userEvent.type(box, 'Half a sentence')
+    await userEvent.click(screen.getByRole('button', { name: /quick/i }))
+    expect(await screen.findByTestId('qr-q-1')).toBeInTheDocument()
+    expect(box).toHaveValue('Half a sentence')
+  })
+
+  it('opens the work-order modal from the composer', async () => {
+    mount()
+    await userEvent.click(await screen.findByRole('button', { name: /work order/i }))
+    expect(await screen.findByRole('dialog')).toHaveTextContent(/create work order/i)
+  })
+
+  it('orders the composer actions Quick · Asset · Work order', async () => {
+    mount()
+    await screen.findByRole('textbox')
+    const labels = screen
+      .getAllByRole('button')
+      .map((b) => b.textContent?.trim())
+      .filter((t) => t === 'Quick' || t === 'Attach' || t === 'Work order')
+    expect(labels).toEqual(['Quick', 'Attach', 'Work order'])
+  })
 })
