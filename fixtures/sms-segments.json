@@ -1,0 +1,205 @@
+{
+  "description": "Golden vectors for SMS segment counting (GSM 03.38), shared by server/app/domain/sms.py and web/src/lib/segments.ts. Ruling D89: the two implementations are a deliberate duplicate - the inbox composer needs per-keystroke feedback with no network round trip - so this file pins them to each other. It lives at the repo root because neither language owns it. Asserted by server/tests/test_sms.py and web/src/lib/segments.golden.test.ts; if the two drift, exactly one suite goes red and names the case. `segments` counts GSM-7 septets (extension characters count twice) or UTF-16 code units; `characters` counts user-visible characters, i.e. code points - these differ, which is the point of the emoji-crosses-* cases. Expected values are hand-computed from the spec, not generated from either implementation.",
+  "cases": [
+    {
+      "name": "empty",
+      "why": "an empty body is zero segments, not one",
+      "body": "",
+      "isGsm7": true,
+      "segments": 0,
+      "characters": 0
+    },
+    {
+      "name": "ascii-short",
+      "why": "the ordinary case",
+      "body": "Hi",
+      "isGsm7": true,
+      "segments": 1,
+      "characters": 2
+    },
+    {
+      "name": "gsm7-160",
+      "why": "160 septets is the single-segment ceiling",
+      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "isGsm7": true,
+      "segments": 1,
+      "characters": 160
+    },
+    {
+      "name": "gsm7-161",
+      "why": "one septet over drops to 153-septet multipart",
+      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "isGsm7": true,
+      "segments": 2,
+      "characters": 161
+    },
+    {
+      "name": "gsm7-306",
+      "why": "exactly 2 x 153",
+      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "isGsm7": true,
+      "segments": 2,
+      "characters": 306
+    },
+    {
+      "name": "gsm7-307",
+      "why": "one septet into the third part",
+      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "isGsm7": true,
+      "segments": 3,
+      "characters": 307
+    },
+    {
+      "name": "gsm7-extension-alone",
+      "why": "a lone extension char is two septets, one character",
+      "body": "\u20ac",
+      "isGsm7": true,
+      "segments": 1,
+      "characters": 1
+    },
+    {
+      "name": "gsm7-extension-fills-160",
+      "why": "158 + 2 septets = exactly 160",
+      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u20ac",
+      "isGsm7": true,
+      "segments": 1,
+      "characters": 159
+    },
+    {
+      "name": "gsm7-extension-crosses-160",
+      "why": "159 characters + an extension char = 161 septets: SAME character count as gsm7-160, one more segment. A counter that measured length instead of septets would say 1.",
+      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u20ac",
+      "isGsm7": true,
+      "segments": 2,
+      "characters": 160
+    },
+    {
+      "name": "gsm7-extension-crosses-153",
+      "why": "same trap at the multipart boundary: 306 characters as in gsm7-306, but 307 septets",
+      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u20ac",
+      "isGsm7": true,
+      "segments": 3,
+      "characters": 306
+    },
+    {
+      "name": "gsm7-formfeed-fills-160",
+      "why": "form feed is an extension char too",
+      "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\f",
+      "isGsm7": true,
+      "segments": 1,
+      "characters": 159
+    },
+    {
+      "name": "gsm7-interpolation-braces",
+      "why": "this product's own {{variable}} syntax: four braces at two septets each",
+      "body": "Hi {{guest_first_name}}",
+      "isGsm7": true,
+      "segments": 1,
+      "characters": 23
+    },
+    {
+      "name": "gsm7-newline-and-cr",
+      "why": "LF and CR are both in the GSM-7 basic set",
+      "body": "line1\nline2\r",
+      "isGsm7": true,
+      "segments": 1,
+      "characters": 12
+    },
+    {
+      "name": "ucs2-70",
+      "why": "70 UTF-16 units is the single-segment ceiling",
+      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5",
+      "isGsm7": false,
+      "segments": 1,
+      "characters": 70
+    },
+    {
+      "name": "ucs2-71",
+      "why": "one unit over drops to 67-unit multipart",
+      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5",
+      "isGsm7": false,
+      "segments": 2,
+      "characters": 71
+    },
+    {
+      "name": "ucs2-134",
+      "why": "exactly 2 x 67",
+      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5",
+      "isGsm7": false,
+      "segments": 2,
+      "characters": 134
+    },
+    {
+      "name": "ucs2-135",
+      "why": "one unit into the third part",
+      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5",
+      "isGsm7": false,
+      "segments": 3,
+      "characters": 135
+    },
+    {
+      "name": "emoji-alone",
+      "why": "non-BMP: TWO UTF-16 units for segments, ONE user-visible character",
+      "body": "\ud83d\ude00",
+      "isGsm7": false,
+      "segments": 1,
+      "characters": 1
+    },
+    {
+      "name": "emoji-35",
+      "why": "35 surrogate pairs = 70 units = one segment",
+      "body": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
+      "isGsm7": false,
+      "segments": 1,
+      "characters": 35
+    },
+    {
+      "name": "emoji-36",
+      "why": "72 units spills",
+      "body": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
+      "isGsm7": false,
+      "segments": 2,
+      "characters": 36
+    },
+    {
+      "name": "emoji-crosses-70",
+      "why": "the divergence case: 70 characters but 71 UTF-16 units, so 2 segments. Counting characters instead of units gives 1; counting units instead of characters gives 71 characters.",
+      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\ud83d\ude00",
+      "isGsm7": false,
+      "segments": 2,
+      "characters": 70
+    },
+    {
+      "name": "emoji-crosses-67",
+      "why": "same trap at the multipart boundary: 134 characters as in ucs2-134, but 135 units",
+      "body": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\ud83d\ude00",
+      "isGsm7": false,
+      "segments": 3,
+      "characters": 134
+    },
+    {
+      "name": "mixed-ascii-emoji",
+      "why": "one emoji forces the whole body to UCS-2",
+      "body": "Hello \ud83d\ude00",
+      "isGsm7": false,
+      "segments": 1,
+      "characters": 7
+    },
+    {
+      "name": "em-dash",
+      "why": "a BMP character outside GSM-7 still forces UCS-2",
+      "body": "a \u2014 b",
+      "isGsm7": false,
+      "segments": 1,
+      "characters": 5
+    },
+    {
+      "name": "curly-quote",
+      "why": "the apostrophe a word processor produces is not GSM-7",
+      "body": "don\u2019t",
+      "isGsm7": false,
+      "segments": 1,
+      "characters": 5
+    }
+  ]
+}
