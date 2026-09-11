@@ -1,11 +1,26 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useLocation } from 'react-router-dom'
 import type { Role } from './api/types'
 import { AppRoutes } from './routes'
 import { renderWithProviders, sessionFixture } from './test/harness'
 
+// Reports where the router actually landed, query string included — the Placeholder
+// screen renders identically regardless of query, so a dropped `?mine=1` would
+// otherwise be invisible to every assertion in this file.
+function LocationDisplay() {
+  const location = useLocation()
+  return <div data-testid="location">{location.pathname + location.search}</div>
+}
+
 function mountAt(route: string, role: Role) {
-  return renderWithProviders(<AppRoutes />, { route, session: sessionFixture({ role }) })
+  return renderWithProviders(
+    <>
+      <AppRoutes />
+      <LocationDisplay />
+    </>,
+    { route, session: sessionFixture({ role }) },
+  )
 }
 
 // Task 9's AppShell nav repeats the same labels ("Inbox", "Board", ...) as these
@@ -42,13 +57,32 @@ describe('AppRoutes', () => {
     expect(await (await mainScreen()).findByText('Inbox')).toBeInTheDocument()
   })
 
-  it('sends dept_staff from /app to the board', async () => {
+  it('sends dept_staff from /app to the board, filtered to mine', async () => {
     mountAt('/app', 'dept_staff')
     expect(await (await mainScreen()).findByText('Board')).toBeInTheDocument()
+    // The Placeholder ignores query strings entirely, so this is the only thing in this
+    // file that would catch <Navigate> silently dropping `?mine=1` on the way there.
+    expect(screen.getByTestId('location')).toHaveTextContent('/app/board?mine=1')
+  })
+
+  it('sends a supervisor from /app to the board, filtered to mine', async () => {
+    mountAt('/app', 'supervisor')
+    expect(await (await mainScreen()).findByText('Board')).toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent('/app/board?mine=1')
   })
 
   it('sends a manager from /app to analytics', async () => {
     mountAt('/app', 'manager')
+    expect(await (await mainScreen()).findByText('Analytics')).toBeInTheDocument()
+  })
+
+  it('sends an admin from /app to analytics', async () => {
+    mountAt('/app', 'admin')
+    expect(await (await mainScreen()).findByText('Analytics')).toBeInTheDocument()
+  })
+
+  it('sends corporate from /app to analytics', async () => {
+    mountAt('/app', 'corporate')
     expect(await (await mainScreen()).findByText('Analytics')).toBeInTheDocument()
   })
 

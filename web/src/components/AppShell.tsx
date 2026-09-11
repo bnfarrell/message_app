@@ -20,9 +20,10 @@ type NavItem = { label: string; to: string; icon: IconName; needs: Capability[] 
 
 // `needs` is an OR: any one capability is enough to see the item.
 const NAV: NavItem[] = [
-  // `view_all_conversations` deliberately excluded: corporate has it but cannot reply,
-  // and never lands on Inbox (see capabilities.landingPath) — see task-9-report.md for detail.
-  { label: 'Inbox', to: '/app/inbox', icon: 'inbox', needs: ['reply'] },
+  // Corporate has view_all_conversations + add_note on the server (permissions.py) with no
+  // @require_capability gate on the list endpoint, so it genuinely can read (and note) every
+  // conversation — the Inbox stays visible, read-only until Task 14 hides the composer.
+  { label: 'Inbox', to: '/app/inbox', icon: 'inbox', needs: ['reply', 'view_all_conversations'] },
   { label: 'Board', to: '/app/board', icon: 'board', needs: ['create_work_order', 'close_work_order'] },
   { label: 'Analytics', to: '/app/analytics', icon: 'analytics', needs: ['view_property_analytics'] },
   { label: 'Alerts', to: '/app/notifications', icon: 'alerts', needs: [] },

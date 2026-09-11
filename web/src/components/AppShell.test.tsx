@@ -47,10 +47,14 @@ describe('AppShell', () => {
     expect(screen.queryByRole('link', { name: /admin/i })).not.toBeInTheDocument()
   })
 
-  it('hides the Inbox from corporate, which cannot reply', async () => {
+  it('shows the Inbox to corporate, which can read conversations and add notes', async () => {
+    // corporate holds view_all_conversations and add_note on the server
+    // (server/app/auth/permissions.py), so the Inbox is reachable — read-only.
     mount({ role: 'corporate' })
     expect(await screen.findByRole('link', { name: /analytics/i })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /inbox/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /inbox/i })).toBeInTheDocument()
+    // It cannot reply, so no Board: create_work_order and close_work_order are both false.
+    expect(screen.queryByRole('link', { name: /board/i })).not.toBeInTheDocument()
   })
 
   it('shows Admin only to admin', async () => {
