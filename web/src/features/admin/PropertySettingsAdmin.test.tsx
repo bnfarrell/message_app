@@ -141,8 +141,20 @@ describe('PropertySettingsAdmin', () => {
     const user = userEvent.setup()
     mount()
     await user.clear(await screen.findByLabelText('Property name'))
+    // The real server refuses this (`name` is NOT NULL) and never echoes a null name back, so the
+    // mock must refuse it too — a 200 here would make the form render `value={null}` in a state
+    // production cannot reach.
+    serve((_url, init) =>
+      init?.method === 'PATCH'
+        ? json({ error: { code: 'VALIDATION_FAILED', message: 'Cannot be cleared: name',
+                          details: { name: 'required' } } }, 400)
+        : null,
+    )
     await user.click(screen.getByRole('button', { name: 'Save' }))
+
     expect(JSON.parse(String(patched()[0]![1]!.body)).name).toBeNull()
+    const message = await screen.findByText('This field is required.')
+    expect(message.parentElement).toContainElement(screen.getByLabelText('Property name'))
   })
 
   it('offers the stored zone as a real option even when the browser list omits it', async () => {
