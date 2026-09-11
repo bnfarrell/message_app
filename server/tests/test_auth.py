@@ -76,3 +76,39 @@ def test_disabled_user_cannot_login(app, fx, client, database):
     res = client.post("/api/auth/login",
                       json={"email": "agent@hvh.test", "password": "Password123!"})
     assert res.status_code == 401
+
+
+def test_session_cookie_is_secure_in_production_and_configurable(app, fx, client):
+    """`secure=False` used to be hardcoded, so the session cookie could be sent over plain HTTP
+    with no way to turn that off."""
+    from app.config import Config
+
+    dev, prod = Config(), Config(ENV="production", SESSION_SECRET="a-real-secret")
+    assert dev.cookie_secure is False and prod.cookie_secure is True
+    assert Config(SESSION_COOKIE_SECURE=True).cookie_secure is True
+    assert Config(ENV="production", SESSION_SECRET="s",
+                  SESSION_COOKIE_SECURE=False).cookie_secure is False
+
+    # The login route reads it rather than hardcoding a value.
+    app.config["APP"].SESSION_COOKIE_SECURE = True
+    res = client.post("/api/auth/login", json={"email": "agent@hvh.test",
+                                               "password": "Password123!"})
+    assert res.status_code == 200
+    assert "Secure" in res.headers["Set-Cookie"]
+
+
+def test_production_refuses_to_boot_with_the_placeholder_session_secret(template_db_path, tmp_path):
+    import shutil
+
+    import pytest
+
+    from app import create_app
+    from app.config import INSECURE_SESSION_SECRETS, Config
+
+    for secret in INSECURE_SESSION_SECRETS:
+        p = tmp_path / f"boot-{abs(hash(secret))}.db"
+        shutil.copy(template_db_path, p)
+        cfg = Config(DATABASE_URL=f"sqlite:///{p.as_posix()}", TESTING=True, ENV="production",
+                     SESSION_SECRET=secret)
+        with pytest.raises(RuntimeError, match="SESSION_SECRET"):
+            create_app(cfg)

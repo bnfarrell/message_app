@@ -77,6 +77,8 @@ def prepare(database_url: str):
 
 def main() -> int:
     os.environ["START_WORKER"] = "1"
+    os.environ.setdefault("ENABLE_DEV_ENDPOINTS", "1")
+    os.environ.setdefault("USE_RELOADER", "1")
 
     from app.config import Config
 
@@ -101,7 +103,7 @@ def main() -> int:
     from app import create_app
 
     app = create_app(cfg)
-    app.run(host="127.0.0.1", port=port, debug=not cfg.is_production, threaded=True)
+    app.run(host="127.0.0.1", port=port, debug=cfg.USE_RELOADER, threaded=True)
     return 0
 
 

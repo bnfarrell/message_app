@@ -61,6 +61,22 @@ and `HELP` behave per TCPA. The React phone simulator (web plan) wraps this in a
 `notifications`, `analytics`, `guests`. WebSocket at `/ws` (send `{"type":"subscribe","propertyId":…}`).
 Dev only: `/api/dev/sim/*`, `/api/dev/pms/*`. Models: `web/src/api/schema.json`.
 
+## Configuration switches that matter
+`server/.env.example` documents every variable; three of them are safety-relevant.
+- **`ENABLE_DEV_ENDPOINTS`** — `/api/dev/*` is unauthenticated and lists every guest at every
+  property (names, phone numbers, rooms, consent status). It registers only when this is
+  explicitly `1`, and never when `FLASK_ENV=production`. `run.py` and `dev_start.py` set it for
+  you locally; a deployment that sets nothing gets no dev routes.
+- **`SESSION_COOKIE_SECURE`** — unset means the session cookie is `Secure` in production and not
+  in development. Set it to `1`/`0` to force either way (HTTPS tunnel in dev, plain-HTTP staging).
+- **`USE_RELOADER`** — set only by the dev entrypoints, which run Flask's auto-reloader. It tells
+  `create_app` that a parent monitor process exists so the job worker starts in the reloader child
+  only. Under gunicorn leave it unset and the worker starts whenever `START_WORKER=1`, regardless
+  of `FLASK_ENV`.
+
+In production (`FLASK_ENV=production`) the app refuses to start while `SESSION_SECRET` is still a
+placeholder.
+
 ## Moving to PostgreSQL
 `pip install "psycopg[binary]"`, set `DATABASE_URL=postgresql+psycopg://…`, run `cd server && alembic upgrade head`.
 Migrations use portable types; nothing else changes. Run one web process (`gunicorn -w 1 --threads 16`) because

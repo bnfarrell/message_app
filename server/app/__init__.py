@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from flask import Flask, request
 
-from app.config import Config
+from app.config import INSECURE_SESSION_SECRETS, Config
 from app.errors import register_error_handlers
 
 
 def create_app(config: Config | None = None) -> Flask:
     config = config or Config.from_env()
+    if config.is_production and config.SESSION_SECRET in INSECURE_SESSION_SECRETS:
+        # Refuse to boot rather than sign every session cookie with a secret that is published in
+        # this repository.
+        raise RuntimeError("SESSION_SECRET is still the placeholder value; set a real secret "
+                           "before running with FLASK_ENV=production")
     app = Flask(__name__)
     app.config["APP"] = config
     app.config["TESTING"] = config.TESTING
@@ -78,7 +83,7 @@ def create_app(config: Config | None = None) -> Flask:
             resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
         return resp
 
-    if not config.is_production:
+    if config.dev_endpoints_enabled:
         from app.api import dev
 
         dev.install_event_recorder()
@@ -97,8 +102,15 @@ def create_app(config: Config | None = None) -> Flask:
     from app.queue.handlers import pms as pms_handler
 
     app.extensions["pms_adapter"] = pms_handler.adapter
+    # Start the worker exactly once per deployment. Under the Werkzeug reloader create_app runs
+    # in both the parent monitor process and the child, and only the child should start it; with
+    # no reloader there is only one process and it must. This asks USE_RELOADER (set by the dev
+    # entrypoints that actually pass debug=True) rather than is_production, so that forgetting
+    # FLASK_ENV cannot silently mean "nothing is being delivered" — and so that the switch
+    # controlling job delivery is not also the switch controlling guest-data exposure
+    # (config.dev_endpoints_enabled).
     under_reloader = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
-    if config.START_WORKER and (under_reloader or config.is_production):
+    if config.START_WORKER and (under_reloader or not config.USE_RELOADER):
         with app.extensions["db"].session() as db:
             for job_type in _jobs.RECURRING:
                 _jobs.ensure_recurring(db, job_type)
@@ -107,6 +119,6 @@ def create_app(config: Config | None = None) -> Flask:
     from app.realtime.ws import sock, start_sweeper
 
     sock.init_app(app)
-    if config.START_WORKER and (under_reloader or config.is_production):
+    if config.START_WORKER and (under_reloader or not config.USE_RELOADER):
         start_sweeper(app)
     return app

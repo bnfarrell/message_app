@@ -35,6 +35,7 @@ def app(template_db_path, tmp_path):
         TESTING=True,
         START_WORKER=False,
         ENV="testing",
+        ENABLE_DEV_ENDPOINTS=True,  # /api/dev/* is opt-in; tests/test_dev.py exercises it
         PMS_TICK_SECONDS=0,
     )
     from app.ratelimit import login_limiter, webhook_limiter

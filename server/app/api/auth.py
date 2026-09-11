@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint, g, make_response
+from flask import Blueprint, current_app, g, make_response
 from sqlalchemy import select
 
 from app.api._util import client_meta, db_session, no_content, ok, parse_body
@@ -57,7 +57,8 @@ def login():
         raise Unauthorized("Email or password is incorrect")
     resp = make_response(ok(payload)[0], 200)
     resp.set_cookie(COOKIE_NAME, token, max_age=SESSION_HOURS * 3600, httponly=True,
-                    samesite="Lax", path="/", secure=False)
+                    samesite="Lax", path="/",
+                    secure=current_app.config["APP"].cookie_secure)
     return resp
 
 

@@ -3,13 +3,29 @@ from app.config import Config
 from tests.factories import inbound
 
 
-def test_dev_routes_absent_in_production(template_db_path, tmp_path):
+def _build(template_db_path, tmp_path, name: str, **cfg):
     import shutil
 
-    p = tmp_path / "prod.db"
+    p = tmp_path / f"{name}.db"
     shutil.copy(template_db_path, p)
-    app = create_app(Config(DATABASE_URL=f"sqlite:///{p.as_posix()}", ENV="production",
-                            TESTING=True))
+    return create_app(Config(DATABASE_URL=f"sqlite:///{p.as_posix()}", TESTING=True, **cfg))
+
+
+def test_dev_routes_absent_in_production(template_db_path, tmp_path):
+    app = _build(template_db_path, tmp_path, "prod", ENV="production",
+                 SESSION_SECRET="a-real-secret", ENABLE_DEV_ENDPOINTS=True)
+    assert app.test_client().get("/api/dev/sim/guests").status_code == 404
+    app.extensions["db"].engine.dispose()
+
+
+def test_dev_routes_absent_unless_explicitly_enabled(template_db_path, tmp_path):
+    """/api/dev/sim/guests is unauthenticated and returns every guest at every property, with
+    names, E.164 phones, rooms and consent status. It used to register whenever
+    FLASK_ENV != "production" while Config.ENV *defaulted* to "development", so a deployment that
+    forgot one env var published the whole guest database. The unsafe state must now require a
+    positive action, not the absence of one."""
+    app = _build(template_db_path, tmp_path, "default")  # ENV defaults to "development"
+    assert app.config["APP"].ENV == "development"
     assert app.test_client().get("/api/dev/sim/guests").status_code == 404
     app.extensions["db"].engine.dispose()
 

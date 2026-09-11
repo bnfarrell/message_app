@@ -109,21 +109,26 @@ def test_start_worker_guard_avoids_duplicate_start_under_reloader(
 ):
     """Regression: create_app must start the worker exactly once per real process.
 
-    In dev (non-production) under the Werkzeug reloader, create_app() runs once in the
-    parent monitor process (no WERKZEUG_RUN_MAIN) and once in the child (WERKZEUG_RUN_MAIN
-    "true"). Only the child should start the worker. In production there is no reloader, so
-    the single run must start it.
+    Under the Werkzeug reloader (USE_RELOADER=1, set by the dev entrypoints that pass
+    debug=True), create_app() runs once in the parent monitor process (no WERKZEUG_RUN_MAIN)
+    and once in the child (WERKZEUG_RUN_MAIN "true"). Only the child should start the worker.
+    With no reloader there is a single process and it must start it.
+
+    The guard deliberately does NOT ask is_production: that made forgetting FLASK_ENV on a
+    gunicorn deployment mean "nothing is ever delivered", silently, and put job delivery on the
+    same switch as dev-endpoint data exposure.
     """
     started = []
     monkeypatch.setattr(Worker, "start", lambda self: started.append(True))
 
-    def build_app(env: str, werkzeug_run_main: str | None) -> list:
+    def build_app(use_reloader: bool, werkzeug_run_main: str | None, env: str = "development"
+                  ) -> list:
         started.clear()
         if werkzeug_run_main is None:
             monkeypatch.delenv("WERKZEUG_RUN_MAIN", raising=False)
         else:
             monkeypatch.setenv("WERKZEUG_RUN_MAIN", werkzeug_run_main)
-        db_path = tmp_path / f"guard-{env}-{werkzeug_run_main}.db"
+        db_path = tmp_path / f"guard-{env}-{use_reloader}-{werkzeug_run_main}.db"
         shutil.copy(template_db_path, db_path)
         clock.freeze(clock.now())
         cfg = Config(
@@ -131,6 +136,8 @@ def test_start_worker_guard_avoids_duplicate_start_under_reloader(
             TESTING=True,
             START_WORKER=True,
             ENV=env,
+            SESSION_SECRET="a-real-secret",
+            USE_RELOADER=use_reloader,
             PMS_TICK_SECONDS=0,
         )
         application = create_app(cfg)
@@ -139,10 +146,13 @@ def test_start_worker_guard_avoids_duplicate_start_under_reloader(
 
     try:
         # 1. production, no reloader at all -> the single run starts it.
-        assert build_app("production", None) == [True]
+        assert build_app(False, None, env="production") == [True]
         # 2. dev, parent monitor process (no WERKZEUG_RUN_MAIN yet) -> must NOT start.
-        assert build_app("development", None) == []
+        assert build_app(True, None) == []
         # 3. dev, reloader child (WERKZEUG_RUN_MAIN=true) -> starts it.
-        assert build_app("development", "true") == [True]
+        assert build_app(True, "true") == [True]
+        # 4. a deployment that forgot FLASK_ENV but runs under gunicorn (no reloader) still
+        #    starts it: job delivery must not depend on the production flag.
+        assert build_app(False, None) == [True]
     finally:
         clock.reset()
