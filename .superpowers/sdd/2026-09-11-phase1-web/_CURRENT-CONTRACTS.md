@@ -40,6 +40,19 @@ seed or data fact without querying that exact thing first; implementers have cau
 seed facts three times. Known: 106 guests against 106 stay rows with no guest having more than
 one; Property B has zero conversations; opted-out guest Lena Park has zero conversations.
 
+## A test harness that models impossible servers
+
+The shared `serve()` helper in the admin test files answers a PATCH with
+`{...SETTINGS, ...sent}` — it echoes back whatever the test sent. That models a server which
+accepts anything, including values the real one refuses.
+
+It has already bitten once: a test sent `{"name": null}`, the mock echoed a 200, the component
+got `value={null}`, and React emitted two warnings **that no test failed on**. It was found by
+grepping stderr, not by a red suite.
+
+So when you write a mock response for a field the server would reject, make the mock reject it
+too. And **read stderr** — a green suite with React warnings in it is not a green suite.
+
 ## The error contract
 
 A validation failure returns **400** — never 422 on this project; 422 is `ConsentError` alone.
