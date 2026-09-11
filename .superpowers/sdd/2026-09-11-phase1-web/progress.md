@@ -3337,3 +3337,62 @@ Ruling D97 (diagnose before fixing, and separate the diagnosis from the fix): di
       Cost if wrong: a diagnosis seat spent on something a fixer would have found anyway. Worth it
       - this is the third time on this project that a "test failure" turned out to be a product
       bug, and dispatching a fixer at a symptom is how the wrong thing gets changed.
+
+DELIVERY-STATUS DIAGNOSIS RETURNED (agent a6562e0539ddef878, opus). ROOT CAUSE FOUND AND
+      REPRODUCED ON DEMAND — and it contradicts almost everything in the framing I gave it,
+      including two "facts" I had repeated as established.
+
+      **It is not a product defect. It is TWO API SERVER PROCESSES bound to 127.0.0.1:5200 at
+      once.** When it started, two independent dev_start.py stacks were running, created 26
+      minutes apart. With ONE server: 8 smoke runs and 3 instrumented browser runs all pass,
+      Sending -> Sent -> Delivered, frames arriving at ~+1.0s and ~+2.0s. With TWO: reproduced
+      immediately, 3/6 stuck on "Sending...", 1/6 stuck on "Sent", smoke.spec failing at exactly
+      the reported line.
+
+      The mechanism, and it is worth understanding rather than just patching:
+      - realtime/registry.py:16-18 ConnectionRegistry is an in-process dict, "Single process by
+        design". The browser's socket is accepted by process A and lives only in A's registry.
+      - The mock.delivery_status job is claimed by whichever worker wins the DB compare-and-swap
+        (jobs.py:26-40) — exactly one process, roughly 50/50 which.
+      - If B wins, B updates the row correctly and calls deliver() into B's registry, which holds
+        no sockets. ConnectionRegistry.send returns a delivered-count NO CALLER CHECKS, so the
+        frame is dropped SILENTLY.
+      - Enabling condition: werkzeug sets allow_reuse_address = True, and on Windows SO_REUSEADDR
+        lets a second server bind an already-listening port with NO ERROR. Server B printed
+        "Running on http://127.0.0.1:5200" cleanly.
+
+      THREE THINGS I ASSERTED THAT WERE WRONG:
+      1. "Pre-existing, reproduced at 8beea25." The checkout was IRRELEVANT — the bug is not in
+         web/ at any commit. The other agent simply had two servers running at both checkouts.
+      2. "presence.spec passes over the same socket, so the connection is healthy." This was the
+         MISLEADING CLUE, and I passed it on twice as evidence. Presence is broadcast from INSIDE
+         the WS handler (ws.py:76), in the process that owns the socket, so it is STRUCTURALLY
+         IMMUNE to the split. Only worker-originated events can land in the wrong process.
+         Presence passing does not exonerate the socket path at all.
+      3. My START_WORKER hypothesis was not just unproven but self-contradicting, as the agent
+         pointed out: with no worker the database would never reach `delivered`, which my own
+         framing said it does. dev_start.py:79 hard-assigns START_WORKER=1 and Playwright runs the
+         same script, so the environments are identical.
+      My mid-flight "ws://127.0.0.1:5173 handshake failure" clue was also a red herring — a
+      symptom of the split, not a cause.
+
+      A page reload fixes it 6/6, which correctly separates "the event never arrived" from "the
+      cache was not updated": the cache logic is sound.
+
+Ruling D98 (fix the operational fault, not the chain): the chain is correct end to end — enqueue,
+      worker, handler, queue_event, post-commit deliver(), the event type, and the client's query
+      key all match. So nothing in the delivery path gets touched. The fix is a PRE-FLIGHT PORT
+      GUARD in server/dev_start.py, ~5 lines before app.run(): if anything already answers on the
+      port, print that a server is already running and exit non-zero. That converts a silent,
+      intermittent, expensive-to-diagnose split-brain into an obvious startup refusal.
+      Paired with cheap observability: log at WARNING in broadcast.py when an event finds ZERO
+      sockets for its property. The silent drop is what made this cost two agent-hours.
+      Cost if wrong: a dev entrypoint that refuses to start when a stale process holds the port,
+      which is the correct behaviour anyway.
+
+Ruling D99 (this was MY process failure, and the guard is the remedy): the duplicate servers were
+      created by MY OWN dispatches. Several agents were each told "start.bat cold-starts both
+      halves" and each duly started one, and playwright.config.ts:25 sets
+      reuseExistingServer: !process.env.CI, so Playwright silently adopts whatever is on 5200
+      rather than owning it. The fix is not to tell agents to be careful; it is the port guard,
+      which makes the mistake impossible to make silently.
