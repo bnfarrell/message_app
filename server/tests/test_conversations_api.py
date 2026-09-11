@@ -3,8 +3,8 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from app import clock
-from app.models import Conversation, Message
-from app.schemas.enums import ConversationStatus, DeliveryStatus
+from app.models import Conversation
+from app.schemas.enums import ConversationStatus
 from tests.factories import inbound
 
 
@@ -35,7 +35,8 @@ def test_filters_mine_unassigned_overdue_resolved_archived(app, fx, client, data
     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "two")
     diego, sarah = _cid(database, fx.guest_nostay_a.id), _cid(database, fx.guest_inhouse_a.id)
     c = login("agent@hvh.test")
-    assert c.patch(f"{_base(fx)}/{sarah}", json={"assignedUserId": fx.agent_a.id}).status_code == 200
+    assigned = c.patch(f"{_base(fx)}/{sarah}", json={"assignedUserId": fx.agent_a.id})
+    assert assigned.status_code == 200
     assert {r["id"] for r in c.get(_base(fx) + "?filter=mine").get_json()} == {sarah}
     assert {r["id"] for r in c.get(_base(fx) + "?filter=unassigned").get_json()} == {diego}
     assert c.get(_base(fx) + "?filter=overdue").get_json() == []
@@ -52,7 +53,8 @@ def test_filters_mine_unassigned_overdue_resolved_archived(app, fx, client, data
     assert diego not in {r["id"] for r in c.get(_base(fx) + "?filter=resolved").get_json()}
 
 
-def test_dept_staff_sees_only_their_department_or_own_conversations(app, fx, client, database, login):
+def test_dept_staff_sees_only_their_department_or_own_conversations(app, fx, client, database,
+                                                                    login):
     inbound(client, fx, fx.guest_nostay_a.phone_e164, "one")
     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "two")
     diego, sarah = _cid(database, fx.guest_nostay_a.id), _cid(database, fx.guest_inhouse_a.id)
@@ -65,8 +67,10 @@ def test_dept_staff_sees_only_their_department_or_own_conversations(app, fx, cli
     # PATCH, a note-create, sending a message, or retrying one must not become a side door to it.
     assert eng.patch(f"{_base(fx)}/{diego}", json={}).status_code == 403
     assert eng.post(f"{_base(fx)}/{diego}/notes", json={"body": "peeking"}).status_code == 403
-    assert eng.post(f"{_base(fx)}/{diego}/messages", json={"body": "should not send"}).status_code == 403
-    assert eng.post(f"{_base(fx)}/{diego}/messages/00000000-0000-0000-0000-000000000000/retry").status_code == 403
+    send = eng.post(f"{_base(fx)}/{diego}/messages", json={"body": "should not send"})
+    assert send.status_code == 403
+    retry = eng.post(f"{_base(fx)}/{diego}/messages/00000000-0000-0000-0000-000000000000/retry")
+    assert retry.status_code == 403
 
 
 def test_dept_staff_without_department_sees_only_own_assigned(app, fx, client, database, login):
@@ -93,11 +97,13 @@ def test_detail_includes_messages_notes_and_stay(app, fx, client, database, logi
     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
     cid = _cid(database, fx.guest_inhouse_a.id)
     c = login("agent@hvh.test")
-    assert c.post(f"{_base(fx)}/{cid}/notes", json={"body": "Gold guest, @Marcus please watch"}).status_code == 201
+    note = c.post(f"{_base(fx)}/{cid}/notes", json={"body": "Gold guest, @Marcus please watch"})
+    assert note.status_code == 201
     d = c.get(f"{_base(fx)}/{cid}").get_json()
     assert d["guest"]["firstName"] == "Sarah" and d["stay"]["roomNumber"] == "412"
     assert [m["body"] for m in d["messages"]] == ["AC broken"]
-    assert d["notes"][0]["body"].startswith("Gold guest") and d["notes"][0]["authorName"] == "Ava Agent"
+    assert (d["notes"][0]["body"].startswith("Gold guest")
+           and d["notes"][0]["authorName"] == "Ava Agent")
     assert d["workOrders"] == [] and d["draftPrompts"] == []
 
 
@@ -106,7 +112,8 @@ def test_note_mention_notifies_mentioned_user(app, fx, client, database, login):
 
     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
     cid = _cid(database, fx.guest_inhouse_a.id)
-    login("agent@hvh.test").post(f"{_base(fx)}/{cid}/notes", json={"body": "@Marcus can you take this"})
+    login("agent@hvh.test").post(f"{_base(fx)}/{cid}/notes",
+                                 json={"body": "@Marcus can you take this"})
     with database.session() as db:
         n = db.scalar(select(Notification).where(Notification.type == "note.mention"))
         assert n.user_id == fx.agent_a2.id
@@ -117,7 +124,8 @@ def test_snooze_hides_and_wakes(app, fx, client, database, login):
     cid = _cid(database, fx.guest_inhouse_a.id)
     c = login("agent@hvh.test")
     until = (clock.now() + timedelta(hours=1)).isoformat()
-    assert c.patch(f"{_base(fx)}/{cid}", json={"status": "snoozed", "snoozedUntil": until}).status_code == 200
+    snoozed = c.patch(f"{_base(fx)}/{cid}", json={"status": "snoozed", "snoozedUntil": until})
+    assert snoozed.status_code == 200
     assert c.get(_base(fx)).get_json() == []
     with database.session() as db:
         assert db.get(Conversation, cid).status == ConversationStatus.snoozed
@@ -132,7 +140,9 @@ def test_retry_failed_message_via_api(app, fx, client, database, login, worker):
     cid = _cid(database, fx.guest_inhouse_a.id)
     c = login("agent@hvh.test")
     mid = c.post(f"{_base(fx)}/{cid}/messages", json={"body": "hello"}).get_json()["id"]
-    worker.tick(); clock.advance(seconds=0.5); worker.tick()
+    worker.tick()
+    clock.advance(seconds=0.5)
+    worker.tick()
     d = c.get(f"{_base(fx)}/{cid}").get_json()
     failed = [m for m in d["messages"] if m["id"] == mid][0]
     assert failed["deliveryStatus"] == "failed" and failed["providerErrorCode"] == "30007"
@@ -143,7 +153,8 @@ def test_retry_failed_message_via_api(app, fx, client, database, login, worker):
 def test_archive_requires_capability(app, fx, client, database, login):
     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hi")
     cid = _cid(database, fx.guest_inhouse_a.id)
-    login("agent@hvh.test").patch(f"{_base(fx)}/{cid}", json={"assignedDepartmentId": fx.dept_engineering.id})
+    login("agent@hvh.test").patch(f"{_base(fx)}/{cid}",
+                                  json={"assignedDepartmentId": fx.dept_engineering.id})
     eng = login("engineer@hvh.test")
     assert eng.patch(f"{_base(fx)}/{cid}", json={"status": "archived"}).status_code == 403
 

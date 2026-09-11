@@ -30,14 +30,16 @@ def list(db: Session, property_id: str, include_inactive: bool = False) -> list[
 
 
 def get(db: Session, property_id: str, asset_id: str) -> DigitalAsset:
-    a = db.scalar(select(DigitalAsset).where(DigitalAsset.id == asset_id, DigitalAsset.property_id == property_id))
+    a = db.scalar(select(DigitalAsset).where(DigitalAsset.id == asset_id,
+                                              DigitalAsset.property_id == property_id))
     if a is None:
         raise NotFound("Asset not found")
     return a
 
 
 def get_by_short_code(db: Session, short_code: str) -> DigitalAsset | None:
-    return db.scalar(select(DigitalAsset).where(DigitalAsset.short_code == short_code, DigitalAsset.active.is_(True)))
+    return db.scalar(select(DigitalAsset).where(DigitalAsset.short_code == short_code,
+                                                 DigitalAsset.active.is_(True)))
 
 
 def create(db: Session, property_id: str, data: AssetIn) -> DigitalAsset:
@@ -67,4 +69,5 @@ def update(db: Session, property_id: str, asset_id: str, data: AssetPatch) -> Di
 
 def delete(db: Session, property_id: str, asset_id: str) -> None:
     a = get(db, property_id, asset_id)
-    a.active = False  # soft: messages already sent still reference the id; the short link stops resolving
+    # soft: messages already sent still reference the id; the short link stops resolving
+    a.active = False

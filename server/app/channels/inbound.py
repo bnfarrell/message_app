@@ -22,12 +22,14 @@ class InboundResult:
 
 
 def property_for_number(db: Session, to_number: str) -> Property | None:
-    return db.scalar(select(Property).where(Property.sms_number == guests.normalize_phone(to_number)))
+    return db.scalar(select(Property).where(
+        Property.sms_number == guests.normalize_phone(to_number)))
 
 
 def handle(db: Session, property_id: str, msg: InboundMessage) -> InboundResult:
-    existing = db.scalar(select(Message).where(Message.property_id == property_id,
-                                               Message.provider_message_id == msg.provider_message_id))
+    existing = db.scalar(select(Message).where(
+        Message.property_id == property_id,
+        Message.provider_message_id == msg.provider_message_id))
     if existing is not None:
         conv = db.get(Conversation, existing.conversation_id)
         return InboundResult(conv, existing, False, None)
@@ -61,7 +63,8 @@ def handle(db: Session, property_id: str, msg: InboundMessage) -> InboundResult:
         name = f"{guest.first_name or ''} {guest.last_name or ''}".strip() or guest.phone_e164
         room = f" · {stay.room_number}" if stay and stay.room_number else ""
         notifications.notify_user_or_department(
-            db, property_id, user_id=conv.assigned_user_id, department_id=conv.assigned_department_id,
+            db, property_id, user_id=conv.assigned_user_id,
+            department_id=conv.assigned_department_id,
             type="message.inbound", title=f"{name}{room}", body=message.body[:140],
             entity_type="conversation", entity_id=conv.id)
 

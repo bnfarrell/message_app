@@ -25,7 +25,8 @@ def make_message(db: Session, conversation: Conversation, *, direction: Directio
         conversation_id=conversation.id, property_id=conversation.property_id, direction=direction,
         author_type=AuthorType.guest if direction == Direction.inbound else AuthorType.staff,
         channel=Channel.sms, body=body,
-        delivery_status=DeliveryStatus.delivered if direction == Direction.inbound else DeliveryStatus.queued,
+        delivery_status=(DeliveryStatus.delivered
+                        if direction == Direction.inbound else DeliveryStatus.queued),
         sent_at=clock.now(),
     )
     for k, v in overrides.items():

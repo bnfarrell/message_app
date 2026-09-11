@@ -14,7 +14,8 @@ class Conn:
 
 
 class ConnectionRegistry:
-    """In-memory set of live WebSocket connections, grouped by property. Single process by design."""
+    """In-memory set of live WebSocket connections, grouped by property. Single process by
+    design."""
 
     def __init__(self):
         self._conns: dict[int, Conn] = {}
@@ -39,7 +40,8 @@ class ConnectionRegistry:
     def send(self, property_id: str, text: str, user_id: str | None = None) -> int:
         with self._lock:
             targets = [c for c in self._conns.values()
-                       if c.property_id == property_id and (user_id is None or c.user_id == user_id)]
+                       if c.property_id == property_id
+                       and (user_id is None or c.user_id == user_id)]
         delivered = 0
         for c in targets:
             try:

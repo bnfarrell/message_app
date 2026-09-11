@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 
 import pytest
@@ -112,5 +112,5 @@ def test_utc_datetime_round_trips_aware(db_url):
         assert loaded.created_at.tzinfo is not None
         assert loaded.created_at.utcoffset().total_seconds() == 0
         assert isinstance(loaded.created_at, datetime)
-        assert loaded.created_at.tzinfo == timezone.utc
+        assert loaded.created_at.tzinfo == UTC
     database.engine.dispose()

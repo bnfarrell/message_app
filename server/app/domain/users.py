@@ -45,22 +45,26 @@ def members_of_department(db: Session, property_id: str, department_id: str) -> 
 
 
 def _staff_out(db: Session, property_id: str, user_id: str) -> StaffUserOut:
-    row = db.execute(select(UserAccount, PropertyMembership).join(PropertyMembership, PropertyMembership.user_id == UserAccount.id)
-                     .where(PropertyMembership.property_id == property_id, UserAccount.id == user_id)).first()
+    row = db.execute(select(UserAccount, PropertyMembership)
+                     .join(PropertyMembership, PropertyMembership.user_id == UserAccount.id)
+                     .where(PropertyMembership.property_id == property_id,
+                            UserAccount.id == user_id)).first()
     if row is None:
         raise NotFound("User is not a member of this property")
     u, m = row
-    return StaffUserOut(id=u.id, email=u.email, first_name=u.first_name, last_name=u.last_name, avatar_url=u.avatar_url,
+    return StaffUserOut(id=u.id, email=u.email, first_name=u.first_name, last_name=u.last_name,
+                        avatar_url=u.avatar_url,
                         role=m.role, department_id=m.department_id, status=u.status.value)
 
 
 def _check_department(db: Session, property_id: str, department_id: str | None) -> None:
-    if department_id and not db.scalar(select(Department.id).where(Department.id == department_id,
-                                                                    Department.property_id == property_id)):
+    if department_id and not db.scalar(select(Department.id).where(
+            Department.id == department_id, Department.property_id == property_id)):
         raise ValidationFailed("Unknown department")
 
 
-def create_staff(db: Session, property_id: str, actor_user_id: str, data: CreateStaffRequest) -> StaffUserOut:
+def create_staff(db: Session, property_id: str, actor_user_id: str,
+                 data: CreateStaffRequest) -> StaffUserOut:
     _check_department(db, property_id, data.department_id)
     user = db.scalar(select(UserAccount).where(UserAccount.email == data.email.lower()))
     if user is None:
@@ -68,23 +72,27 @@ def create_staff(db: Session, property_id: str, actor_user_id: str, data: Create
             raise ValidationFailed("A password is required for a new account")
         try:
             with db.begin_nested():
-                user = UserAccount(email=data.email.lower(), first_name=data.first_name, last_name=data.last_name,
+                user = UserAccount(email=data.email.lower(), first_name=data.first_name,
+                                   last_name=data.last_name,
                                    phone=data.phone, password_hash=hash_password(data.password))
                 db.add(user)
                 db.flush()
         except IntegrityError:
             user = db.scalar(select(UserAccount).where(UserAccount.email == data.email.lower()))
-    if db.scalar(select(PropertyMembership.id).where(PropertyMembership.user_id == user.id,
-                                                    PropertyMembership.property_id == property_id)):
+    if db.scalar(select(PropertyMembership.id).where(
+            PropertyMembership.user_id == user.id,
+            PropertyMembership.property_id == property_id)):
         raise Conflict("Already a member of this property")
-    db.add(PropertyMembership(user_id=user.id, property_id=property_id, role=data.role, department_id=data.department_id))
+    db.add(PropertyMembership(user_id=user.id, property_id=property_id, role=data.role,
+                              department_id=data.department_id))
     db.flush()
     audit.record(db, property_id, actor_user_id, "membership.created", "user_account", user.id,
                  after={"role": data.role.value, "department_id": data.department_id})
     return _staff_out(db, property_id, user.id)
 
 
-def update_staff(db: Session, property_id: str, actor_user_id: str, user_id: str, data: StaffPatch) -> StaffUserOut:
+def update_staff(db: Session, property_id: str, actor_user_id: str, user_id: str,
+                data: StaffPatch) -> StaffUserOut:
     m = db.scalar(select(PropertyMembership).where(PropertyMembership.user_id == user_id,
                                                    PropertyMembership.property_id == property_id))
     if m is None:
@@ -106,9 +114,10 @@ def update_staff(db: Session, property_id: str, actor_user_id: str, user_id: str
     if data.last_name:
         u.last_name = data.last_name
     db.flush()
-    audit.record(db, property_id, actor_user_id, "membership.updated", "user_account", user_id, before=before,
-                 after={"role": m.role.value, "department_id": m.department_id, "status": u.status.value,
-                        "password_reset": bool(data.password)})
+    audit.record(db, property_id, actor_user_id, "membership.updated", "user_account", user_id,
+                 before=before,
+                 after={"role": m.role.value, "department_id": m.department_id,
+                        "status": u.status.value, "password_reset": bool(data.password)})
     return _staff_out(db, property_id, user_id)
 
 

@@ -63,6 +63,7 @@ def test_find_in_house_by_phone_matches_checked_in_stay_only(app, fx, database):
     with database.session() as db:
         hit = stays.find_in_house_by_phone(db, fx.property_a.id, fx.guest_inhouse_a.phone_e164)
         assert hit is not None and hit[1].room_number == "412"
-        assert stays.find_in_house_by_phone(db, fx.property_a.id, fx.guest_nostay_a.phone_e164) is None
+        no_stay = stays.find_in_house_by_phone(db, fx.property_a.id, fx.guest_nostay_a.phone_e164)
+        assert no_stay is None
         # Same phone at another property is not in-house here.
         assert stays.find_in_house_by_phone(db, fx.property_a.id, fx.guest_b.phone_e164) is None

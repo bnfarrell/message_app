@@ -49,8 +49,9 @@ def ws_route(ws):
             if kind == "subscribe":
                 pid = frame.get("propertyId")
                 with get_db().session() as db:
-                    ok = db.scalar(select(PropertyMembership.id).where(PropertyMembership.user_id == user["id"],
-                                                                       PropertyMembership.property_id == pid))
+                    ok = db.scalar(select(PropertyMembership.id).where(
+                        PropertyMembership.user_id == user["id"],
+                        PropertyMembership.property_id == pid))
                 if not ok:
                     ws.close(4403, "no membership")
                     return
@@ -59,7 +60,8 @@ def ws_route(ws):
                     presence.broadcast_presence(property_id, presence.store.clear_user(user["id"]))
                 property_id = pid
                 connections.add(ws, property_id, user["id"])
-                ws.send(json.dumps({"type": "subscribed", "propertyId": property_id, "at": clock.now().isoformat()}))
+                ws.send(json.dumps({"type": "subscribed", "propertyId": property_id,
+                                    "at": clock.now().isoformat()}))
             elif kind == "presence" and property_id:
                 cid = frame.get("conversationId")
                 if cid is not None:
@@ -68,7 +70,8 @@ def ws_route(ws):
                                                       .where(Conversation.id == cid))
                     if conv_property_id != property_id:
                         continue
-                state = frame.get("state") if frame.get("state") in ("viewing", "composing") else "viewing"
+                state = (frame.get("state")
+                        if frame.get("state") in ("viewing", "composing") else "viewing")
                 changed = presence.store.update(cid, user, state)
                 presence.broadcast_presence(property_id, changed)
             elif kind == "heartbeat" and property_id:

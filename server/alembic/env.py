@@ -1,9 +1,9 @@
 import os
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 import app.models  # noqa: F401  (registers all tables on Base.metadata)
+from alembic import context
 from app.db import Base
 
 config = context.config

@@ -65,7 +65,8 @@ def test_retry_requeues_a_failed_message(app, fx, database, worker):
     with database.session() as db:
         from app.models import Guest
 
-        db.get(Guest, fx.guest_inhouse_a.id).phone_e164 = "+15551234567"  # a working number for the retry
+        # a working number for the retry
+        db.get(Guest, fx.guest_inhouse_a.id).phone_e164 = "+15551234567"
         m = messages.retry(db, fx.property_a.id, msg_id)
         assert m.delivery_status == DeliveryStatus.queued
         assert m.provider_error_code is None
@@ -77,7 +78,8 @@ def test_retry_requeues_a_failed_message(app, fx, database, worker):
         assert db.get(Message, msg_id).delivery_status == DeliveryStatus.delivered
 
 
-def test_provider_exception_marks_failed_without_retry(app, fx, database, worker, events, monkeypatch):
+def test_provider_exception_marks_failed_without_retry(app, fx, database, worker, events,
+                                                        monkeypatch):
     def _raise(self, db, to, body, *, message_id):
         raise RuntimeError("boom")
 
@@ -111,8 +113,10 @@ def test_update_delivery_status_ignores_backward_transition(app, fx, database, e
 
 def test_parse_inbound_reads_twilio_field_names(app):
     a = MockSmsAdapter(secret="dev")
-    m = a.parse_inbound({"From": "+15551234567", "To": "+15550100", "Body": " hi ", "MessageSid": "SM1"})
-    assert (m.from_, m.to, m.body, m.provider_message_id) == ("+15551234567", "+15550100", "hi", "SM1")
+    m = a.parse_inbound({"From": "+15551234567", "To": "+15550100", "Body": " hi ",
+                         "MessageSid": "SM1"})
+    assert ((m.from_, m.to, m.body, m.provider_message_id)
+           == ("+15551234567", "+15550100", "hi", "SM1"))
 
 
 def test_verify_inbound_checks_shared_secret(app):

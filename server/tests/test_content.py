@@ -12,10 +12,13 @@ def _cid(database, guest_id):
 def test_quick_reply_crud_search_and_render(app, fx, client, database, login):
     base = f"/api/p/{fx.property_a.id}/quick-replies"
     admin = login("admin@hvh.test")
-    r = admin.post(base, json={"shortcut": "/wifi", "title": "WiFi", "body": "Hi {{guest_first_name}}, WiFi is Harbourview-Guest, room {{room_number}}."})
+    r = admin.post(base, json={"shortcut": "/wifi", "title": "WiFi",
+                               "body": "Hi {{guest_first_name}}, WiFi is Harbourview-Guest, "
+                                       "room {{room_number}}."})
     assert r.status_code == 201
     qr = r.get_json()
-    admin.post(base, json={"shortcut": "/towels", "title": "Towels", "body": "Towels on the way to {{room_number}}.",
+    admin.post(base, json={"shortcut": "/towels", "title": "Towels",
+                           "body": "Towels on the way to {{room_number}}.",
                            "departmentId": fx.dept_housekeeping.id})
     dup = admin.post(base, json={"shortcut": "/wifi", "title": "x", "body": "y"})
     assert dup.status_code == 409
@@ -52,7 +55,8 @@ def test_assets_crud_short_link_and_send_appends_link(app, fx, client, database,
     assert m["body"] == f"Here you go: /a/{a['shortCode']}" and m["digitalAssetId"] == a["id"]
     with database.session() as db:
         assert db.get(DigitalAsset, a["id"]).send_count == 1
-    assert admin.patch(f"{base}/{a['id']}", json={"name": "WiFi card v2"}).get_json()["name"] == "WiFi card v2"
+    renamed = admin.patch(f"{base}/{a['id']}", json={"name": "WiFi card v2"})
+    assert renamed.get_json()["name"] == "WiFi card v2"
     assert admin.delete(f"{base}/{a['id']}").status_code == 204
     assert client.get(f"/a/{a['shortCode']}").status_code == 404
 
@@ -64,7 +68,8 @@ def test_resolution_categories_tree(app, fx, client, login):
     child = admin.post(base, json={"name": "HVAC", "parentId": parent["id"]}).get_json()
     tree = admin.get(base).get_json()
     assert tree[0]["name"] == "Maintenance" and tree[0]["children"][0]["id"] == child["id"]
-    assert admin.patch(f"{base}/{child['id']}", json={"name": "HVAC / AC"}).get_json()["name"] == "HVAC / AC"
+    renamed = admin.patch(f"{base}/{child['id']}", json={"name": "HVAC / AC"})
+    assert renamed.get_json()["name"] == "HVAC / AC"
     assert admin.delete(f"{base}/{parent['id']}").status_code == 409  # has children
     assert admin.delete(f"{base}/{child['id']}").status_code == 204
     assert admin.delete(f"{base}/{parent['id']}").status_code == 204

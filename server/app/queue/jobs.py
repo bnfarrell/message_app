@@ -55,7 +55,8 @@ def fail(db: Session, job: Job, exc: BaseException, *, retry: bool = True) -> No
 
 def reclaim_stale(db: Session, older_than_seconds: int = STALE_SECONDS) -> int:
     cutoff = clock.now() - timedelta(seconds=older_than_seconds)
-    rows = db.scalars(select(Job).where(Job.status == JobStatus.running, Job.locked_at < cutoff)).all()
+    rows = db.scalars(select(Job).where(Job.status == JobStatus.running,
+                                         Job.locked_at < cutoff)).all()
     for job in rows:
         job.status = JobStatus.queued
         job.locked_at = None

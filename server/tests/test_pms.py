@@ -4,7 +4,8 @@ from sqlalchemy import select
 
 from app import clock
 from app.models import Guest, PmsEvent, Stay
-from app.pms.base import NormalizedGuest, NormalizedStay, PmsEvent as Ev
+from app.pms.base import NormalizedGuest, NormalizedStay
+from app.pms.base import PmsEvent as Ev
 from app.pms.handle_event import handle_event
 from app.pms.mock_pms import MockPmsAdapter
 from app.schemas.enums import SmsConsentStatus, StayStatus
@@ -13,11 +14,14 @@ from app.schemas.enums import SmsConsentStatus, StayStatus
 def _event(fx, eid="R-1", type="stay.checked_in", phone="+15553334444", room="515"):
     today = clock.now().date()
     return Ev(external_id=eid, type=type, property_id=fx.property_a.id,
-              guest=NormalizedGuest(first_name="Tom", last_name="Becker", phone_e164=phone, email=None,
+              guest=NormalizedGuest(first_name="Tom", last_name="Becker", phone_e164=phone,
+                                    email=None,
                                     loyalty_tier="Silver", vip=False, pms_profile_id="P-9"),
-              stay=NormalizedStay(pms_reservation_id=eid, room_number=room, room_type="Queen", rate_code="BAR",
+              stay=NormalizedStay(pms_reservation_id=eid, room_number=room, room_type="Queen",
+                                  rate_code="BAR",
                                   status=StayStatus.checked_in, arrival_date=today,
-                                  departure_date=date.fromordinal(today.toordinal() + 2), adults=1, children=0,
+                                  departure_date=date.fromordinal(today.toordinal() + 2),
+                                  adults=1, children=0,
                                   is_return_guest=False, stay_count=1),
               raw={"source": "test"})
 
@@ -28,7 +32,8 @@ def test_check_in_upserts_guest_and_stay(app, fx, database):
         g = db.scalar(select(Guest).where(Guest.phone_e164 == "+15553334444"))
         assert g.first_name == "Tom" and g.loyalty_tier == "Silver" and g.pms_profile_id == "P-9"
         s = db.scalar(select(Stay).where(Stay.pms_reservation_id == "R-1"))
-        assert s.status == StayStatus.checked_in and s.room_number == "515" and s.actual_checkin_at is not None
+        assert (s.status == StayStatus.checked_in and s.room_number == "515"
+               and s.actual_checkin_at is not None)
         assert s.raw_pms == {"source": "test"}
 
 
@@ -53,21 +58,27 @@ def test_check_out_updates_existing_stay_and_does_not_reopen_consent(app, fx, da
 def test_mock_adapter_checks_in_arrivals_then_checks_out_departures(app, fx, database):
     today = clock.now().date()
     with database.session() as db:
-        g = Guest(property_id=fx.property_a.id, first_name="Arriving", last_name="Guest", phone_e164="+15550009999")
-        db.add(g); db.flush()
-        db.add(Stay(guest_id=g.id, property_id=fx.property_a.id, pms_reservation_id="R-ARR", room_number="222",
-                    status=StayStatus.reserved, arrival_date=today, departure_date=date.fromordinal(today.toordinal() + 1)))
+        g = Guest(property_id=fx.property_a.id, first_name="Arriving", last_name="Guest",
+                  phone_e164="+15550009999")
+        db.add(g)
+        db.flush()
+        db.add(Stay(guest_id=g.id, property_id=fx.property_a.id, pms_reservation_id="R-ARR",
+                    room_number="222",
+                    status=StayStatus.reserved, arrival_date=today,
+                    departure_date=date.fromordinal(today.toordinal() + 1)))
         fx_stay = db.get(Stay, fx.stay_inhouse_a.id)
         fx_stay.departure_date = today  # Sarah departs today
     adapter = MockPmsAdapter()
     with database.session() as db:
         events = adapter.next_events(db, fx.property_a.id)
-        assert [e.type for e in events] == ["stay.checked_in"] and events[0].stay.pms_reservation_id == "R-ARR"
+        assert ([e.type for e in events] == ["stay.checked_in"]
+               and events[0].stay.pms_reservation_id == "R-ARR")
         for e in events:
             handle_event(db, e)
     with database.session() as db:
         events = adapter.next_events(db, fx.property_a.id)
-        assert [e.type for e in events] == ["stay.checked_out"] and events[0].stay.pms_reservation_id == "RES-412"
+        assert ([e.type for e in events] == ["stay.checked_out"]
+               and events[0].stay.pms_reservation_id == "RES-412")
         for e in events:
             handle_event(db, e)
         assert db.get(Stay, fx.stay_inhouse_a.id).status == StayStatus.checked_out
@@ -82,7 +93,8 @@ def test_check_in_does_not_reopen_consent_for_opted_out_sms_guest(app, fx, datab
         g = Guest(property_id=fx.property_a.id, first_name=None, last_name=None, phone_e164=phone,
                   sms_consent_status=SmsConsentStatus.opted_out, sms_consent_at=consent_at,
                   sms_consent_source="sms_keyword")
-        db.add(g); db.flush()
+        db.add(g)
+        db.flush()
         guest_id = g.id
 
     with database.session() as db:

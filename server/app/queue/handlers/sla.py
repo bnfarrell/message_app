@@ -24,9 +24,11 @@ def sweep_once(db: Session) -> int:
         room = f" · {stay.room_number}" if stay and stay.room_number else ""
         minutes = int((now - c.sla_due_at).total_seconds() // 60)
         notifications.notify_user_or_department(
-            db, c.property_id, user_id=c.assigned_user_id, department_id=c.assigned_department_id,
+            db, c.property_id, user_id=c.assigned_user_id,
+            department_id=c.assigned_department_id,
             type="sla.breach", title=f"Response overdue: {name}{room}",
-            body=f"No reply for {minutes} min past the SLA", entity_type="conversation", entity_id=c.id)
+            body=f"No reply for {minutes} min past the SLA", entity_type="conversation",
+            entity_id=c.id)
         c.sla_breach_notified_at = now
         queue_event(db, c.property_id, "conversation.updated", {"id": c.id})
     db.flush()

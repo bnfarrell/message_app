@@ -1,4 +1,4 @@
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time
 
 from flask import Blueprint, g, request
 
@@ -20,7 +20,8 @@ def _parse(name: str, end_of_day: bool = False) -> datetime | None:
     except ValueError as e:
         raise ValidationFailed(f"{name} must be an ISO date or datetime") from e
     if dt.tzinfo is None:
-        dt = datetime.combine(dt.date(), time.max if end_of_day and len(raw) == 10 else dt.time(), tzinfo=timezone.utc)
+        dt = datetime.combine(dt.date(), time.max if end_of_day and len(raw) == 10 else dt.time(),
+                             tzinfo=UTC)
     return dt
 
 
@@ -30,7 +31,8 @@ def _parse(name: str, end_of_day: bool = False) -> datetime | None:
 @require_capability("view_property_analytics")
 def overview(property_id: str):
     with db_session() as db:
-        return ok(analytics.overview(db, g.property_id, _parse("from"), _parse("to", end_of_day=True)))
+        return ok(analytics.overview(db, g.property_id, _parse("from"),
+                                     _parse("to", end_of_day=True)))
 
 
 @bp.get("/agents")
@@ -45,4 +47,5 @@ def agents(property_id: str):
     else:
         raise Forbidden("Your role cannot view analytics")
     with db_session() as db:
-        return ok(analytics.agents(db, g.property_id, _parse("from"), _parse("to", end_of_day=True), only_user_id=only))
+        return ok(analytics.agents(db, g.property_id, _parse("from"),
+                                   _parse("to", end_of_day=True), only_user_id=only))

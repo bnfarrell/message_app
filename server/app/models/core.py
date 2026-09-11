@@ -74,7 +74,9 @@ class Department(TimestampMixin, Base):
 
 class PropertyMembership(TimestampMixin, Base):
     __tablename__ = "property_membership"
-    __table_args__ = (UniqueConstraint("user_id", "property_id", name="uq_membership_user_property"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "property_id", name="uq_membership_user_property"),
+    )
     user_id: Mapped[str] = mapped_column(ForeignKey("user_account.id"), nullable=False, index=True)
     property_id: Mapped[str] = mapped_column(
         ForeignKey("property.id"), nullable=False, index=True

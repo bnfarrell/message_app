@@ -64,8 +64,8 @@ def handle_event(db: Session, event: PmsEvent, integration_key: str = "mock") ->
                 db.flush()
         except IntegrityError:
             stay = _find_stay(db, event.property_id, event.stay.pms_reservation_id)
-    for attr in ("room_number", "room_type", "rate_code", "status", "arrival_date", "departure_date", "adults",
-                 "children", "is_return_guest", "stay_count"):
+    for attr in ("room_number", "room_type", "rate_code", "status", "arrival_date",
+                 "departure_date", "adults", "children", "is_return_guest", "stay_count"):
         setattr(stay, attr, getattr(event.stay, attr))
     stay.raw_pms = event.raw
     now = clock.now()
@@ -78,5 +78,6 @@ def handle_event(db: Session, event: PmsEvent, integration_key: str = "mock") ->
     row.processed_at = now
     audit.record(db, event.property_id, None, f"pms.{event.type}", "stay", stay.id,
                  after={"external_id": event.external_id, "room": stay.room_number})
-    queue_event(db, event.property_id, "stay.updated", {"stayId": stay.id, "guestId": guest.id, "status": stay.status.value})
+    queue_event(db, event.property_id, "stay.updated",
+                {"stayId": stay.id, "guestId": guest.id, "status": stay.status.value})
     return True

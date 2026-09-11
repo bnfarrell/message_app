@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import hmac
 import uuid
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Mapping
 
 from flask import Request
 from sqlalchemy.orm import Session
@@ -38,7 +38,8 @@ class MockSmsAdapter:
         else:
             jobs.enqueue(db, "mock.delivery_status", {"message_id": message_id, "status": "sent"},
                          run_at=now + timedelta(milliseconds=400), max_attempts=1)
-            jobs.enqueue(db, "mock.delivery_status", {"message_id": message_id, "status": "delivered"},
+            jobs.enqueue(db, "mock.delivery_status",
+                         {"message_id": message_id, "status": "delivered"},
                          run_at=now + timedelta(milliseconds=1200), max_attempts=1)
         return SendResult(provider_message_id=provider_id)
 

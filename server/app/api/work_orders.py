@@ -6,7 +6,12 @@ from app.auth.permissions import has_capability
 from app.domain import conversations, work_orders
 from app.errors import Forbidden, ValidationFailed
 from app.schemas.enums import WorkOrderStatus
-from app.schemas.work_orders import CreateWorkOrder, WorkOrderListQuery, WorkOrderOut, WorkOrderPatch
+from app.schemas.work_orders import (
+    CreateWorkOrder,
+    WorkOrderListQuery,
+    WorkOrderOut,
+    WorkOrderPatch,
+)
 
 bp = Blueprint("work_orders", __name__, url_prefix="/api/p/<property_id>/work-orders")
 CLOSING = {WorkOrderStatus.complete, WorkOrderStatus.verified, WorkOrderStatus.cancelled}
@@ -66,14 +71,16 @@ def patch_work_order(property_id: str, work_order_id: str):
     p = parse_body(WorkOrderPatch)
     with db_session() as db:
         if p.assigned_user_id or p.department_id or p.clear_assignee:
-            work_orders.assign(db, g.property_id, work_order_id, g.user.id, user_id=p.assigned_user_id,
+            work_orders.assign(db, g.property_id, work_order_id, g.user.id,
+                               user_id=p.assigned_user_id,
                                department_id=p.department_id, clear=p.clear_assignee)
         if p.priority is not None:
             work_orders.set_priority(db, g.property_id, work_order_id, g.user.id, p.priority)
         if p.status is not None:
             if p.status in CLOSING and not has_capability(g.membership.role, "close_work_order"):
                 raise Forbidden("Your role cannot close work orders")
-            work_orders.transition(db, g.property_id, work_order_id, g.user.id, p.status, comment=p.comment)
+            work_orders.transition(db, g.property_id, work_order_id, g.user.id, p.status,
+                                   comment=p.comment)
         elif p.comment:
             work_orders.comment(db, g.property_id, work_order_id, g.user.id, p.comment)
         return ok(work_orders.detail(db, g.property_id, work_order_id))

@@ -45,13 +45,15 @@ def login():
                  and verify_password(body.password, user.password_hash))
         if valid:
             token = create_session(db, user.id, ip, ua)
-            audit.record(db, None, user.id, "auth.login", "user_account", user.id, ip=ip, user_agent=ua)
+            audit.record(db, None, user.id, "auth.login", "user_account", user.id, ip=ip,
+                        user_agent=ua)
             payload = _session_out(db, user)
     if not valid:
         # Written in its own session: raising inside the block above would roll the audit row back.
         with db_session() as db:
             audit.record(db, None, None, "auth.login_failed", "user_account",
-                         user.id if user else None, after={"email": body.email}, ip=ip, user_agent=ua)
+                         user.id if user else None, after={"email": body.email}, ip=ip,
+                         user_agent=ua)
         raise Unauthorized("Email or password is incorrect")
     resp = make_response(ok(payload)[0], 200)
     resp.set_cookie(COOKIE_NAME, token, max_age=SESSION_HOURS * 3600, httponly=True,
@@ -65,7 +67,8 @@ def logout():
     ip, ua = client_meta()
     with db_session() as db:
         revoke_session(db, g.session_token)
-        audit.record(db, None, g.user.id, "auth.logout", "user_account", g.user.id, ip=ip, user_agent=ua)
+        audit.record(db, None, g.user.id, "auth.logout", "user_account", g.user.id, ip=ip,
+                    user_agent=ua)
     resp = make_response(no_content())
     resp.delete_cookie(COOKIE_NAME, path="/")
     return resp

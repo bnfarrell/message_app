@@ -43,7 +43,8 @@ def test_subscribe_and_receive_broadcast(app, fx, live_server, login, database):
     with database.session() as db:
         notifications.create(db, fx.property_a.id, fx.agent_a.id, "t", "Hello over the wire")
     msg = json.loads(ws.receive(timeout=2))
-    assert msg["type"] == "notification.created" and msg["payload"]["title"] == "Hello over the wire"
+    assert (msg["type"] == "notification.created"
+           and msg["payload"]["title"] == "Hello over the wire")
     ws.close()
 
 
@@ -69,8 +70,10 @@ def test_presence_is_fanned_out_to_the_property(app, fx, live_server, login, dat
     a.send(json.dumps({"type": "presence", "conversationId": conv_id, "state": "composing"}))
     got = json.loads(b.receive(timeout=2))
     assert got["type"] == "presence.update" and got["payload"]["conversationId"] == conv_id
-    assert got["payload"]["users"][0]["firstName"] == "Ava" and got["payload"]["users"][0]["state"] == "composing"
-    a.close(); b.close()
+    assert (got["payload"]["users"][0]["firstName"] == "Ava"
+           and got["payload"]["users"][0]["state"] == "composing")
+    a.close()
+    b.close()
 
 
 def test_disconnect_clears_presence(app, fx, live_server, login, database):

@@ -2,9 +2,27 @@ import pytest
 from sqlalchemy import func, select
 
 from app.db import Database
-from app.models import (Conversation, DigitalAsset, DraftPrompt, Guest, Message, Property, PropertyMembership,
-                        QuickReply, ResolutionCategory, Stay, UserAccount, WorkOrder)
-from app.schemas.enums import ConversationStatus, DeliveryStatus, SmsConsentStatus, StayStatus, WorkOrderStatus
+from app.models import (
+    Conversation,
+    DigitalAsset,
+    DraftPrompt,
+    Guest,
+    Message,
+    Property,
+    PropertyMembership,
+    QuickReply,
+    ResolutionCategory,
+    Stay,
+    UserAccount,
+    WorkOrder,
+)
+from app.schemas.enums import (
+    ConversationStatus,
+    DeliveryStatus,
+    SmsConsentStatus,
+    StayStatus,
+    WorkOrderStatus,
+)
 from seed.seed import run
 
 
@@ -13,7 +31,8 @@ def test_seed_matches_spec_counts(tmp_path):
     summary = run(url, reset=True)
     db_ = Database(url)
     with db_.session() as db:
-        count = lambda model, *where: db.scalar(select(func.count()).select_from(model).where(*where))  # noqa: E731
+        count = lambda model, *where: db.scalar(  # noqa: E731
+            select(func.count()).select_from(model).where(*where))
         hvh = db.scalar(select(Property).where(Property.code == "HVH"))
         lsi = db.scalar(select(Property).where(Property.code == "LSI"))
         assert hvh and lsi
@@ -22,13 +41,16 @@ def test_seed_matches_spec_counts(tmp_path):
         assert count(Stay, Stay.property_id == hvh.id, Stay.status == StayStatus.reserved) == 10
         assert count(Stay, Stay.property_id == hvh.id, Stay.status == StayStatus.checked_out) == 8
         assert count(Conversation, Conversation.property_id == hvh.id) == 30
-        assert count(Conversation, Conversation.property_id == hvh.id, Conversation.status == ConversationStatus.archived) == 5
+        assert count(Conversation, Conversation.property_id == hvh.id,
+                     Conversation.status == ConversationStatus.archived) == 5
         assert count(DraftPrompt) == 2
         assert count(Guest, Guest.sms_consent_status == SmsConsentStatus.opted_out) == 1
         assert count(Message, Message.redacted.is_(True)) == 1
         assert count(WorkOrder, WorkOrder.property_id == hvh.id,
-                     WorkOrder.status.in_([WorkOrderStatus.open, WorkOrderStatus.assigned, WorkOrderStatus.in_progress,
-                                           WorkOrderStatus.blocked, WorkOrderStatus.complete])) == 15
+                     WorkOrder.status.in_([WorkOrderStatus.open, WorkOrderStatus.assigned,
+                                           WorkOrderStatus.in_progress,
+                                           WorkOrderStatus.blocked,
+                                           WorkOrderStatus.complete])) == 15
         assert count(WorkOrder, WorkOrder.source_conversation_id.isnot(None)) >= 6
         assert count(QuickReply, QuickReply.property_id == hvh.id) >= 15
         assert count(DigitalAsset, DigitalAsset.property_id == hvh.id) == 8
@@ -55,7 +77,8 @@ def test_seed_matches_spec_counts(tmp_path):
         pa = sorted(da.scalars(select(Guest.phone_e164)).all())
         pb = sorted(dbb.scalars(select(Guest.phone_e164)).all())
     assert pa == pb
-    a.engine.dispose(); b.engine.dispose()
+    a.engine.dispose()
+    b.engine.dispose()
 
 
 def test_seeded_users_can_log_in(tmp_path):
@@ -66,7 +89,8 @@ def test_seeded_users_can_log_in(tmp_path):
     run(url, reset=True)
     app = create_app(Config(DATABASE_URL=url, TESTING=True))
     c = app.test_client()
-    assert c.post("/api/auth/login", json={"email": "ava@hvh.test", "password": "Password123!"}).status_code == 200
+    res = c.post("/api/auth/login", json={"email": "ava@hvh.test", "password": "Password123!"})
+    assert res.status_code == 200
     body = c.get("/api/auth/me").get_json()
     assert body["memberships"][0]["role"] == "agent"
     app.extensions["db"].engine.dispose()

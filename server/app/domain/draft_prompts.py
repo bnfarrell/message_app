@@ -33,7 +33,8 @@ def create_for_completion(db: Session, wo: WorkOrder) -> DraftPrompt | None:
     stay = db.get(Stay, conv.stay_id) if conv.stay_id else None
     room = stay.room_number if stay else wo.location_ref
     dp = DraftPrompt(property_id=wo.property_id, conversation_id=conv.id, work_order_id=wo.id,
-                     body=draft_body(guest.first_name, room, wo.title), status=DraftPromptStatus.pending)
+                     body=draft_body(guest.first_name, room, wo.title),
+                     status=DraftPromptStatus.pending)
     db.add(dp)
     db.flush()
     queue_event(db, wo.property_id, "draft_prompt.created",
@@ -41,8 +42,10 @@ def create_for_completion(db: Session, wo: WorkOrder) -> DraftPrompt | None:
     return dp
 
 
-def dismiss(db: Session, property_id: str, conversation_id: str, prompt_id: str, actor_user_id: str) -> DraftPrompt:
-    dp = db.scalar(select(DraftPrompt).where(DraftPrompt.id == prompt_id, DraftPrompt.property_id == property_id,
+def dismiss(db: Session, property_id: str, conversation_id: str, prompt_id: str,
+           actor_user_id: str) -> DraftPrompt:
+    dp = db.scalar(select(DraftPrompt).where(DraftPrompt.id == prompt_id,
+                                             DraftPrompt.property_id == property_id,
                                              DraftPrompt.conversation_id == conversation_id))
     if dp is None:
         raise NotFound("Prompt not found")
@@ -50,6 +53,7 @@ def dismiss(db: Session, property_id: str, conversation_id: str, prompt_id: str,
         dp.status = DraftPromptStatus.dismissed
         dp.resolved_at = clock.now()
         dp.resolved_by_user_id = actor_user_id
-        audit.record(db, property_id, actor_user_id, "draft_prompt.dismissed", "draft_prompt", dp.id)
+        audit.record(db, property_id, actor_user_id, "draft_prompt.dismissed", "draft_prompt",
+                     dp.id)
         queue_event(db, property_id, "conversation.updated", {"id": conversation_id})
     return dp

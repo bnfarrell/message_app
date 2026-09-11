@@ -8,7 +8,11 @@ from app.domain import conversations, draft_prompts, messages, notes
 from app.errors import NotFound
 from app.models import Message
 from app.schemas.conversations import (
-    ConversationPatch, CreateNoteRequest, ListQuery, MessageOut, SendMessageRequest,
+    ConversationPatch,
+    CreateNoteRequest,
+    ListQuery,
+    MessageOut,
+    SendMessageRequest,
 )
 
 bp = Blueprint("conversations", __name__, url_prefix="/api/p/<property_id>/conversations")
@@ -50,7 +54,8 @@ def send_message(property_id: str, conversation_id: str):
         conversations.get_for_viewer(db, g.property_id, conversation_id, g.membership.role,
                                      g.user.id, g.membership.department_id)
         m = messages.send(db, g.property_id, conversation_id, body.body, author_user_id=g.user.id,
-                          digital_asset_id=body.digital_asset_id, draft_prompt_id=body.draft_prompt_id,
+                          digital_asset_id=body.digital_asset_id,
+                          draft_prompt_id=body.draft_prompt_id,
                           ip=ip, user_agent=ua)
         return ok(MessageOut.model_validate(m), 201)
 

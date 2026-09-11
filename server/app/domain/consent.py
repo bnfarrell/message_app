@@ -1,7 +1,9 @@
-"""TCPA consent (design.md §9.1). assert_can_send() is called from exactly one place: messages.send()."""
+"""TCPA consent (design.md §9.1). assert_can_send() is called from exactly one place:
+messages.send()."""
 from __future__ import annotations
 
-from typing import Callable, Literal
+from collections.abc import Callable
+from typing import Literal
 
 from sqlalchemy.orm import Session
 

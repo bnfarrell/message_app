@@ -17,10 +17,12 @@ def test_guest_thread_excludes_notes_entirely(app, fx, client, database, login):
     from app.models import Conversation
 
     with database.session() as db:
-        cid = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+        cid = db.scalar(select(Conversation.id).where(
+            Conversation.guest_id == fx.guest_inhouse_a.id))
     c = login("agent@hvh.test")
     c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/notes", json={"body": SECRET})
-    c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages", json={"body": "visible reply"})
+    c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages",
+           json={"body": "visible reply"})
     with database.session() as db:
         thread = conversations.guest_thread(db, fx.property_a.id, fx.guest_inhouse_a.phone_e164)
     payload = json.dumps(thread.model_dump(mode="json", by_alias=True))
@@ -31,7 +33,8 @@ def test_guest_thread_excludes_notes_entirely(app, fx, client, database, login):
 
 def test_guest_thread_schema_rejects_a_notes_field():
     try:
-        GuestThread.model_validate({"phone": "+1", "propertyName": "x", "messages": [], "notes": []})
+        GuestThread.model_validate({"phone": "+1", "propertyName": "x", "messages": [],
+                                    "notes": []})
     except ValidationError:
         return
     raise AssertionError("GuestThread accepted a 'notes' field — it must be extra='forbid'")
@@ -44,7 +47,8 @@ def test_staff_detail_keeps_notes_in_a_separate_array(app, fx, client, database,
     from app.models import Conversation
 
     with database.session() as db:
-        cid = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+        cid = db.scalar(select(Conversation.id).where(
+            Conversation.guest_id == fx.guest_inhouse_a.id))
     c = login("agent@hvh.test")
     c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/notes", json={"body": SECRET})
     d = c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()

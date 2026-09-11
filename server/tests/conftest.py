@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import email_validator
 import pytest
@@ -15,7 +15,7 @@ from tests.fixtures import PASSWORD, load_fixture
 # email-validator otherwise rejects as "special-use". Test process only.
 email_validator.TEST_ENVIRONMENT = True
 
-FROZEN = datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc)
+FROZEN = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
 
 @pytest.fixture(scope="session")
@@ -74,7 +74,8 @@ def events(app):
     from app.realtime import broadcast
 
     captured = []
-    fn = captured.append  # keep one reference: a fresh bound method would not compare equal on removal
+    # keep one reference: a fresh bound method would not compare equal on removal
+    fn = captured.append
     broadcast.add_listener(fn)
     yield captured
     broadcast.remove_listener(fn)

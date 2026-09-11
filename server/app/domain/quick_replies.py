@@ -12,7 +12,8 @@ from app.errors import Conflict, NotFound
 from app.models import Guest, Property, QuickReply, Stay, UserAccount
 from app.schemas.content import QuickReplyIn, QuickReplyOut, QuickReplyPatch, RenderedQuickReply
 
-VARIABLES = ("guest_first_name", "room_number", "property_name", "agent_first_name", "departure_date")
+VARIABLES = ("guest_first_name", "room_number", "property_name", "agent_first_name",
+            "departure_date")
 FALLBACKS = {
     "guest_first_name": "there",
     "room_number": "your room",
@@ -40,24 +41,29 @@ def list(db: Session, property_id: str, q: str | None = None, department_id: str
     if not include_inactive:
         stmt = stmt.where(QuickReply.active.is_(True))
     if department_id:
-        stmt = stmt.where(or_(QuickReply.department_id == department_id, QuickReply.department_id.is_(None)))
+        stmt = stmt.where(or_(QuickReply.department_id == department_id,
+                              QuickReply.department_id.is_(None)))
     if q:
         like = f"%{q.lower()}%"
-        stmt = stmt.where(or_(func.lower(QuickReply.shortcut).like(like), func.lower(QuickReply.title).like(like),
+        stmt = stmt.where(or_(func.lower(QuickReply.shortcut).like(like),
+                              func.lower(QuickReply.title).like(like),
                               func.lower(QuickReply.body).like(like)))
     rows = db.scalars(stmt.order_by(QuickReply.usage_count.desc(), QuickReply.shortcut)).all()
     return [QuickReplyOut.model_validate(r) for r in rows]
 
 
 def get(db: Session, property_id: str, quick_reply_id: str) -> QuickReply:
-    r = db.scalar(select(QuickReply).where(QuickReply.id == quick_reply_id, QuickReply.property_id == property_id))
+    r = db.scalar(select(QuickReply).where(QuickReply.id == quick_reply_id,
+                                            QuickReply.property_id == property_id))
     if r is None:
         raise NotFound("Quick reply not found")
     return r
 
 
-def _assert_shortcut_free(db: Session, property_id: str, shortcut: str, exclude_id: str | None = None) -> None:
-    stmt = select(QuickReply.id).where(QuickReply.property_id == property_id, QuickReply.shortcut == shortcut)
+def _assert_shortcut_free(db: Session, property_id: str, shortcut: str,
+                          exclude_id: str | None = None) -> None:
+    stmt = select(QuickReply.id).where(QuickReply.property_id == property_id,
+                                        QuickReply.shortcut == shortcut)
     if exclude_id:
         stmt = stmt.where(QuickReply.id != exclude_id)
     if db.scalar(stmt):
@@ -99,7 +105,8 @@ def delete(db: Session, property_id: str, quick_reply_id: str) -> None:
     db.delete(get(db, property_id, quick_reply_id))
 
 
-def context_for_conversation(db: Session, property_id: str, conversation_id: str, agent_user_id: str | None) -> dict:
+def context_for_conversation(db: Session, property_id: str, conversation_id: str,
+                             agent_user_id: str | None) -> dict:
     conv = conv_domain.get(db, property_id, conversation_id)
     guest = db.get(Guest, conv.guest_id)
     stay = db.get(Stay, conv.stay_id) if conv.stay_id else None
@@ -117,6 +124,7 @@ def context_for_conversation(db: Session, property_id: str, conversation_id: str
 def render(db: Session, property_id: str, quick_reply_id: str, conversation_id: str,
            agent_user_id: str | None) -> RenderedQuickReply:
     r = get(db, property_id, quick_reply_id)
-    body = interpolate(r.body, context_for_conversation(db, property_id, conversation_id, agent_user_id))
+    body = interpolate(r.body,
+                       context_for_conversation(db, property_id, conversation_id, agent_user_id))
     r.usage_count += 1
     return RenderedQuickReply(body=body, segments=segment_count(body), characters=len(body))

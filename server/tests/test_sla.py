@@ -27,7 +27,8 @@ def test_overdue_conversation_notifies_assignee_once(app, fx, client, database, 
         n = db.scalars(select(Notification).where(Notification.type == "sla.breach")).all()
         assert len(n) == 1 and n[0].user_id == fx.agent_a.id and n[0].entity_id == cid
     staff = login("agent@hvh.test")
-    assert {r["id"] for r in staff.get(f"/api/p/{fx.property_a.id}/conversations?filter=overdue").get_json()} == {cid}
+    overdue = staff.get(f"/api/p/{fx.property_a.id}/conversations?filter=overdue").get_json()
+    assert {r["id"] for r in overdue} == {cid}
     assert any(e.type == "conversation.updated" and e.payload["id"] == cid for e in events)
 
 
@@ -36,18 +37,21 @@ def test_overdue_unassigned_conversation_notifies_front_desk(app, fx, client, da
     clock.advance(minutes=16)
     with database.session() as db:
         sweep_once(db)
-        targets = sorted(n.user_id for n in db.scalars(select(Notification).where(Notification.type == "sla.breach")).all())
+        breaches = db.scalars(select(Notification).where(Notification.type == "sla.breach")).all()
+        targets = sorted(n.user_id for n in breaches)
     assert targets == sorted([fx.agent_a.id, fx.agent_a2.id])
 
 
 def test_reply_clears_the_breach_and_a_new_inbound_restarts_it(app, fx, client, database, login):
     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "one")
     with database.session() as db:
-        cid = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+        cid = db.scalar(select(Conversation.id).where(
+            Conversation.guest_id == fx.guest_inhouse_a.id))
     clock.advance(minutes=16)
     with database.session() as db:
         assert sweep_once(db) == 1
-    login("agent@hvh.test").post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages", json={"body": "hi"})
+    login("agent@hvh.test").post(f"/api/p/{fx.property_a.id}/conversations/{cid}/messages",
+                                 json={"body": "hi"})
     with database.session() as db:
         c = db.get(Conversation, cid)
         assert c.sla_due_at is None and c.sla_breach_notified_at is None

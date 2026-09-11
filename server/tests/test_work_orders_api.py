@@ -16,21 +16,25 @@ def test_prefill_create_transition_and_detail_via_api(app, fx, client, database,
     agent = login("agent@hvh.test")
     p = agent.get(f"{base}/prefill?conversationId={cid}").get_json()
     assert p["locationRef"] == "412" and p["departmentId"] == fx.dept_engineering.id
-    res = agent.post(base, json={**{k: p[k] for k in ("title", "description", "type", "priority", "locationType",
-                                                           "locationRef", "departmentId", "sourceConversationId",
-                                                           "sourceMessageId")}, "priority": "urgent"})
+    fields = ("title", "description", "type", "priority", "locationType", "locationRef",
+             "departmentId", "sourceConversationId", "sourceMessageId")
+    res = agent.post(base, json={**{k: p[k] for k in fields}, "priority": "urgent"})
     assert res.status_code == 201
     wo = res.get_json()
     assert wo["status"] == "open" and wo["sourceConversationId"] == cid
     eng = login("engineer@hvh.test")
-    assert eng.patch(f"{base}/{wo['id']}", json={"assignedUserId": fx.engineer_a.id}).get_json()["status"] == "assigned"
-    assert eng.patch(f"{base}/{wo['id']}", json={"status": "in_progress"}).get_json()["status"] == "in_progress"
+    assigned = eng.patch(f"{base}/{wo['id']}", json={"assignedUserId": fx.engineer_a.id})
+    assert assigned.get_json()["status"] == "assigned"
+    in_progress = eng.patch(f"{base}/{wo['id']}", json={"status": "in_progress"})
+    assert in_progress.get_json()["status"] == "in_progress"
     bad = eng.patch(f"{base}/{wo['id']}", json={"status": "verified"})
     assert bad.status_code == 409 and bad.get_json()["error"]["code"] == "INVALID_TRANSITION"
-    done = eng.patch(f"{base}/{wo['id']}", json={"status": "complete", "comment": "Cleared drain line"})
+    done = eng.patch(f"{base}/{wo['id']}",
+                     json={"status": "complete", "comment": "Cleared drain line"})
     assert done.status_code == 200
     d = eng.get(f"{base}/{wo['id']}").get_json()
-    assert [e["type"] for e in d["events"]] == ["created", "assigned", "status_changed", "status_changed"]
+    assert [e["type"] for e in d["events"]] == ["created", "assigned", "status_changed",
+                                                "status_changed"]
     assert d["events"][-1]["comment"] == "Cleared drain line" and d["guestName"] == "Sarah Chen"
     assert d["events"][1]["userName"] == "Eli Engineer"
 
@@ -38,7 +42,8 @@ def test_prefill_create_transition_and_detail_via_api(app, fx, client, database,
 def test_close_requires_capability_but_create_does_not(app, fx, client, database, login):
     base = f"/api/p/{fx.property_a.id}/work-orders"
     agent = login("agent@hvh.test")
-    wo = agent.post(base, json={"title": "Lamp", "type": "maintenance", "locationRef": "330"}).get_json()
+    wo = agent.post(base,
+                    json={"title": "Lamp", "type": "maintenance", "locationRef": "330"}).get_json()
     agent.patch(f"{base}/{wo['id']}", json={"status": "in_progress"})
     assert agent.patch(f"{base}/{wo['id']}", json={"status": "complete"}).status_code == 403
     sup = login("supervisor@hvh.test")
@@ -48,8 +53,10 @@ def test_close_requires_capability_but_create_does_not(app, fx, client, database
 def test_list_filters(app, fx, client, database, login):
     base = f"/api/p/{fx.property_a.id}/work-orders"
     sup = login("supervisor@hvh.test")
-    a = sup.post(base, json={"title": "A", "type": "maintenance", "locationRef": "1", "assignedUserId": fx.engineer_a.id}).get_json()
-    b = sup.post(base, json={"title": "B", "type": "housekeeping", "locationRef": "2", "departmentId": fx.dept_housekeeping.id}).get_json()
+    a = sup.post(base, json={"title": "A", "type": "maintenance", "locationRef": "1",
+                             "assignedUserId": fx.engineer_a.id}).get_json()
+    b = sup.post(base, json={"title": "B", "type": "housekeeping", "locationRef": "2",
+                             "departmentId": fx.dept_housekeeping.id}).get_json()
     sup.patch(f"{base}/{b['id']}", json={"status": "cancelled"})
     ids = lambda r: {w["id"] for w in r.get_json()}  # noqa: E731
     assert ids(sup.get(base)) == {a["id"]}
@@ -75,7 +82,8 @@ def test_prefill_and_create_reject_out_of_department_dept_staff(app, fx, client,
     assert eng.get(f"{base}/prefill?conversationId={cid}").status_code == 200
 
 
-def test_patch_priority_department_reassignment_and_clear_assignee(app, fx, client, database, login):
+def test_patch_priority_department_reassignment_and_clear_assignee(app, fx, client, database,
+                                                                   login):
     base = f"/api/p/{fx.property_a.id}/work-orders"
     sup = login("supervisor@hvh.test")
     wo = sup.post(base, json={"title": "Fridge", "type": "maintenance", "locationRef": "5",
@@ -84,7 +92,8 @@ def test_patch_priority_department_reassignment_and_clear_assignee(app, fx, clie
     p1 = sup.patch(f"{base}/{wo['id']}", json={"priority": "urgent"}).get_json()
     assert p1["priority"] == "urgent"
     p2 = sup.patch(f"{base}/{wo['id']}", json={"departmentId": fx.dept_housekeeping.id}).get_json()
-    assert p2["departmentId"] == fx.dept_housekeeping.id and p2["assignedUserId"] == fx.engineer_a.id
+    assert (p2["departmentId"] == fx.dept_housekeeping.id
+           and p2["assignedUserId"] == fx.engineer_a.id)
     p3 = sup.patch(f"{base}/{wo['id']}", json={"clearAssignee": True}).get_json()
     assert p3["assignedUserId"] is None and p3["status"] == "open"
 
@@ -98,10 +107,15 @@ def test_dismiss_draft_prompt(app, fx, client, database, login):
     cid = _cid(database, fx.guest_inhouse_a.id)
     with database.session() as db:
         wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
-            title="AC", type=WorkOrderType.maintenance, locationRef="412", sourceConversationId=cid))
-        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id, WorkOrderStatus.in_progress)
-        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id, WorkOrderStatus.complete)
+            title="AC", type=WorkOrderType.maintenance, locationRef="412",
+            sourceConversationId=cid))
+        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id,
+                               WorkOrderStatus.in_progress)
+        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id,
+                               WorkOrderStatus.complete)
     c = login("agent@hvh.test")
-    pid = c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()["draftPrompts"][0]["id"]
-    assert c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/draft-prompts/{pid}/dismiss").status_code == 204
+    conv = c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()
+    pid = conv["draftPrompts"][0]["id"]
+    dismiss = c.post(f"/api/p/{fx.property_a.id}/conversations/{cid}/draft-prompts/{pid}/dismiss")
+    assert dismiss.status_code == 204
     assert c.get(f"/api/p/{fx.property_a.id}/conversations/{cid}").get_json()["draftPrompts"] == []

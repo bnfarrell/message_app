@@ -12,7 +12,9 @@ from app.schemas.enums import SmsConsentStatus, StayStatus
 
 class Guest(TimestampMixin, Base):
     __tablename__ = "guest"
-    __table_args__ = (UniqueConstraint("property_id", "phone_e164", name="uq_guest_property_phone"),)
+    __table_args__ = (
+        UniqueConstraint("property_id", "phone_e164", name="uq_guest_property_phone"),
+    )
     property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
     first_name: Mapped[str | None] = mapped_column(String(100))
     last_name: Mapped[str | None] = mapped_column(String(100))

@@ -29,24 +29,28 @@ def test_overview_and_agents(app, fx, client, database, login):
     from app.models import Conversation
 
     with database.session() as db:
-        sarah = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
-        diego = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_nostay_a.id))
+        sarah = db.scalar(select(Conversation.id).where(
+            Conversation.guest_id == fx.guest_inhouse_a.id))
     clock.advance(minutes=2)
     agent.post(f"/api/p/{fx.property_a.id}/conversations/{sarah}/messages", json={"body": "On it"})
     with database.session() as db:
         wo = work_orders.create(db, fx.property_a.id, fx.agent_a.id, CreateWorkOrder(
-            title="AC", type=WorkOrderType.maintenance, location_ref="412", department_id=fx.dept_engineering.id,
+            title="AC", type=WorkOrderType.maintenance, location_ref="412",
+            department_id=fx.dept_engineering.id,
             source_conversation_id=sarah))
-        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id, WorkOrderStatus.in_progress)
+        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id,
+                               WorkOrderStatus.in_progress)
     clock.advance(minutes=20)
     with database.session() as db:
-        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id, WorkOrderStatus.complete)
+        work_orders.transition(db, fx.property_a.id, wo.id, fx.engineer_a.id,
+                               WorkOrderStatus.complete)
         from app.queue.handlers.sla import sweep_once
 
         sweep_once(db)  # Diego is now overdue
     mgr = login("manager@hvh.test")
     base = f"/api/p/{fx.property_a.id}/analytics"
-    o = mgr.get(f"{base}/overview?from={start.date()}&to={(start + timedelta(days=1)).date()}").get_json()
+    o = mgr.get(f"{base}/overview?from={start.date()}"
+               f"&to={(start + timedelta(days=1)).date()}").get_json()
     assert o["conversations"] == 2 and o["inboundMessages"] == 2 and o["outboundMessages"] == 1
     # Sarah's first reply came 13h2m after her inbound message (the clock advances above are
     # cumulative), and Diego never got a reply, so the single first-response value drives both
@@ -56,7 +60,8 @@ def test_overview_and_agents(app, fx, client, database, login):
             and o["firstResponseP90Seconds"] == first_response_seconds)
     assert o["slaBreaches"] == 1
     assert o["slaBreachRate"] == 0.5
-    assert o["workOrdersCreated"] == 1 and o["workOrdersClosed"] == 1 and o["meanTimeToResolveSeconds"] == 1200
+    assert (o["workOrdersCreated"] == 1 and o["workOrdersClosed"] == 1
+           and o["meanTimeToResolveSeconds"] == 1200)
     assert o["workOrdersFromConversations"] == 1
 
     hour_counts = {b["hour"]: b["count"] for b in o["inboundByHour"]}
@@ -74,7 +79,8 @@ def test_overview_and_agents(app, fx, client, database, login):
     # bucket (the only conversation with a response), every other bucket must be empty.
     dist = {b["label"]: b for b in o["firstResponseDistribution"]}
     assert len(dist) == len(analytics.BUCKETS)
-    hit_label = next(label for label, lo, hi in analytics.BUCKETS if lo <= first_response_seconds < hi)
+    hit_label = next(label for label, lo, hi in analytics.BUCKETS
+                    if lo <= first_response_seconds < hi)
     for label, bucket in dist.items():
         if label == hit_label:
             assert bucket["count"] == 1 and bucket["share"] == 1.0
@@ -83,9 +89,11 @@ def test_overview_and_agents(app, fx, client, database, login):
 
     assert o["workOrdersByDepartment"][0]["departmentName"] == "Engineering"
 
-    a = mgr.get(f"{base}/agents?from={start.date()}&to={(start + timedelta(days=1)).date()}").get_json()
+    a = mgr.get(f"{base}/agents?from={start.date()}"
+               f"&to={(start + timedelta(days=1)).date()}").get_json()
     ava = [r for r in a if r["userId"] == fx.agent_a.id][0]
-    assert ava["messagesSent"] == 1 and ava["conversationsHandled"] == 1 and ava["workOrdersCreated"] == 1
+    assert (ava["messagesSent"] == 1 and ava["conversationsHandled"] == 1
+           and ava["workOrdersCreated"] == 1)
     assert (ava["firstResponseP50Seconds"] == first_response_seconds
             and ava["firstResponseP90Seconds"] == first_response_seconds)
     assert ava["slaBreaches"] == 0  # Sarah's conversation (the one Ava handled) was never breached
@@ -124,7 +132,8 @@ def test_empty_window_returns_zeros_not_500(app, fx, client, login):
     for r in rows:
         assert r["messagesSent"] == 0 and r["conversationsHandled"] == 0
         assert r["firstResponseP50Seconds"] is None and r["firstResponseP90Seconds"] is None
-        assert r["slaBreaches"] == 0 and r["quickReplyShare"] is None and r["workOrdersCreated"] == 0
+        assert (r["slaBreaches"] == 0 and r["quickReplyShare"] is None
+               and r["workOrdersCreated"] == 0)
 
 
 def test_overview_excludes_other_property_data(app, fx, client, database):
@@ -138,11 +147,13 @@ def test_overview_excludes_other_property_data(app, fx, client, database):
     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "leak under the sink")
     inbound(client, fx, fx.guest_b.phone_e164, "no towels left", to=fx.property_b.sms_number)
     with database.session() as db:
-        b_conversation_id = db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_b.id))
+        b_conversation_id = db.scalar(select(Conversation.id).where(
+            Conversation.guest_id == fx.guest_b.id))
         work_orders.create(db, fx.property_b.id, fx.admin_b.id, CreateWorkOrder(
             title="Towels", type=WorkOrderType.housekeeping, location_ref="101",
             source_conversation_id=b_conversation_id))
-    clock.advance(minutes=1)  # default_range's "until" is now(); keep it strictly after the seeded rows
+    # default_range's "until" is now(); keep it strictly after the seeded rows
+    clock.advance(minutes=1)
 
     with database.session() as db:
         a_overview = analytics.overview(db, fx.property_a.id)

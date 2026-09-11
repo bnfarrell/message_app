@@ -18,7 +18,8 @@ from app.schemas.enums import AuthorType, Channel, DeliveryStatus, Direction, Dr
 
 
 def _get(db: Session, property_id: str, message_id: str) -> Message:
-    m = db.scalar(select(Message).where(Message.id == message_id, Message.property_id == property_id))
+    m = db.scalar(select(Message).where(Message.id == message_id,
+                                         Message.property_id == property_id))
     if m is None:
         raise NotFound("Message not found")
     return m
@@ -30,7 +31,8 @@ def _get(db: Session, property_id: str, message_id: str) -> Message:
 _FORWARD_ORDER = [DeliveryStatus.queued, DeliveryStatus.sent, DeliveryStatus.delivered]
 
 
-def update_delivery_status(db: Session, property_id: str, message_id: str, status: DeliveryStatus, *,
+def update_delivery_status(db: Session, property_id: str, message_id: str,
+                           status: DeliveryStatus, *,
                            provider_message_id: str | None = None, error_code: str | None = None,
                            error_message: str | None = None) -> Message:
     m = _get(db, property_id, message_id)
@@ -139,7 +141,8 @@ def send(db: Session, property_id: str, conversation_id: str, body: str, *,
     db.flush()
     jobs.enqueue(db, "outbound.send", {"message_id": m.id})
     audit.record(db, property_id, author_user_id, "message.sent", "message", m.id,
-                 after={"conversation_id": conv.id, "length": len(body)}, ip=ip, user_agent=user_agent)
+                 after={"conversation_id": conv.id, "length": len(body)}, ip=ip,
+                 user_agent=user_agent)
     queue_event(db, property_id, "message.created",
                 MessageOut.model_validate(m).model_dump(mode="json", by_alias=True))
     conv_domain.touch_updated(db, conv)

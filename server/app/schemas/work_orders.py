@@ -3,7 +3,13 @@ from datetime import datetime
 from pydantic import Field
 
 from app.schemas.common import CamelModel
-from app.schemas.enums import LocationType, Priority, WorkOrderEventType, WorkOrderStatus, WorkOrderType
+from app.schemas.enums import (
+    LocationType,
+    Priority,
+    WorkOrderEventType,
+    WorkOrderStatus,
+    WorkOrderType,
+)
 
 
 class CreateWorkOrder(CamelModel):

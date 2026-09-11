@@ -62,7 +62,8 @@ class Message(TimestampMixin, Base):
     direction: Mapped[Direction] = mapped_column(enum_type(Direction), nullable=False)
     author_type: Mapped[AuthorType] = mapped_column(enum_type(AuthorType), nullable=False)
     author_user_id: Mapped[str | None] = mapped_column(ForeignKey("user_account.id"))
-    channel: Mapped[Channel] = mapped_column(enum_type(Channel), default=Channel.sms, nullable=False)
+    channel: Mapped[Channel] = mapped_column(enum_type(Channel), default=Channel.sms,
+                                             nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     attachments: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     digital_asset_id: Mapped[str | None] = mapped_column(ForeignKey("digital_asset.id"))

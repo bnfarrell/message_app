@@ -5,7 +5,8 @@ from app.models import AuditLog
 
 
 def test_login_sets_cookie_and_me_returns_memberships(app, fx, client):
-    res = client.post("/api/auth/login", json={"email": "agent@hvh.test", "password": "Password123!"})
+    res = client.post("/api/auth/login",
+                      json={"email": "agent@hvh.test", "password": "Password123!"})
     assert res.status_code == 200
     cookie = res.headers.get("Set-Cookie", "")
     assert "sid=" in cookie and "HttpOnly" in cookie and "SameSite=Lax" in cookie
@@ -23,7 +24,8 @@ def test_login_rejects_bad_password_and_unknown_email(app, fx, client):
     bad = client.post("/api/auth/login", json={"email": "agent@hvh.test", "password": "nope"})
     assert bad.status_code == 401
     assert bad.get_json()["error"]["code"] == "UNAUTHORIZED"
-    unknown = client.post("/api/auth/login", json={"email": "ghost@hvh.test", "password": "Password123!"})
+    unknown = client.post("/api/auth/login",
+                          json={"email": "ghost@hvh.test", "password": "Password123!"})
     assert unknown.status_code == 401
 
 
@@ -71,5 +73,6 @@ def test_disabled_user_cannot_login(app, fx, client, database):
     with database.session() as db:
         u = db.get(UserAccount, fx.agent_a.id)
         u.status = UserStatus.disabled
-    res = client.post("/api/auth/login", json={"email": "agent@hvh.test", "password": "Password123!"})
+    res = client.post("/api/auth/login",
+                      json={"email": "agent@hvh.test", "password": "Password123!"})
     assert res.status_code == 401

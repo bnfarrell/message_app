@@ -62,7 +62,8 @@ class PresenceStore:
 
     def snapshot(self, conversation_id: str) -> list[dict]:
         with self._lock:
-            return [{**e.user, "state": e.state} for e in self._by_conv.get(conversation_id, {}).values()]
+            return [{**e.user, "state": e.state}
+                   for e in self._by_conv.get(conversation_id, {}).values()]
 
     def touch(self, user_id: str) -> None:
         with self._lock:

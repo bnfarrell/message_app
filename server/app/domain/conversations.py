@@ -59,14 +59,16 @@ def auto_resolve_hours(db: Session, property_id: str) -> int:
 
 def find_or_create_for_guest(db: Session, property_id: str, guest: Guest,
                              stay: Stay | None = None) -> tuple[Conversation, bool]:
-    """Returns the guest's single live conversation, reopening an archived one if that is all there is."""
+    """Returns the guest's single live conversation, reopening an archived one if that is all
+    there is."""
     c = db.scalar(
         select(Conversation).where(Conversation.property_id == property_id,
                                    Conversation.guest_id == guest.id)
         .order_by(Conversation.updated_at.desc())
     )
     if c is None:
-        c = Conversation(property_id=property_id, guest_id=guest.id, stay_id=stay.id if stay else None,
+        c = Conversation(property_id=property_id, guest_id=guest.id,
+                         stay_id=stay.id if stay else None,
                          status=ConversationStatus.open, channel_primary=Channel.sms)
         db.add(c)
         db.flush()
@@ -89,11 +91,13 @@ def touch_updated(db: Session, c: Conversation) -> None:
     queue_event(db, c.property_id, "conversation.updated", {"id": c.id})
 
 
-OPEN_WO = [WorkOrderStatus.open, WorkOrderStatus.assigned, WorkOrderStatus.in_progress, WorkOrderStatus.blocked]
+OPEN_WO = [WorkOrderStatus.open, WorkOrderStatus.assigned, WorkOrderStatus.in_progress,
+          WorkOrderStatus.blocked]
 
 
 def _open_wo_exists():
-    return exists().where(WorkOrder.source_conversation_id == Conversation.id, WorkOrder.status.in_(OPEN_WO))
+    return exists().where(WorkOrder.source_conversation_id == Conversation.id,
+                          WorkOrder.status.in_(OPEN_WO))
 
 
 def _resolved_condition(db: Session, property_id: str):
@@ -136,10 +140,11 @@ def list(db: Session, property_id: str, *, filter: str, viewer_user_id: str, vie
                     Conversation.assigned_user_id == viewer_user_id)
     elif filter == "unassigned":
         q = q.where(Conversation.status == ConversationStatus.open, ~resolved,
-                    Conversation.assigned_user_id.is_(None), Conversation.assigned_department_id.is_(None))
+                    Conversation.assigned_user_id.is_(None),
+                    Conversation.assigned_department_id.is_(None))
     elif filter == "overdue":
-        q = q.where(Conversation.status == ConversationStatus.open, Conversation.sla_due_at.isnot(None),
-                    Conversation.sla_due_at < now)
+        q = q.where(Conversation.status == ConversationStatus.open,
+                    Conversation.sla_due_at.isnot(None), Conversation.sla_due_at < now)
     elif filter == "resolved":
         q = q.where(resolved)
     elif filter == "archived":
@@ -170,15 +175,18 @@ def _open_wo_count(db: Session, conversation_id: str) -> int:
 
 
 def _summary(db: Session, c: Conversation) -> ConversationSummary:
-    unanswered = bool(c.last_guest_message_at and (c.last_staff_message_at is None
-                                                    or c.last_staff_message_at < c.last_guest_message_at))
+    unanswered = bool(c.last_guest_message_at
+                     and (c.last_staff_message_at is None
+                          or c.last_staff_message_at < c.last_guest_message_at))
     return ConversationSummary(
         id=c.id, status=c.status, guest=GuestOut.model_validate(c.guest),
         room_number=c.stay.room_number if c.stay else None,
         assigned_user_id=c.assigned_user_id, assigned_department_id=c.assigned_department_id,
         channel_primary=c.channel_primary, last_guest_message_at=c.last_guest_message_at,
-        last_staff_message_at=c.last_staff_message_at, last_message_preview=_last_preview(db, c.id),
-        sla_due_at=c.sla_due_at, unanswered=unanswered, open_work_order_count=_open_wo_count(db, c.id),
+        last_staff_message_at=c.last_staff_message_at,
+        last_message_preview=_last_preview(db, c.id),
+        sla_due_at=c.sla_due_at, unanswered=unanswered,
+        open_work_order_count=_open_wo_count(db, c.id),
         snoozed_until=c.snoozed_until,
     )
 
@@ -205,24 +213,29 @@ def detail(db: Session, property_id: str, conversation_id: str) -> ConversationD
     from app.domain import notes as notes_domain
 
     c = get(db, property_id, conversation_id)
-    msgs = db.scalars(select(Message).where(Message.conversation_id == c.id).order_by(Message.sent_at)).all()
+    msgs = db.scalars(select(Message).where(Message.conversation_id == c.id)
+                      .order_by(Message.sent_at)).all()
     wos = db.scalars(select(WorkOrder).where(WorkOrder.source_conversation_id == c.id)
                      .order_by(WorkOrder.created_at.desc())).all()
-    prompts = db.execute(select(DraftPrompt, WorkOrder.title).join(WorkOrder, WorkOrder.id == DraftPrompt.work_order_id)
-                         .where(DraftPrompt.conversation_id == c.id, DraftPrompt.status == DraftPromptStatus.pending)
+    prompts = db.execute(select(DraftPrompt, WorkOrder.title)
+                         .join(WorkOrder, WorkOrder.id == DraftPrompt.work_order_id)
+                         .where(DraftPrompt.conversation_id == c.id,
+                                DraftPrompt.status == DraftPromptStatus.pending)
                          .order_by(DraftPrompt.created_at)).all()
     return ConversationDetail(
         id=c.id, status=c.status, guest=GuestOut.model_validate(c.guest),
         stay=StayOut.model_validate(c.stay) if c.stay else None,
         assigned_user_id=c.assigned_user_id, assigned_department_id=c.assigned_department_id,
         channel_primary=c.channel_primary, last_guest_message_at=c.last_guest_message_at,
-        last_staff_message_at=c.last_staff_message_at, first_response_seconds=c.first_response_seconds,
+        last_staff_message_at=c.last_staff_message_at,
+        first_response_seconds=c.first_response_seconds,
         sla_due_at=c.sla_due_at, snoozed_until=c.snoozed_until,
         resolution_category_id=c.resolution_category_id, archived_at=c.archived_at,
         messages=[MessageOut.model_validate(m) for m in msgs],
         notes=notes_domain.list_for(db, property_id, c.id),
         work_orders=[WorkOrderBrief.model_validate(w) for w in wos],
-        draft_prompts=[DraftPromptOut(id=p.id, work_order_id=p.work_order_id, work_order_title=title,
+        draft_prompts=[DraftPromptOut(id=p.id, work_order_id=p.work_order_id,
+                                      work_order_title=title,
                                       body=p.body, status=p.status, created_at=p.created_at)
                        for p, title in prompts],
     )
@@ -243,7 +256,8 @@ def guest_thread(db: Session, property_id: str, phone: str) -> GuestThread:
         ).all()
     return GuestThread(phone=guest.phone_e164 if guest else phone, property_name=prop.name,
                        messages=[GuestThreadMessage(id=m.id, direction=m.direction, body=m.body,
-                                                    sent_at=m.sent_at, delivery_status=m.delivery_status)
+                                                    sent_at=m.sent_at,
+                                                    delivery_status=m.delivery_status)
                                  for m in msgs])
 
 
@@ -256,16 +270,19 @@ def patch(db: Session, property_id: str, conversation_id: str, actor_user_id: st
         c.assigned_user_id = None
         c.assigned_department_id = None
     if changes.assigned_user_id is not None:
-        if not db.scalar(select(PropertyMembership.id).where(PropertyMembership.property_id == property_id,
-                                                              PropertyMembership.user_id == changes.assigned_user_id)):
+        if not db.scalar(select(PropertyMembership.id).where(
+                PropertyMembership.property_id == property_id,
+                PropertyMembership.user_id == changes.assigned_user_id)):
             raise ValidationFailed("Assignee is not a member of this property")
         c.assigned_user_id = changes.assigned_user_id
         if changes.assigned_user_id != actor_user_id:
             notifications.create(db, property_id, changes.assigned_user_id, "conversation.assigned",
-                                 "Conversation assigned to you", entity_type="conversation", entity_id=c.id)
+                                 "Conversation assigned to you", entity_type="conversation",
+                                 entity_id=c.id)
     if changes.assigned_department_id is not None:
-        if not db.scalar(select(Department.id).where(Department.id == changes.assigned_department_id,
-                                                     Department.property_id == property_id)):
+        if not db.scalar(select(Department.id).where(
+                Department.id == changes.assigned_department_id,
+                Department.property_id == property_id)):
             raise ValidationFailed("Unknown department")
         c.assigned_department_id = changes.assigned_department_id
         c.assigned_user_id = None if changes.assigned_user_id is None else c.assigned_user_id
@@ -299,7 +316,9 @@ def patch(db: Session, property_id: str, conversation_id: str, actor_user_id: st
              "assigned_department_id": c.assigned_department_id}
     audit.record(db, property_id, actor_user_id, "conversation.patched", "conversation", c.id,
                  before=before, after=after)
-    queue_event(db, property_id, "conversation.assigned" if before["assigned_user_id"] != after["assigned_user_id"]
-                or before["assigned_department_id"] != after["assigned_department_id"] else "conversation.updated",
+    assignment_changed = (before["assigned_user_id"] != after["assigned_user_id"]
+                          or before["assigned_department_id"] != after["assigned_department_id"])
+    queue_event(db, property_id,
+                "conversation.assigned" if assignment_changed else "conversation.updated",
                 {"id": c.id})
     return c

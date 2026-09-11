@@ -11,7 +11,8 @@ from app.schemas.enums import DepartmentType, Role
 from app.schemas.notifications import NotificationOut
 
 
-def create(db: Session, property_id: str, user_id: str, type: str, title: str, body: str | None = None,
+def create(db: Session, property_id: str, user_id: str, type: str, title: str,
+           body: str | None = None,
            entity_type: str | None = None, entity_id: str | None = None) -> Notification:
     n = Notification(property_id=property_id, user_id=user_id, type=type, title=title, body=body,
                      entity_type=entity_type, entity_id=entity_id)
@@ -38,7 +39,8 @@ def _front_desk_members(db: Session, property_id: str) -> list[str]:
 
 def _admins(db: Session, property_id: str) -> list[str]:
     return list(db.scalars(select(PropertyMembership.user_id).where(
-        PropertyMembership.property_id == property_id, PropertyMembership.role == Role.admin)).all())
+        PropertyMembership.property_id == property_id,
+        PropertyMembership.role == Role.admin)).all())
 
 
 def notify_user_or_department(db: Session, property_id: str, *, user_id: str | None,

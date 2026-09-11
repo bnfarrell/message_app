@@ -4,7 +4,8 @@ STAFF = {Role.agent, Role.dept_staff, Role.supervisor, Role.manager, Role.admin,
 
 # Mirrors docs/design.md §3.2 for the Phase 1 capabilities.
 CAPABILITIES: dict[str, set[Role]] = {
-    "view_all_conversations": {Role.agent, Role.supervisor, Role.manager, Role.admin, Role.corporate},
+    "view_all_conversations": {Role.agent, Role.supervisor, Role.manager, Role.admin,
+                              Role.corporate},
     "reply": {Role.agent, Role.dept_staff, Role.supervisor, Role.manager, Role.admin},
     "assign": {Role.agent, Role.dept_staff, Role.supervisor, Role.manager, Role.admin},
     "add_note": STAFF,

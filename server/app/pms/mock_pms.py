@@ -20,13 +20,17 @@ class MockPmsAdapter:
     def _event(stay: Stay, guest: Guest, type: str, status: StayStatus) -> PmsEvent:
         return PmsEvent(
             external_id=stay.pms_reservation_id or stay.id, type=type, property_id=stay.property_id,
-            guest=NormalizedGuest(first_name=guest.first_name, last_name=guest.last_name, phone_e164=guest.phone_e164,
+            guest=NormalizedGuest(first_name=guest.first_name, last_name=guest.last_name,
+                                  phone_e164=guest.phone_e164,
                                   email=guest.email, loyalty_tier=guest.loyalty_tier, vip=guest.vip,
                                   pms_profile_id=guest.pms_profile_id),
-            stay=NormalizedStay(pms_reservation_id=stay.pms_reservation_id or stay.id, room_number=stay.room_number,
+            stay=NormalizedStay(pms_reservation_id=stay.pms_reservation_id or stay.id,
+                                room_number=stay.room_number,
                                 room_type=stay.room_type, rate_code=stay.rate_code, status=status,
-                                arrival_date=stay.arrival_date, departure_date=stay.departure_date, adults=stay.adults,
-                                children=stay.children, is_return_guest=stay.is_return_guest, stay_count=stay.stay_count),
+                                arrival_date=stay.arrival_date, departure_date=stay.departure_date,
+                                adults=stay.adults,
+                                children=stay.children, is_return_guest=stay.is_return_guest,
+                                stay_count=stay.stay_count),
             raw={"mock": True, "emitted_at": clock.now().isoformat()})
 
     def event_for(self, db: Session, property_id: str, stay_id: str, type: str) -> PmsEvent | None:
@@ -37,15 +41,19 @@ class MockPmsAdapter:
         return self._event(stay, db.get(Guest, stay.guest_id), type, status)
 
     def fetch_in_house(self, db: Session, property_id: str) -> list[NormalizedStay]:
-        rows = db.scalars(select(Stay).where(Stay.property_id == property_id, Stay.status == StayStatus.checked_in)).all()
-        return [self._event(s, db.get(Guest, s.guest_id), "stay.checked_in", StayStatus.checked_in).stay for s in rows]
+        rows = db.scalars(select(Stay).where(Stay.property_id == property_id,
+                                              Stay.status == StayStatus.checked_in)).all()
+        return [self._event(s, db.get(Guest, s.guest_id), "stay.checked_in",
+                            StayStatus.checked_in).stay for s in rows]
 
     def next_events(self, db: Session, property_id: str) -> list[PmsEvent]:
         today = clock.now().date()
-        arrival = db.scalar(select(Stay).where(Stay.property_id == property_id, Stay.status == StayStatus.reserved,
+        arrival = db.scalar(select(Stay).where(Stay.property_id == property_id,
+                                               Stay.status == StayStatus.reserved,
                                                Stay.arrival_date <= today)
                             .order_by(Stay.arrival_date, Stay.id).limit(1))
-        departure = db.scalar(select(Stay).where(Stay.property_id == property_id, Stay.status == StayStatus.checked_in,
+        departure = db.scalar(select(Stay).where(Stay.property_id == property_id,
+                                                 Stay.status == StayStatus.checked_in,
                                                  Stay.departure_date <= today)
                               .order_by(Stay.departure_date, Stay.id).limit(1))
         self._flip = not self._flip

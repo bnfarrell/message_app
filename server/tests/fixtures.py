@@ -67,7 +67,8 @@ def load_fixture(db: Session) -> Fixture:
                  sms_number="+15550100",
                  settings={"sla_minutes": 15, "auto_resolve_hours": 4,
                            "help_text": "Harbourview Hotel: text us anytime or call +1 555 0100."})
-    b = Property(name="Lakeside Inn", code="LSI", timezone="America/Chicago", sms_number="+15550200",
+    b = Property(name="Lakeside Inn", code="LSI", timezone="America/Chicago",
+                 sms_number="+15550200",
                  settings={"sla_minutes": 15, "auto_resolve_hours": 4,
                            "help_text": "Lakeside Inn: call +1 555 0200."})
     db.add_all([a, b])
@@ -117,9 +118,11 @@ def load_fixture(db: Session) -> Fixture:
     db.add_all([guest_inhouse_a, guest_nostay_a, guest_b])
     db.flush()
 
-    stay_inhouse_a = Stay(guest_id=guest_inhouse_a.id, property_id=a.id, pms_reservation_id="RES-412",
+    stay_inhouse_a = Stay(guest_id=guest_inhouse_a.id, property_id=a.id,
+                          pms_reservation_id="RES-412",
                           room_number="412", room_type="King", status=StayStatus.checked_in,
-                          arrival_date=today, departure_date=date.fromordinal(today.toordinal() + 3),
+                          arrival_date=today,
+                          departure_date=date.fromordinal(today.toordinal() + 3),
                           actual_checkin_at=clock.now())
     stay_b = Stay(guest_id=guest_b.id, property_id=b.id, pms_reservation_id="RES-B-101",
                   room_number="101", room_type="Queen", status=StayStatus.checked_in,
@@ -133,5 +136,6 @@ def load_fixture(db: Session) -> Fixture:
         agent_a=agent_a, agent_a2=agent_a2, engineer_a=engineer_a, housekeeper_a=housekeeper_a,
         supervisor_a=supervisor_a, manager_a=manager_a, admin_a=admin_a, corporate_a=corporate_a,
         admin_b=admin_b, agent_b=agent_b, guest_inhouse_a=guest_inhouse_a,
-        stay_inhouse_a=stay_inhouse_a, guest_nostay_a=guest_nostay_a, guest_b=guest_b, stay_b=stay_b,
+        stay_inhouse_a=stay_inhouse_a, guest_nostay_a=guest_nostay_a, guest_b=guest_b,
+        stay_b=stay_b,
     )

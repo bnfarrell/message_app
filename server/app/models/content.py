@@ -30,7 +30,8 @@ class DigitalAsset(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str | None] = mapped_column(String(500))
     category: Mapped[str | None] = mapped_column(String(50))
-    type: Mapped[AssetType] = mapped_column(enum_type(AssetType), default=AssetType.link, nullable=False)
+    type: Mapped[AssetType] = mapped_column(enum_type(AssetType), default=AssetType.link,
+                                            nullable=False)
     url: Mapped[str] = mapped_column(String(1000), nullable=False)
     short_code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False)
     thumbnail_url: Mapped[str | None] = mapped_column(String(1000))

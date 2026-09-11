@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
 
 from flask import current_app
 from sqlalchemy import DateTime, create_engine, event
@@ -29,14 +29,14 @@ class UTCDateTime(TypeDecorator):
             return None
         if value.tzinfo is None:
             raise ValueError("naive datetime passed to UTCDateTime; use app.clock.now()")
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value.astimezone(UTC).replace(tzinfo=None)
 
     def process_result_value(self, value, dialect):
         if value is None:
             return None
         if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
 
 class Base(DeclarativeBase):
@@ -94,8 +94,9 @@ def get_db() -> Database:
 
 
 def run_migrations(url: str) -> None:
-    from alembic import command
     from alembic.config import Config as AlembicConfig
+
+    from alembic import command
 
     server_dir = Path(__file__).resolve().parent.parent
     cfg = AlembicConfig(str(server_dir / "alembic.ini"))

@@ -20,7 +20,10 @@ def get_guest(property_id: str, guest_id: str):
         guest = guests.get(db, g.property_id, guest_id)
         if guest is None:
             raise NotFound("Guest not found")
-        stays = db.scalars(select(Stay).where(Stay.guest_id == guest.id).order_by(Stay.arrival_date.desc())).all()
-        conv_ids = [*db.scalars(select(Conversation.id).where(Conversation.guest_id == guest.id)).all()]
-        return ok(GuestDetail(guest=GuestOut.model_validate(guest), stays=[StayOut.model_validate(s) for s in stays],
+        stays = db.scalars(select(Stay).where(Stay.guest_id == guest.id)
+                          .order_by(Stay.arrival_date.desc())).all()
+        conv_ids = [*db.scalars(
+            select(Conversation.id).where(Conversation.guest_id == guest.id)).all()]
+        return ok(GuestDetail(guest=GuestOut.model_validate(guest),
+                              stays=[StayOut.model_validate(s) for s in stays],
                               conversation_ids=conv_ids))

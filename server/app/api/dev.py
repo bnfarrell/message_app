@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from flask import Blueprint, request
 from sqlalchemy import select
@@ -43,14 +43,19 @@ def sim_guests():
     with db_session() as db:
         rows = db.execute(select(Guest, Property).join(Property, Property.id == Guest.property_id)
                           .order_by(Property.name, Guest.last_name)).all()
-        in_house = {s.guest_id: s for s in db.scalars(select(Stay).where(Stay.status == StayStatus.checked_in)).all()}
+        in_house = {s.guest_id: s for s in db.scalars(
+            select(Stay).where(Stay.status == StayStatus.checked_in)).all()}
         out = []
         for g, p in rows:
             stay = in_house.get(g.id)
-            out.append(SimGuest(property_id=p.id, property_name=p.name, property_sms_number=p.sms_number, guest_id=g.id,
-                                name=f"{g.first_name or ''} {g.last_name or ''}".strip() or "Unknown", phone=g.phone_e164,
-                                room_number=stay.room_number if stay else None, in_house=stay is not None,
-                                sms_consent_status=g.sms_consent_status, will_fail=g.phone_e164.endswith(FAIL_SUFFIX)))
+            out.append(SimGuest(
+                property_id=p.id, property_name=p.name, property_sms_number=p.sms_number,
+                guest_id=g.id,
+                name=f"{g.first_name or ''} {g.last_name or ''}".strip() or "Unknown",
+                phone=g.phone_e164,
+                room_number=stay.room_number if stay else None, in_house=stay is not None,
+                sms_consent_status=g.sms_consent_status,
+                will_fail=g.phone_e164.endswith(FAIL_SUFFIX)))
         return ok(out)
 
 
@@ -72,7 +77,7 @@ def _parse_since(raw: str | None) -> datetime | None:
         dt = datetime.fromisoformat(raw)
     except ValueError as e:
         raise ValidationFailed("since must be an ISO datetime") from e
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
 @bp.get("/sim/events")
@@ -82,7 +87,8 @@ def sim_events():
         snapshot = list(_events)
     if since is not None:
         snapshot = [e for e in snapshot if e.at > since]
-    return ok([SimEvent(type=e.type, property_id=e.property_id, at=e.at, payload=e.payload) for e in snapshot])
+    return ok([SimEvent(type=e.type, property_id=e.property_id, at=e.at, payload=e.payload)
+              for e in snapshot])
 
 
 def _pms(stay_id: str, type: str):

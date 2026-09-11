@@ -3,7 +3,8 @@ from app.domain.quick_replies import interpolate
 
 def test_interpolates_known_variables():
     out = interpolate("Hi {{guest_first_name}}, room {{room_number}} at {{property_name}}.",
-                      {"guest_first_name": "Sarah", "room_number": "412", "property_name": "Harbourview"})
+                      {"guest_first_name": "Sarah", "room_number": "412",
+                       "property_name": "Harbourview"})
     assert out == "Hi Sarah, room 412 at Harbourview."
 
 

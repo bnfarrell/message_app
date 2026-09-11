@@ -1,4 +1,3 @@
-from datetime import timedelta
 
 from app import clock
 from app.realtime.presence import PresenceStore

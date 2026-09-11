@@ -1,6 +1,5 @@
 from app import clock
 from app.domain import notifications
-from app.schemas.enums import DepartmentType
 
 
 def test_create_persists_and_broadcasts_to_user(app, fx, database, events):
@@ -36,7 +35,8 @@ def test_notify_user_or_department_prefers_user(app, fx, database):
 def test_notify_department_fans_out_to_members(app, fx, database):
     with database.session() as db:
         rows = notifications.notify_user_or_department(
-            db, fx.property_a.id, user_id=None, department_id=fx.dept_engineering.id, type="t", title="x")
+            db, fx.property_a.id, user_id=None, department_id=fx.dept_engineering.id, type="t",
+            title="x")
     assert sorted(r.user_id for r in rows) == sorted([fx.engineer_a.id, fx.supervisor_a.id])
 
 

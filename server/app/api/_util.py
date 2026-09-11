@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator, TypeVar
+from typing import Any
 
 from flask import jsonify, request
 from pydantic import BaseModel, ValidationError
@@ -10,8 +11,6 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.errors import ValidationFailed
 
-M = TypeVar("M", bound=BaseModel)
-
 
 @contextmanager
 def db_session() -> Iterator[Session]:
@@ -19,7 +18,7 @@ def db_session() -> Iterator[Session]:
         yield db
 
 
-def parse_body(model: type[M]) -> M:
+def parse_body[M: BaseModel](model: type[M]) -> M:
     data = request.get_json(silent=True)
     if data is None:
         data = request.form.to_dict() if request.form else {}
@@ -29,7 +28,7 @@ def parse_body(model: type[M]) -> M:
         raise ValidationFailed("Invalid request body", details=e.errors(include_url=False)) from e
 
 
-def parse_query(model: type[M]) -> M:
+def parse_query[M: BaseModel](model: type[M]) -> M:
     try:
         return model.model_validate(request.args.to_dict())
     except ValidationError as e:

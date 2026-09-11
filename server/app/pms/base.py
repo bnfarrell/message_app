@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.schemas.enums import StayStatus
 
-EventType = Literal["reservation.created", "stay.checked_in", "stay.checked_out", "stay.room_changed"]
+EventType = Literal["reservation.created", "stay.checked_in", "stay.checked_out",
+                   "stay.room_changed"]
 
 
 @dataclass

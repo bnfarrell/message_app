@@ -9,9 +9,11 @@ from app.schemas.content import CategoryIn, CategoryOut, CategoryPatch
 
 
 def list_tree(db: Session, property_id: str) -> list[CategoryOut]:
-    rows = db.scalars(select(ResolutionCategory).where(ResolutionCategory.property_id == property_id)
+    rows = db.scalars(select(ResolutionCategory)
+                      .where(ResolutionCategory.property_id == property_id)
                       .order_by(ResolutionCategory.name)).all()
-    nodes = {r.id: CategoryOut(id=r.id, name=r.name, parent_id=r.parent_id, active=r.active, children=[]) for r in rows}
+    nodes = {r.id: CategoryOut(id=r.id, name=r.name, parent_id=r.parent_id, active=r.active,
+                              children=[]) for r in rows}
     roots: list[CategoryOut] = []
     for r in rows:
         (nodes[r.parent_id].children if r.parent_id in nodes else roots).append(nodes[r.id])
@@ -35,7 +37,8 @@ def create(db: Session, property_id: str, data: CategoryIn) -> ResolutionCategor
     return c
 
 
-def update(db: Session, property_id: str, category_id: str, data: CategoryPatch) -> ResolutionCategory:
+def update(db: Session, property_id: str, category_id: str,
+          data: CategoryPatch) -> ResolutionCategory:
     c = get(db, property_id, category_id)
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(c, k, v)

@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from app.models import AuditLog, Conversation, Guest, Message
-from app.schemas.enums import ConversationStatus, DeliveryStatus, Direction, SmsConsentStatus
+from app.schemas.enums import ConversationStatus, Direction, SmsConsentStatus
 from tests.factories import inbound
 
 
@@ -19,7 +19,8 @@ def test_unknown_number_creates_guest_and_conversation(app, fx, client, database
         assert c.sla_due_at is not None and c.last_guest_message_at is not None
         m = db.scalar(select(Message).where(Message.conversation_id == c.id))
         assert m.direction == Direction.inbound and m.body.startswith("Hi, arriving")
-    assert [e.type for e in events if e.type.startswith("conversation.")] == ["conversation.created"]
+    conv_events = [e.type for e in events if e.type.startswith("conversation.")]
+    assert conv_events == ["conversation.created"]
     assert any(e.type == "message.created" for e in events)
 
 
@@ -37,9 +38,11 @@ def test_second_message_reuses_open_conversation(app, fx, client, database):
     with database.session() as db:
         assert db.scalar(select(Conversation).where(
             Conversation.property_id == fx.property_a.id)) is not None
-        convs = db.scalars(select(Conversation).where(Conversation.property_id == fx.property_a.id)).all()
+        convs = db.scalars(select(Conversation).where(
+            Conversation.property_id == fx.property_a.id)).all()
         assert len(convs) == 1
-        assert len(db.scalars(select(Message).where(Message.conversation_id == convs[0].id)).all()) == 2
+        msgs = db.scalars(select(Message).where(Message.conversation_id == convs[0].id)).all()
+        assert len(msgs) == 2
 
 
 def test_archived_conversation_reopens_on_inbound(app, fx, client, database):
@@ -63,23 +66,27 @@ def test_duplicate_provider_sid_is_idempotent(app, fx, client, database):
         assert len(db.scalars(select(Message)).all()) == 1
 
 
-def test_stop_opts_out_sends_one_confirmation_and_blocks_sends(app, fx, client, database, worker, login):
+def test_stop_opts_out_sends_one_confirmation_and_blocks_sends(app, fx, client, database, worker,
+                                                               login):
     """§11.1 #5"""
     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "STOP")
     with database.session() as db:
         g = db.get(Guest, fx.guest_inhouse_a.id)
         assert g.sms_consent_status == SmsConsentStatus.opted_out
         c = db.scalar(select(Conversation).where(Conversation.guest_id == g.id))
-        msgs = db.scalars(select(Message).where(Message.conversation_id == c.id).order_by(Message.sent_at)).all()
+        msgs = db.scalars(select(Message).where(Message.conversation_id == c.id)
+                         .order_by(Message.sent_at)).all()
         assert [m.direction for m in msgs] == [Direction.inbound, Direction.outbound]
         assert "unsubscribed" in msgs[1].body.lower() and "START" in msgs[1].body
         assert c.sla_due_at is None  # keyword messages do not start an SLA
     staff = login("agent@hvh.test")
-    res = staff.post(f"/api/p/{fx.property_a.id}/conversations/{c.id}/messages", json={"body": "Hello?"})
+    res = staff.post(f"/api/p/{fx.property_a.id}/conversations/{c.id}/messages",
+                     json={"body": "Hello?"})
     assert res.status_code == 422
     assert res.get_json()["error"]["code"] == "CONSENT_OPTED_OUT"
     with database.session() as db:
-        assert len(db.scalars(select(Message).where(Message.direction == Direction.outbound)).all()) == 1
+        outbound = db.scalars(select(Message).where(Message.direction == Direction.outbound)).all()
+        assert len(outbound) == 1
         actions = [a.action for a in db.scalars(select(AuditLog)).all()]
         assert "message.rejected_opted_out" in actions and "consent.opted_out" in actions
     # START re-enables
@@ -99,12 +106,14 @@ def test_card_numbers_are_redacted_before_storage(app, fx, client, database):
     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "charge it to 4242 4242 4242 4242 pls")
     with database.session() as db:
         m = db.scalar(select(Message).where(Message.direction == Direction.inbound))
-        assert m.redacted is True and "4242 4242 4242 4242" not in m.body and m.body.endswith("4242 pls")
+        assert (m.redacted is True and "4242 4242 4242 4242" not in m.body
+               and m.body.endswith("4242 pls"))
 
 
 def test_webhook_rejects_bad_secret_and_unknown_property_number(app, fx, client):
-    res = client.post("/api/hooks/sms/inbound", data={"From": "+15550142290", "To": fx.property_a.sms_number,
-                                                     "Body": "x", "MessageSid": "SM1"},
+    res = client.post("/api/hooks/sms/inbound",
+                      data={"From": "+15550142290", "To": fx.property_a.sms_number,
+                            "Body": "x", "MessageSid": "SM1"},
                       headers={"X-Mock-Secret": "wrong"})
     assert res.status_code == 401
     res = inbound(client, fx, "+15550142290", "x", to="+19999999999")

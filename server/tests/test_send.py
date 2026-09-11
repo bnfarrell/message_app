@@ -9,10 +9,12 @@ from tests.factories import inbound
 
 def _conversation_id(database, fx):
     with database.session() as db:
-        return db.scalar(select(Conversation.id).where(Conversation.guest_id == fx.guest_inhouse_a.id))
+        return db.scalar(select(Conversation.id).where(
+            Conversation.guest_id == fx.guest_inhouse_a.id))
 
 
-def test_send_queues_message_clears_sla_and_records_first_response(app, fx, client, database, events):
+def test_send_queues_message_clears_sla_and_records_first_response(app, fx, client, database,
+                                                                   events):
     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "AC broken")
     cid = _conversation_id(database, fx)
     clock.advance(minutes=3)
