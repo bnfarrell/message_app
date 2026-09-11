@@ -3424,3 +3424,45 @@ Ruling D100 (MY OWN MISTAKE, recorded because the remedy is a rule I should have
       it, **stage explicit paths - never `git add -A`**. The whole point of the one-writer
       discipline is that a shared index has no locking.
       Cost if wrong: none beyond a broken commit in history and this note.
+
+S1 FIX ROUND 1 RETURNED: DONE_WITH_CONCERNS, commits 697011a (F1,F3,F4,F5,F6) and 149eb1e (F7).
+      Web 520 passing / 0 failed, server 347, tsc/lint/build clean, stderr read. F1, F2, F6 and F7
+      all verified in Chromium in both themes with getComputedStyle and a real keyboard Tab.
+
+      F7 (the user's "centre the search box and make it larger") CARRIES A DELIBERATE, MEASURED
+      DEVIATION and I think it is the right call: below 1280px it does NOT centre. It measured the
+      right-hand group at 285px plus gaps, so the free half-width is 307px at 1440 and 219px at
+      1280 but only ~90px at 1024 - meaning a centred control there could be no wider than ~180px,
+      NARROWER than the one it replaced. Centred-but-smaller would fail the request the user
+      actually made. Below xl it sits in normal flow at the left, where overlap is impossible by
+      construction. Measured at 1920/1440/1280/1024/760.
+      F2 accepted with one control materially smaller: the Dialog close X went ~45x44 -> 31x44. It
+      clears WCAG 2.5.8's 24x24 and the 44px height rule. Sent to the re-reviewer to weigh in on
+      specifically rather than accepted on the implementer's judgement alone.
+
+Ruling D101 (the `*` ignore file keeps coming BACK, and that is what broke my commits): the
+      mystery of "git add says ignored but git check-ignore says not ignored" is solved.
+      `.superpowers/sdd/.gitignore` containing a single `*` is RECREATED BY THE SUPERPOWERS
+      WORKSPACE SCRIPT every time I build a review package. I deleted it once when the user asked
+      for everything committed; it came back at 15:07, silently, and that is why my explicit
+      `git add` of progress.md failed while `git add -A` had appeared to work (add -A skips ignored
+      paths silently; an explicit add errors).
+      Standing remedy: delete it after every review-package run, and use `git add -f` for workspace
+      artifacts. Verified the recreation directly - removed it, ran the script, watched it return.
+      Cost if wrong: workspace files silently stop being committed again, which is exactly what the
+      user asked not to happen.
+
+      A MISATTRIBUTION TO CORRECT BEFORE IT PROPAGATES: S1's report says "the console warning I saw
+      confirms the WebSocket-handshake diagnosis". It does not. The diagnosis KILLED that theory
+      with evidence - vite.config.ts:53 already sets ws: true and the proxy demonstrably carries
+      subscribed, presence.update, message.created and message.status_changed. The console noise is
+      two benign things: the Vite HMR socket on 5173 (not the app socket), and exactly ONE failed
+      /ws per page load because React StrictMode double-invokes the provider effect and the cleanup
+      closes socket #1 before its handshake completes, with the retry 16ms later carrying
+      everything. The real cause remains two API servers on 5200. I passed that handshake lead to
+      the diagnosis agent myself and it was wrong; it should not survive in two reports.
+
+S1 fix re-review dispatched (agent a43dcc7bd0659f472, opus) over 691d8dd..149eb1e - a range chosen
+      to INCLUDE 0f32656, because my `git add -A` put part of the F5/F6 work in that commit under a
+      message about something else, and a reviewer scoped to 697011a alone would under-report both.
+      Told so explicitly. Also told to check for an existing server on 5200 before starting one.
