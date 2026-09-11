@@ -65,10 +65,17 @@ class AuditLog(TimestampMixin, Base):
 
 
 class PmsEvent(TimestampMixin, Base):
+    """The PMS idempotency ledger. Keyed by property: `Stay` is unique on
+    (property_id, pms_reservation_id) because most PMSs number reservations per property, so
+    two properties legitimately hold the same external_id and a globally unique key would
+    silently swallow the second property's event as a duplicate of the first's."""
+
     __tablename__ = "pms_event"
     __table_args__ = (
-        UniqueConstraint("integration_key", "external_id", "event_type", name="uq_pms_event_idem"),
+        UniqueConstraint("property_id", "integration_key", "external_id", "event_type",
+                         name="uq_pms_event_idem"),
     )
+    property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
     integration_key: Mapped[str] = mapped_column(String(60), nullable=False)
     external_id: Mapped[str] = mapped_column(String(100), nullable=False)
     event_type: Mapped[str] = mapped_column(String(60), nullable=False)

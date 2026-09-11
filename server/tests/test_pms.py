@@ -145,3 +145,26 @@ def test_stay_upsert_survives_concurrent_insert_race(app, fx, database, monkeypa
                                               Stay.pms_reservation_id == "R-1")).all()
         assert len(stays) == 1
         assert stays[0].id == winner_id
+
+
+def test_same_external_id_in_two_properties_is_processed_twice(app, fx, database):
+    """Most PMSs number reservations per property, which is why Stay is unique on
+    (property_id, pms_reservation_id). With a globally unique idempotency key, Property B's
+    stay.checked_in for reservation R-1001 was silently swallowed as a duplicate of Property A's
+    and handle_event returned False — the guest never got a conversation or a room number.
+    """
+    ev_a = _event(fx, eid="R-1001", phone="+15551110001", room="301")
+    ev_b = _event(fx, eid="R-1001", phone="+15552220002", room="302")
+    ev_b.property_id = fx.property_b.id
+
+    with database.session() as db:
+        assert handle_event(db, ev_a) is True
+        assert handle_event(db, ev_b) is True, "Property B's event was swallowed as a duplicate"
+        stays = db.scalars(select(Stay).where(Stay.pms_reservation_id == "R-1001")).all()
+        assert {(s.property_id, s.room_number) for s in stays} == {
+            (fx.property_a.id, "301"), (fx.property_b.id, "302")}
+        rows = db.scalars(select(PmsEvent).where(PmsEvent.external_id == "R-1001")).all()
+        assert {r.property_id for r in rows} == {fx.property_a.id, fx.property_b.id}
+        # ...and the key is still idempotent within each property.
+        assert handle_event(db, _event(fx, eid="R-1001", phone="+15551110001",
+                                       room="301")) is False

@@ -19,22 +19,28 @@ def _find_stay(db: Session, property_id: str, pms_reservation_id: str) -> Stay |
 
 
 def handle_event(db: Session, event: PmsEvent, integration_key: str = "mock") -> bool:
-    """Idempotent on (integration_key, external_id, event_type). Returns False for a duplicate.
+    """Idempotent on (property_id, integration_key, external_id, event_type). False for a dup.
+
+    The key is per-property because `Stay` is unique on (property_id, pms_reservation_id): most
+    PMSs number reservations per property, so two properties may legitimately send the same
+    external_id and a global key would swallow the second one as a duplicate of the first.
 
     Duplicate suppression is enforced at the DB level via
-    UniqueConstraint(integration_key, external_id, event_type) on pms_event, not just the SELECT
-    below — a concurrent replay races the SELECT, so the insert is retried inside a nested
-    transaction and an IntegrityError is treated as "already handled" (same pattern as
+    UniqueConstraint(property_id, integration_key, external_id, event_type) on pms_event, not just
+    the SELECT below — a concurrent replay races the SELECT, so the insert is retried inside a
+    nested transaction and an IntegrityError is treated as "already handled" (same pattern as
     guests.find_or_create_by_phone).
     """
-    dup = db.scalar(select(PmsEventRow.id).where(PmsEventRow.integration_key == integration_key,
+    dup = db.scalar(select(PmsEventRow.id).where(PmsEventRow.property_id == event.property_id,
+                                                 PmsEventRow.integration_key == integration_key,
                                                  PmsEventRow.external_id == event.external_id,
                                                  PmsEventRow.event_type == event.type))
     if dup:
         return False
     try:
         with db.begin_nested():
-            row = PmsEventRow(integration_key=integration_key, external_id=event.external_id,
+            row = PmsEventRow(property_id=event.property_id, integration_key=integration_key,
+                              external_id=event.external_id,
                               event_type=event.type, payload=event.raw)
             db.add(row)
             db.flush()
