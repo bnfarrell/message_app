@@ -23,6 +23,10 @@ def create_app(config: Config | None = None) -> Flask:
 
     register_error_handlers(app)
 
+    from app.cli import seed_command
+
+    app.cli.add_command(seed_command)
+
     from app.api import (
         analytics,
         assets,
