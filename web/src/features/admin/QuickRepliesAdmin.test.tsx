@@ -532,4 +532,33 @@ describe('QuickRepliesAdmin', () => {
     // Past 1600 the preview answers the generic "Invalid request body", which never says why.
     expect((body as HTMLTextAreaElement).value).toHaveLength(1600)
   })
+  // This screen's delete has no server-side guard at all, so a misfire here is immediate and
+  // unrecoverable — the strongest case in the product for the confirmation being scoped.
+  it('does not carry an armed delete confirmation to another reply', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByText('WiFi details'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+
+    await user.click(screen.getByText('Airport shuttle'))
+    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('Airport shuttle'))
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+  })
+
+  it('does not carry it across a New quick reply, which hides the delete controls', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByText('WiFi details'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await user.click(screen.getByRole('button', { name: /new quick reply/i }))
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByText('Airport shuttle'))
+    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('Airport shuttle'))
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+  })
 })

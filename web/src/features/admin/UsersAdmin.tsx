@@ -128,6 +128,7 @@ export function UsersAdmin() {
 
       {draft ? (
         <EditPanel
+          subjectId={draftId ?? 'new'}
           title={draft.id ? 'Edit user' : 'New user'}
           saving={pending}
           error={failure}

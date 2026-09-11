@@ -97,6 +97,7 @@ export function CategoriesAdmin() {
 
       {draft ? (
         <EditPanel
+          subjectId={draftId ?? 'new'}
           title={draft.id ? 'Edit category' : 'New category'}
           saving={pending}
           error={failure}

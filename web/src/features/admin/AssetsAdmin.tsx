@@ -115,6 +115,7 @@ export function AssetsAdmin() {
 
       {draft ? (
         <EditPanel
+          subjectId={draftId ?? 'new'}
           title={draft.id ? 'Edit asset' : 'New asset'}
           subtitle={selected ? `${selected.sendCount} sends` : undefined}
           saving={pending}

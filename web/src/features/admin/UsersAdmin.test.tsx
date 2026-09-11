@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionProvider } from '../../auth/SessionContext'
@@ -107,5 +107,34 @@ describe('UsersAdmin', () => {
     await userEvent.type(screen.getByLabelText('First name'), 'Nia')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(vi.mocked(fetch).mock.calls.some(([, i]) => i?.method === 'POST')).toBe(false)
+  })
+  // EditPanel's delete confirmation is local state and the panel is never unmounted between
+  // records, so without a subject-scoped reset an arming survives the change of subject.
+  it('does not carry an armed delete confirmation to another user', async () => {
+    mount()
+    await userEvent.click(await screen.findByText('Ava Nolan'))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('Eli Engineer'))
+    await waitFor(() => expect(screen.getByLabelText('Role')).toHaveValue('dept_staff'))
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+  })
+
+  it('does not carry it across a New user, which hides the delete controls without dismissing them', async () => {
+    mount()
+    await userEvent.click(await screen.findByText('Ava Nolan'))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    // `onDelete` is undefined for an unsaved record, so the delete row disappears entirely and
+    // the admin reasonably believes the confirmation is gone with it.
+    await userEvent.click(screen.getByRole('button', { name: /new user/i }))
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('Eli Engineer'))
+    await waitFor(() => expect(screen.getByLabelText('Role')).toHaveValue('dept_staff'))
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
   })
 })

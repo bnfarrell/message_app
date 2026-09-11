@@ -196,6 +196,7 @@ export function QuickRepliesAdmin() {
 
       {draft ? (
         <EditPanel
+          subjectId={draftId ?? 'new'}
           title={draft.id ? 'Edit quick reply' : 'New quick reply'}
           subtitle={selected ? `${selected.usageCount} uses` : undefined}
           saving={pending}

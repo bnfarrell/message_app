@@ -191,11 +191,28 @@ describe('DepartmentsAdmin', () => {
 
     await user.click(screen.getByText('Reception'))
     await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Reception'))
-    // Reception's panel must not open one click away from deleting Reception. This is the reason
-    // the panel is keyed on the record: its confirmation lives in EditPanel's own state and the
-    // panel is never unmounted between rows.
+    // Reception's panel must not open one click away from deleting Reception. EditPanel disarms
+    // on a change of `subjectId`; its confirmation is local state and the panel is never
+    // unmounted between rows, so nothing else would clear it.
     expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+  })
+
+  it('does not carry it across a New department, which hides the delete controls', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByText('Maintenance'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+
+    // The worse of the two routes: `onDelete` is undefined for an unsaved record, so the whole
+    // delete row disappears and the UI actively signals that the arming is gone. It is not.
+    await user.click(screen.getByRole('button', { name: /new department/i }))
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByText('Reception'))
+    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Reception'))
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
   })
 
   it('shows escalation as a column but offers no control for it (D81)', async () => {
