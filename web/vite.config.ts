@@ -39,7 +39,12 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': { target: API, changeOrigin: true },
-      '/a': { target: API, changeOrigin: true },
+      // A string key is matched by prefix, and '/app/inbox'.startsWith('/a') is true --
+      // every hard navigation to an /app/* route was being proxied to Flask instead of
+      // served by Vite. A key starting with '^' is a RegExp instead: '^/a/' requires the
+      // slash right after '/a', so it still matches the asset short-link route
+      // (GET /a/<short_code>) without also matching /app/*.
+      '^/a/': { target: API, changeOrigin: true },
       '/ws': { target: API, ws: true, changeOrigin: true },
     },
   },
