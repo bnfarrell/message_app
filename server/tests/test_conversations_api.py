@@ -61,10 +61,12 @@ def test_dept_staff_sees_only_their_department_or_own_conversations(app, fx, cli
     eng = login("engineer@hvh.test")
     assert {r["id"] for r in eng.get(_base(fx)).get_json()} == {sarah}
     assert eng.get(f"{_base(fx)}/{diego}").status_code == 403
-    # A conversation invisible via GET must stay invisible through every other route too —
-    # an empty PATCH or a note-create must not become a side door to read or touch it.
+    # A conversation invisible via GET must stay invisible through every other route too — an empty
+    # PATCH, a note-create, sending a message, or retrying one must not become a side door to it.
     assert eng.patch(f"{_base(fx)}/{diego}", json={}).status_code == 403
     assert eng.post(f"{_base(fx)}/{diego}/notes", json={"body": "peeking"}).status_code == 403
+    assert eng.post(f"{_base(fx)}/{diego}/messages", json={"body": "should not send"}).status_code == 403
+    assert eng.post(f"{_base(fx)}/{diego}/messages/00000000-0000-0000-0000-000000000000/retry").status_code == 403
 
 
 def test_dept_staff_without_department_sees_only_own_assigned(app, fx, client, database, login):

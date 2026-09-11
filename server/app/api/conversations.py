@@ -47,6 +47,8 @@ def send_message(property_id: str, conversation_id: str):
     body = parse_body(SendMessageRequest)
     ip, ua = client_meta()
     with db_session() as db:
+        c = conversations.get(db, g.property_id, conversation_id)
+        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
         m = messages.send(db, g.property_id, conversation_id, body.body, author_user_id=g.user.id,
                           digital_asset_id=body.digital_asset_id, draft_prompt_id=body.draft_prompt_id,
                           ip=ip, user_agent=ua)
@@ -59,7 +61,8 @@ def send_message(property_id: str, conversation_id: str):
 @require_capability("reply")
 def retry_message(property_id: str, conversation_id: str, message_id: str):
     with db_session() as db:
-        conversations.get(db, g.property_id, conversation_id)
+        c = conversations.get(db, g.property_id, conversation_id)
+        conversations.assert_viewer_can_see(c, g.membership.role, g.user.id, g.membership.department_id)
         target = db.scalar(select(Message).where(Message.id == message_id,
                                                   Message.property_id == g.property_id))
         if target is None or target.conversation_id != conversation_id:
