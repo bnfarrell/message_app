@@ -8,15 +8,32 @@ import { cn } from '../../lib/cn'
 import { BOARD_COLUMNS, STATUS_LABELS } from './transitions'
 import { WorkOrderCard } from './WorkOrderCard'
 
+type Filter = { kind: 'all' } | { kind: 'mine' } | { kind: 'dept'; id: string } | { kind: 'urgent' }
+
+/** The filter row is single-select: Board.dc.html draws five `.tab`s with exactly one `.on`.
+ *
+ * The three params stay separate rather than collapsing into one, so landingPath's `?mine=1`
+ * entry and every link already in the wild keep working. A URL that still carries two of them
+ * resolves to a single winner here instead of lighting two tabs. */
+function selectedFilter(params: URLSearchParams): Filter {
+  if (params.get('mine') === '1') return { kind: 'mine' }
+  const dept = params.get('dept')
+  if (dept) return { kind: 'dept', id: dept }
+  if (params.get('urgent') === '1') return { kind: 'urgent' }
+  return { kind: 'all' }
+}
+
 export function BoardPage() {
   // landingPath sends dept_staff and supervisors here with ?mine=1 — honour it.
   const [params, setParams] = useSearchParams()
-  const mine = params.get('mine') === '1'
-  const dept = params.get('dept')
-  const urgentOnly = params.get('urgent') === '1'
+  const selected = selectedFilter(params)
+  const urgentOnly = selected.kind === 'urgent'
   const view = params.get('view') === 'list' ? 'list' : 'board'
 
-  const { data, isPending, error } = useWorkOrders({ mine, dept })
+  const { data, isPending, error } = useWorkOrders({
+    mine: selected.kind === 'mine',
+    dept: selected.kind === 'dept' ? selected.id : null,
+  })
   const { data: departments } = useDepartments()
   const { data: staff } = useStaff()
 
@@ -33,11 +50,13 @@ export function BoardPage() {
     setParams(next, { replace: true })
   }
 
-  // "All" clears the filters only. Resetting the whole query string also dropped view=list,
+  // Picking a tab clears the other two, so only one is ever lit. `select({})` is the "All" tab.
+  // It touches the filters only: resetting the whole query string also dropped view=list,
   // silently throwing the user back to the board they had switched away from.
-  function clearFilters() {
+  function select(filter: Record<string, string>) {
     const next = new URLSearchParams(params)
     for (const key of ['mine', 'dept', 'urgent']) next.delete(key)
+    for (const [key, value] of Object.entries(filter)) next.set(key, value)
     setParams(next, { replace: true })
   }
 
@@ -83,14 +102,16 @@ export function BoardPage() {
           </p>
         </div>
         <div role="tablist" className="ml-4 flex flex-wrap gap-1.5">
-          {tab('All', !mine && !dept && !urgentOnly, clearFilters, data?.length)}
-          {tab('Mine', mine, () => setParam('mine', mine ? null : '1'))}
+          {tab('All', selected.kind === 'all', () => select({}), data?.length)}
+          {tab('Mine', selected.kind === 'mine', () => select({ mine: '1' }))}
           {(departments ?? []).map((department) =>
-            tab(department.name, dept === department.id, () =>
-              setParam('dept', dept === department.id ? null : department.id),
+            tab(
+              department.name,
+              selected.kind === 'dept' && selected.id === department.id,
+              () => select({ dept: department.id }),
             ),
           )}
-          {tab('Urgent', urgentOnly, () => setParam('urgent', urgentOnly ? null : '1'), urgentCount)}
+          {tab('Urgent', urgentOnly, () => select({ urgent: '1' }), urgentCount)}
         </div>
         <div className="ml-auto flex items-center gap-2">
           <Button onClick={() => setParam('view', view === 'board' ? 'list' : 'board')}>

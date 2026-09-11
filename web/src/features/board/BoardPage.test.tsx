@@ -104,6 +104,44 @@ describe('BoardPage', () => {
     expect(screen.getByRole('tab', { name: /Urgent/ })).toHaveAttribute('aria-selected', 'false')
   })
 
+  it('lets only one filter tab be selected at a time', async () => {
+    // Reported from the running app: "two tabs can be selected at same time." The mockup draws
+    // five `.tab`s with exactly one `.on`, so picking a tab must clear the others.
+    // Changing mine/dept changes the query key, so the board flips through its pending spinner
+    // and re-mounts the tabs: every tab has to be looked up again after a click.
+    mount()
+    await userEvent.click(await screen.findByRole('tab', { name: 'Mine' }))
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Mine' })).toHaveAttribute('aria-selected', 'true'),
+    )
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Engineering' }))
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Engineering' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
+    )
+    expect(screen.getByRole('tab', { name: 'Mine' })).toHaveAttribute('aria-selected', 'false')
+
+    await waitFor(() => {
+      const last = vi
+        .mocked(fetch)
+        .mock.calls.map(([u]) => String(u))
+        .filter((u) => u.includes('/work-orders'))
+        .at(-1)!
+      expect(last).toContain('dept=dept-eng')
+      expect(last).not.toContain('mine=true')
+    })
+  })
+
+  it('lights exactly one tab even when a stale URL still carries two filters', async () => {
+    mount('/app/board?mine=1&dept=dept-eng&urgent=1')
+    await screen.findByRole('tab', { name: 'Engineering' })
+    const lit = screen.getAllByRole('tab').filter((t) => t.getAttribute('aria-selected') === 'true')
+    expect(lit).toHaveLength(1)
+  })
+
   it('links each card to its detail screen', async () => {
     mount()
     expect(await screen.findByRole('link', { name: /Faucet dripping/ })).toHaveAttribute(
