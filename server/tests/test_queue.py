@@ -1,7 +1,7 @@
 import shutil
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import Select, event, select, update
 
 from app import clock, create_app
 from app.config import Config
@@ -156,3 +156,60 @@ def test_start_worker_guard_avoids_duplicate_start_under_reloader(
         assert build_app(False, None) == [True]
     finally:
         clock.reset()
+
+
+def test_claim_due_does_not_take_a_row_another_worker_claimed_mid_select(app, database):
+    """Two workers must never both claim one job.
+
+    SQLite silently drops `.with_for_update(skip_locked=True)` — it compiles to a bare
+    `SELECT job.id FROM job`, with no warning — so the claim has to be a compare-and-swap:
+    the UPDATE's own `status = 'queued'` predicate is what makes a contended row simply not
+    claimed. The listener below fires between claim_due's SELECT and its UPDATE, which is
+    exactly the window the real race lives in, so the contention is deterministic rather
+    than timing-dependent.
+    """
+    with database.session() as db:
+        job = jobs.enqueue(db, "test.ok", {})
+
+    stolen: list[str] = []
+
+    def steal(conn, clauseelement, multiparams, params, execution_options, result):
+        if stolen or not isinstance(clauseelement, Select):
+            return
+        stolen.append(job.id)
+        with database.session() as other:
+            other.execute(
+                update(Job).where(Job.id == job.id)
+                .values(status=JobStatus.running, locked_at=clock.now())
+            )
+
+    event.listen(database.engine, "after_execute", steal)
+    try:
+        with database.session() as db:
+            assert jobs.claim_due(db) == []
+    finally:
+        event.remove(database.engine, "after_execute", steal)
+
+    assert stolen == [job.id], "the contending claim never ran; the test proves nothing"
+
+
+def test_schedule_next_recurrence_leaves_exactly_one_successor(app, database):
+    """Called twice for the same type it must enqueue once.
+
+    worker.tick() calls this on every completed recurring job. Without the existence guard
+    two workers that both completed the same sweep each enqueue a successor, and the chain
+    doubles every interval — 1, 2, 4, 8 — which is how a 30-second sweep reached 2.7M rows.
+    """
+    jobs.RECURRING["test.ok"] = 30
+    try:
+        with database.session() as db:
+            job = jobs.enqueue(db, "test.ok", {})
+            jobs.complete(db, job)
+            jobs.schedule_next_recurrence(db, job)
+            jobs.schedule_next_recurrence(db, job)
+            pending = db.scalars(select(Job).where(Job.type == "test.ok",
+                                                   Job.status == JobStatus.queued)).all()
+            assert len(pending) == 1
+            assert (pending[0].run_at - clock.now()).total_seconds() == pytest.approx(30, abs=1)
+    finally:
+        jobs.RECURRING.pop("test.ok", None)

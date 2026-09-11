@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app import clock
@@ -23,16 +23,24 @@ def enqueue(db: Session, type: str, payload: dict | None = None, run_at: datetim
 
 
 def claim_due(db: Session, limit: int = 20) -> list[Job]:
+    """Claim due jobs with a compare-and-swap, not a row lock.
+
+    SQLite compiles `.with_for_update(skip_locked=True)` away to a bare SELECT — no clause,
+    no warning — so the lock this used to rely on never existed and two workers claimed the
+    same row. The `status = 'queued'` predicate on the UPDATE is what `skip_locked` was meant
+    to buy: a row another worker already took simply does not match, and is not claimed.
+    Correct on PostgreSQL too.
+    """
     now = clock.now()
-    due = db.scalars(
-        select(Job).where(Job.status == JobStatus.queued, Job.run_at <= now)
-        .order_by(Job.run_at).limit(limit).with_for_update(skip_locked=True)
-    ).all()
-    for job in due:
-        job.status = JobStatus.running
-        job.locked_at = now
+    ids = db.scalars(select(Job.id)
+                     .where(Job.status == JobStatus.queued, Job.run_at <= now)
+                     .order_by(Job.run_at).limit(limit)).all()
+    claimed = [jid for jid in ids
+               if db.execute(update(Job)
+                             .where(Job.id == jid, Job.status == JobStatus.queued)
+                             .values(status=JobStatus.running, locked_at=now)).rowcount]
     db.flush()
-    return due
+    return list(db.scalars(select(Job).where(Job.id.in_(claimed))).all()) if claimed else []
 
 
 def complete(db: Session, job: Job) -> None:
@@ -73,6 +81,12 @@ def ensure_recurring(db: Session, type: str, payload: dict | None = None) -> Job
 
 def schedule_next_recurrence(db: Session, job: Job) -> None:
     interval = RECURRING.get(job.type)
-    if interval:
-        enqueue(db, job.type, job.payload, run_at=clock.now() + timedelta(seconds=interval),
-                max_attempts=1)
+    if not interval:
+        return
+    # The same existence guard `ensure_recurring` has. Without it, two workers that both
+    # completed one sweep each enqueue a successor and the chain doubles every interval.
+    if db.scalar(select(Job.id).where(Job.type == job.type,
+                                      Job.status.in_([JobStatus.queued, JobStatus.running]))):
+        return
+    enqueue(db, job.type, job.payload, run_at=clock.now() + timedelta(seconds=interval),
+            max_attempts=1)
