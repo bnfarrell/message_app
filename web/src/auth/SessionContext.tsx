@@ -2,8 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import { useLogout, useSessionQuery } from '../api/hooks/auth'
 import type { MembershipOut, Role, UserOut } from '../api/types'
 import { hasCapability, type Capability } from './capabilities'
-
-const STORAGE_KEY = 'activePropertyId'
+import { ACTIVE_PROPERTY_KEY } from './storage'
 
 export type Session = {
   user: UserOut
@@ -31,7 +30,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const { mutate: logout } = useLogout()
   const [stored, setStored] = useState<string | null>(() => {
     try {
-      return localStorage.getItem(STORAGE_KEY)
+      return localStorage.getItem(ACTIVE_PROPERTY_KEY)
     } catch {
       return null // private mode / blocked storage: fall back to the first membership
     }
@@ -40,7 +39,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const setPropertyId = useCallback((id: string) => {
     setStored(id)
     try {
-      localStorage.setItem(STORAGE_KEY, id)
+      localStorage.setItem(ACTIVE_PROPERTY_KEY, id)
     } catch {
       /* not fatal — the choice just will not survive a reload */
     }

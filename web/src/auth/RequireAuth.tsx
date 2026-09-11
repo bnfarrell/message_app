@@ -4,6 +4,7 @@ import { useSessionQuery } from '../api/hooks/auth'
 import { onUnauthorized } from '../api/client'
 import { Spinner } from '../components/ui'
 import { SessionProvider } from './SessionContext'
+import { clearActivePropertyId } from './storage'
 
 export function RequireAuth() {
   const { data, isPending, error, refetch } = useSessionQuery()
@@ -25,6 +26,19 @@ export function RequireAuth() {
     })
     return () => onUnauthorized(null)
   }, [refetch])
+
+  // A session can end without anyone signing out — cookie expiry, a server restart, a TTL — and
+  // that path never invokes `useLogout`, so its localStorage cleanup never runs. Left alone, the
+  // stored active property outlives the session on a shared front-desk machine: the original
+  // cross-user bleed by a different door (ruling D56).
+  //
+  // `isPending` is part of the condition, not decoration: on a cold start `data` is undefined
+  // while the first /api/auth/me is in flight, so without it every normal load would clear the
+  // very preference it is about to use.
+  const sessionLost = !isPending && (Boolean(error) || !data)
+  useEffect(() => {
+    if (sessionLost) clearActivePropertyId()
+  }, [sessionLost])
 
   if (isPending) {
     return (
