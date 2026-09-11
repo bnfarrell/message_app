@@ -6,6 +6,7 @@ import { landingPath } from './auth/capabilities'
 import { AppLayout } from './AppLayout'
 import { EmptyState, Spinner } from './components/ui'
 import { LoginPage } from './features/login/LoginPage'
+import { InboxPage } from './features/inbox/InboxPage'
 
 /** Temporary: each feature task replaces one of these with the real screen. */
 function Placeholder({ name }: { name: string }) {
@@ -41,8 +42,8 @@ export function AppRoutes() {
       <Route path="/app" element={<RequireAuth />}>
         <Route element={<AppLayout />}>
           <Route index element={<LandingRedirect />} />
-          <Route path="inbox" element={<Placeholder name="Inbox" />} />
-          <Route path="inbox/:id" element={<Placeholder name="Inbox" />} />
+          <Route path="inbox" element={<InboxPage />} />
+          <Route path="inbox/:id" element={<InboxPage />} />
           <Route path="board" element={<Placeholder name="Board" />} />
           <Route path="work-orders/:id" element={<Placeholder name="Work order" />} />
           <Route

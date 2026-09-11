@@ -54,7 +54,9 @@ describe('AppRoutes', () => {
 
   it('sends an agent from /app to the inbox', async () => {
     mountAt('/app', 'agent')
-    expect(await (await mainScreen()).findByText('Inbox')).toBeInTheDocument()
+    // Task 12 replaced the Inbox placeholder with the real screen, which has no literal
+    // "Inbox" text of its own in <main> — the location is the stable signal that we landed.
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/inbox'))
   })
 
   it('sends dept_staff from /app to the board, filtered to mine', async () => {
@@ -88,8 +90,8 @@ describe('AppRoutes', () => {
 
   it('keeps an agent out of analytics, bouncing them to their landing screen', async () => {
     mountAt('/app/analytics', 'agent')
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/inbox'))
     const main = await mainScreen()
-    expect(await main.findByText('Inbox')).toBeInTheDocument()
     expect(main.queryByText('Analytics')).not.toBeInTheDocument()
   })
 
@@ -107,7 +109,7 @@ describe('AppRoutes', () => {
 
   it('redirects an unknown path to /app', async () => {
     mountAt('/nonsense', 'agent')
-    expect(await (await mainScreen()).findByText('Inbox')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/inbox'))
   })
 
   it('sends an unauthenticated visitor to /login', async () => {

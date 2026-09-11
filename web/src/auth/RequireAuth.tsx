@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useSessionQuery } from '../api/hooks/auth'
 import { onUnauthorized } from '../api/client'
@@ -8,11 +8,21 @@ import { SessionProvider } from './SessionContext'
 export function RequireAuth() {
   const { data, isPending, error, refetch } = useSessionQuery()
   const location = useLocation()
+  // A truly-dead session makes refetch()'s own /api/auth/me call 401 too, which would
+  // re-invoke this same handler and refetch again forever. Guard against that: ignore an
+  // unauthorized signal that arrives while a refetch it triggered is still in flight.
+  const refetching = useRef(false)
 
   // Any 401 from any request means the cookie died mid-session; refetching /api/auth/me
   // flips this guard to the redirect below instead of leaving a half-dead screen up.
   useEffect(() => {
-    onUnauthorized(() => void refetch())
+    onUnauthorized(() => {
+      if (refetching.current) return
+      refetching.current = true
+      void refetch().finally(() => {
+        refetching.current = false
+      })
+    })
     return () => onUnauthorized(null)
   }, [refetch])
 
