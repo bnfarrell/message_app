@@ -15,7 +15,10 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    environmentMatchGlobs: [['src/index.css.test.ts', 'node']],
+    environmentMatchGlobs: [
+      ['src/index.css.test.ts', 'node'],
+      ['src/api/types.generated.test.ts', 'node'],
+    ],
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
     css: false,
