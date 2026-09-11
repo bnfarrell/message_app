@@ -158,6 +158,33 @@ describe('CommandPalette', () => {
     await vi.waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'))
   })
 
+  it('makes no server call when it opens or filters (D63)', async () => {
+    // It is a NAVIGATION palette: the only `q=` parameter on the whole server is
+    // quick_replies.py:16, and there is no conversation, guest or work-order search endpoint.
+    // Without this, a future `q=` call added here would go green.
+    const user = userEvent.setup()
+    mount({ role: 'admin', withSecondProperty: true })
+    await screen.findByRole('button', { name: /jump to a screen/i })
+    vi.mocked(fetch).mockClear()
+
+    await user.click(screen.getByRole('button', { name: /jump to a screen/i }))
+    await user.type(screen.getByRole('combobox'), 'prop')
+    await user.keyboard('{ArrowDown}')
+
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('owns its options directly, with no listitem between listbox and option', async () => {
+    const user = userEvent.setup()
+    mount({ role: 'agent' })
+    await user.click(await screen.findByRole('button', { name: /jump to a screen/i }))
+    const listbox = screen.getByRole('listbox')
+    // `listitem` is not an allowed child of `listbox`; a screen reader that honours the
+    // ownership rules then mis-counts or skips options.
+    expect(within(listbox).queryAllByRole('listitem')).toHaveLength(0)
+    expect(within(listbox).getAllByRole('option').length).toBe(optionNames().length)
+  })
+
   it('says so rather than showing an empty list when nothing matches', async () => {
     const user = userEvent.setup()
     mount({ role: 'agent' })

@@ -193,17 +193,25 @@ export function CommandPalette() {
               }}
               className="h-12 w-full border-b border-border bg-surface px-4 text-sm text-text placeholder:text-text4 focus:outline-none"
             />
+            {/* `listitem` is not an allowed child of `listbox`, and nor is a bare paragraph:
+                some screen readers then mis-count or skip the options. role="presentation"
+                on the wrappers makes the option divs the listbox's own children. */}
             <ul id={listId} role="listbox" aria-label="Results" className="max-h-72 overflow-y-auto py-1">
               {matches.length === 0 ? (
-                <li className="px-4 py-3 text-sm text-text3">Nothing matches that.</li>
+                <li role="presentation" className="px-4 py-3 text-sm text-text3">
+                  Nothing matches that.
+                </li>
               ) : null}
               {matches.map((entry, i) => {
                 const heading = entry.group === lastGroup ? null : entry.group
                 lastGroup = entry.group
                 return (
-                  <li key={entry.id}>
+                  <li role="presentation" key={entry.id}>
                     {heading ? (
-                      <p className="px-4 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-text4">
+                      <p
+                        role="presentation"
+                        className="px-4 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-text4"
+                      >
                         {heading}
                       </p>
                     ) : null}

@@ -217,8 +217,10 @@ removing the focus-return each turn the suite red.
 
 ## 5. Verdict on `tailwind-merge`: **added**
 
-I audited first rather than assuming. A script over every `<Capitalised …>` JSX element in `src/`
-found **exactly two** colour `className` overrides passed into components in the whole client:
+I audited first rather than assuming — but **the audit matched colour utilities only, and that
+turned out to matter**; see the correction at the end of this section. A script over every
+`<Capitalised …>` JSX element in `src/` found **exactly two** colour `className` overrides passed
+into components in the whole client:
 
 - `EditPanel.tsx:91` — `<Button variant="ghost" className="ml-auto text-dangerText">`. `ghost`'s
   base is `text-text3`; `dangerText` is declared *after* `text3` in `tailwind.config.js`, so the
@@ -241,7 +243,18 @@ mode is therefore byte-for-byte unaffected. Four tests in `cn.test.ts` pin all o
 that an unrecognised class (`shadow-[inset_3px_0_0_var(--accent)]`, `rounded-card`) is never
 touched.
 
-Full suite after the change: 498/498 with no warnings and no visual change anywhere.
+Full suite after the change: 498/498 with no warnings.
+
+**Correction (fix round 1, F6 in the review).** The sentence that stood here originally —
+"no visual change anywhere" — was wrong, and a controller relying on it would have been relying
+on something untrue. The audit above matched `bg-`/`text-`/`border-` against the 45 token names,
+so by construction it could not find a size conflict. Two **non-colour** overrides did revive,
+both in `Button` and both reaching screen content: base `px-4` versus the ghost variant's
+`px-2.5` (ghost buttons went 16px → 10px side padding), and `<Spinner className="h-4 w-4" />`
+versus Spinner's own `h-5 w-5` (20px → 16px). The corrected claim is: **no colour override changed
+anywhere, and two size overrides in `Button` began to take effect — which is the author's evident
+intent finally being honoured, the pre-merge behaviour having been the bug.** Each affected
+control was then measured and looked at in both themes; see "F2" in the fix round below.
 
 ### D86 — the focus test that cannot fail, verified in a browser instead
 
@@ -336,3 +349,125 @@ name; `smoke.spec.ts` uses `getByRole('textbox')`, and the palette trigger is de
 7. **The brief file itself (`shell-S1-brief.md`) is modified in the working tree** — the
    controller's own edit replacing the "open score.png" instruction with the written description.
    Left uncommitted and untouched; it is not mine to commit.
+
+---
+
+# Fix round 1
+
+Six items from the review. Web **520 passing / 0 failed** (51 files), server **347**; `tsc -b`
+clean with no `.d.ts` under `tests/`, lint 0, build clean, stderr read — no React warnings.
+
+Screenshots added: `s1-fix1-departments-light.png`, `s1-fix1-dialog-light.png`,
+`s1-fix1-dialog-dark.png`, `s1-fix1-loading-dark.png`, `s1-fix1-thread-dark.png`.
+
+## F1 — the rail focus ring bled onto the property-switcher menu. Fixed.
+
+The finding is correct and it was a regression in the control this wave moved.
+`[data-nav-surface] button:focus-visible` matched every button *inside* the `<nav>`, and the
+`Dropdown` menu panel renders inside the rail while sitting on `--surface`.
+
+```css
+[data-nav-surface] [role='menu'] button:focus-visible { outline-color: var(--accent); }
+```
+
+More specific than the rule above it (0,3,1 against 0,2,1), so it wins without reordering
+anything. Verified in Chromium with a real keyboard Tab as `casey@group.test`, who has two
+memberships, in both themes:
+
+| | menu item ring | menu panel | ratio |
+| --- | --- | --- | --- |
+| light, before | `rgb(157,194,255)` | `rgb(255,255,255)` | **1.81:1** — fails 1.4.11 |
+| light, after | `rgb(37,99,235)` = `--accent` | `rgb(255,255,255)` | **5.17:1** |
+| dark, after | `rgb(79,143,212)` = `--accent` | `rgb(28,36,48)` | **4.62:1** |
+
+And the rail's own links still get `--navFocus` (`rgb(157,194,255)`) in both themes, so the scope
+narrowed exactly as intended and nothing else moved.
+
+## F2 — the "no visual change anywhere" claim was wrong. Corrected, and the sizes verified.
+
+**The claim in §5 of the original report is false as written, and the correction matters more
+than the fix.** My audit script matched colour utilities only (`bg-|text-|border-` against the
+45 token names), so it could not have found a `px-`/`h-`/`w-` conflict. Two non-colour overrides
+did revive when `tailwind-merge` landed, and both are inside screen content:
+
+- `Button.tsx:25` — base `px-4` versus the `ghost` variant's `px-2.5`. Now 10px.
+- `Button.tsx:31` — `<Spinner className="h-4 w-4" />` versus Spinner's own `h-5 w-5`. Now 16px.
+
+**The corrected claim: no *colour* override changed anywhere; two non-colour overrides in
+`Button` began to take effect, and in both cases that is the author's evident intent finally
+being honoured — the pre-merge behaviour was the bug.** §5 has been amended in place.
+
+I am not pinning the old sizes back. Measured and looked at, in both themes:
+
+| control | measured | reads correctly? |
+| --- | --- | --- |
+| Departments EditPanel **Delete** (ghost) | padding 10px/10px, **63 × 44px** | Yes. A borderless red text action beside two filled buttons; 10px side padding is what it wants, and the 44px height rule is untouched. `s1-fix1-departments-light.png`, `s1-fix1-loading-dark.png`. |
+| Dialog **close ✕** (ghost) | padding 10px/10px, **31 × 44px** | Yes. Down from ~45px wide, still well clear of WCAG 2.5.8's 24 × 24 minimum, and the focus ring around it is unmistakable. `s1-fix1-dialog-light.png` / `-dark.png`. |
+| **Spinner** in a loading Button | **16 × 16px**, track `rgb(102,116,138)` = `--border3`, head `rgb(79,143,212)` = `--accent` | Yes. Proportionate inside a 44px button next to 14px text; at 20px it crowded the label. `s1-fix1-loading-dark.png`. |
+
+`MessageBubble`'s Retry is the same `ghost` variant with no `className` of its own, so it is the
+same code path as the two ghost buttons above rather than a third case — I inspected the variant
+in both themes rather than opening a failed message to see that specific instance. Saying so
+because that is the limit of what I actually looked at.
+
+## F3 — listbox ownership. Fixed.
+
+`role="presentation"` on the `<li>` wrappers, the empty-state `<li>` and the `<p>` group
+headings, so the options are the listbox's own children. A test asserts the listbox contains
+**zero** `listitem`s and exactly as many `option`s as there are entries; it goes red when the
+attribute is removed.
+
+## F4 — D63 was unpinned. Fixed.
+
+`makes no server call when it opens or filters (D63)` clears the fetch mock after mount, then
+opens, types and arrows, and asserts `fetch` was never called. Mutation-tested by adding a
+`fetch('/api/quick-replies?q=x')` to the open effect — red.
+
+## F5 — `block()` hardened.
+
+It now anchors to the start of a line and requires the selector to open **exactly one** block:
+
+```ts
+const escaped = selector.replace(/[.*+?^${}()|[\]\]/g, '\$&')
+const found = [...css.matchAll(new RegExp(`^${escaped}\s*\{`, 'gm'))]
+expect(found, `${selector} must open exactly one block at the start of a line`).toHaveLength(1)
+```
+
+Mutation-proved rather than asserted: I put the `indexOf` version back **and** restored the
+comment wording that mentions `[data-theme='light']`, and the accent/danger test went red because
+the light-theme assertions were reading the comment. With the hardened helper the same comment is
+ignored. It also now fails loudly if a selector is ever declared twice.
+
+## F6 — `--border3` raised to clear 3:1. Done, and it did not go boxy.
+
+The finding is right, and the tension resolves cleanly because **`--border3` is the *control*
+boundary token and nothing else**. Every use of it is a Button, Input, Textarea, `select`,
+Dropdown trigger, the Composer's mode-tab track or one of the new top-bar pills. Card hairlines
+and table rules are `--border` / `--border2`, which are left exactly as soft as they were. So the
+controls gain definition and the page does not gain lines.
+
+This is required, not optional, because the fills do not carry the identification either: in
+light a default Button is `#ffffff` on `#f5f7fa` (1.03:1) and an Input is `#eef2f7` on `#ffffff`
+(1.11:1). The 1px border is the only thing that says "control".
+
+| | before | surface | surface2 | bg | bg2 |
+| --- | --- | --- | --- | --- | --- |
+| light | `#c3ccd9` | 1.62 | 1.44 | 1.51 | 1.56 |
+| light | **`#7e8a9e`** | **3.49** | **3.10** | **3.25** | **3.37** |
+| dark | `#35414f` | 1.50 | 1.63 | 1.78 | 1.69 |
+| dark | **`#66748a`** | **3.30** | **3.57** | **3.90** | **3.70** |
+
+3:1 is cleared against **every** ground a control can sit on, on both sides of the 1px line, not
+just against the page background. Asserted per theme in `index.css.test.ts` and mutation-tested by
+restoring the old values — both assertions go red.
+
+Looked at in both themes on the densest screens: the admin EditPanel (`s1-fix1-departments-light.png`,
+`s1-fix1-loading-dark.png`), the Create work order dialog (`s1-fix1-dialog-light.png` / `-dark.png`)
+and the inbox thread with its composer (`s1-fix1-thread-dark.png`). The form fields and the
+Quick/Attach/Work order row now read as controls instead of floating; the cards, the table and
+the message bubbles are unchanged. It reads more defined, not heavier.
+
+## Not touched, as instructed
+
+The `smoke.spec.ts` delivery-status failure. Noted in the original report as pre-existing and
+left to its own diagnosis.

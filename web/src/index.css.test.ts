@@ -25,8 +25,8 @@ const TOKENS = [
  * against the wrong block is the same family of defect as a test that cannot fail.
  */
 function block(selector: string): string {
-  const pattern = new RegExp(`^${selector.replace(/[.*+?^${}()|[\]\]/g, '\$&')}\s*\{`, 'gm')
-  const found = [...css.matchAll(pattern)]
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const found = [...css.matchAll(new RegExp(`^${escaped}\\s*\\{`, 'gm'))]
   expect(found, `${selector} must open exactly one block at the start of a line`).toHaveLength(1)
   const open = found[0]!.index! + found[0]![0].length - 1
   return css.slice(open, css.indexOf('}', open))
@@ -87,6 +87,21 @@ describe('design tokens', () => {
       // 3.33:1 on the light rail, which is why --navFocus exists.
       expect(contrast(value(theme, 'navFocus'), rail), '--navFocus on --nav')
         .toBeGreaterThanOrEqual(3)
+    },
+  )
+
+  it.each([':root', "[data-theme='light']"])(
+    'keeps --border3 visible against every ground a control can sit on in %s',
+    (theme) => {
+      // --border3 is the *control* boundary token: it is the only thing that identifies a
+      // Button, Input, Textarea, Dropdown trigger or select, because their fills are within
+      // 1.1:1 of what surrounds them. WCAG 1.4.11 therefore wants 3:1 against the colours on
+      // both sides of that 1px line. --border and --border2, which draw card hairlines and
+      // table rules rather than controls, are deliberately left soft.
+      for (const ground of ['surface', 'surface2', 'bg', 'bg2']) {
+        expect(contrast(value(theme, 'border3'), value(theme, ground)), `--border3 on --${ground}`)
+          .toBeGreaterThanOrEqual(3)
+      }
     },
   )
 
