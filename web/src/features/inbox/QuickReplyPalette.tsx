@@ -41,6 +41,10 @@ export function QuickReplyPalette({
   }, [term])
 
   useEffect(() => {
+    // Nothing to navigate: leave the keyboard alone rather than silently eating arrow
+    // keys and Escape while the palette has nothing visible to show for it.
+    if (matches.length === 0) return
+
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'ArrowDown') {
         event.preventDefault()

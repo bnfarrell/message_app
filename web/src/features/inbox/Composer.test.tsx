@@ -183,6 +183,62 @@ describe('Composer', () => {
     expect((box as HTMLTextAreaElement).value).not.toContain('{{')
   })
 
+  // Fix-round: a failed render call left the raw /shortcut sitting in the box with no
+  // feedback — an agent hitting Ctrl+Enter right after would send that literal text to
+  // the guest. The box must clear and the error must surface instead.
+  it('clears the raw shortcut and surfaces the error when rendering a quick reply fails', async () => {
+    routes()
+    mount()
+    const box = await screen.findByRole('textbox')
+    await userEvent.type(box, '/wifi')
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: { code: 'SERVER_ERROR', message: 'Could not render the quick reply' } }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+    await userEvent.keyboard('{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not render the quick reply')
+    await waitFor(() => expect(box).toHaveValue(''))
+    // Nothing raw survives to be sent: an empty box fires no POST on Ctrl+Enter.
+    await userEvent.keyboard('{Control>}{Enter}{/Control}')
+    expect(
+      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/messages') && i?.method === 'POST'),
+    ).toBe(false)
+  })
+
+  // A render still in flight is the other half of the same risk: fast Ctrl+Enter must
+  // not race ahead of it and send the raw shortcut before the interpolated body lands.
+  it('does not send while a quick-reply render is still in flight', async () => {
+    routes()
+    let resolveRender: ((response: Response) => void) | null = null
+    const baseImpl = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/render') && (init?.method ?? 'GET') === 'POST') {
+        return new Promise<Response>((resolve) => {
+          resolveRender = resolve
+        })
+      }
+      return baseImpl(input, init)
+    })
+    mount()
+    const box = await screen.findByRole('textbox')
+    await userEvent.type(box, '/wifi')
+    await userEvent.keyboard('{Enter}')
+    await userEvent.keyboard('{Control>}{Enter}{/Control}')
+    expect(
+      vi.mocked(fetch).mock.calls.some(([u, i]) => String(u).includes('/messages') && i?.method === 'POST'),
+    ).toBe(false)
+    resolveRender!(
+      new Response(JSON.stringify({ body: 'Hi Sarah — the network is Harbourview-Guest.', characters: 44, segments: 1 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    await waitFor(() => expect(box).toHaveValue('Hi Sarah — the network is Harbourview-Guest.'))
+  })
+
   it('appends a short link when an asset is picked', async () => {
     mount()
     await userEvent.click(await screen.findByRole('button', { name: /attach/i }))

@@ -108,4 +108,20 @@ describe('QuickReplyPalette', () => {
     await userEvent.click(await screen.findByTestId('qr-q3'))
     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'q3' }))
   })
+
+  // Fix-round: a term matching nothing renders no visible list, but the component was
+  // still globally intercepting ArrowUp/ArrowDown/Escape — an agent typing a `/`-prefixed
+  // draft with no match would find arrow-key cursor movement silently broken, with nothing
+  // on screen to explain why.
+  it('does not intercept arrow keys when there are no matches', async () => {
+    renderWithProviders(
+      <SessionProvider>
+        <QuickReplyPalette replies={REPLIES} term="helicopter" onPick={vi.fn()} onClose={vi.fn()} />
+      </SessionProvider>,
+      { session: sessionFixture({ role: 'agent' }) },
+    )
+    const event = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })
+    document.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+  })
 })

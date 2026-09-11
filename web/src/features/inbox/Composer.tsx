@@ -55,7 +55,9 @@ export function Composer({
 
   function submit() {
     const trimmed = body.trim()
-    if (!trimmed || send.isPending) return
+    // A quick reply still resolving (or one that failed) must never let the raw
+    // /shortcut text reach a guest — block the send until it settles.
+    if (!trimmed || send.isPending || render.isPending) return
     send.mutate(
       {
         body: trimmed,
@@ -90,6 +92,12 @@ export function Composer({
         </p>
       ) : null}
 
+      {render.error ? (
+        <p role="alert" className="mb-2 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
+          {render.error.message}
+        </p>
+      ) : null}
+
       <div className="relative">
         {paletteOpen && replies ? (
           <QuickReplyPalette
@@ -103,6 +111,12 @@ export function Composer({
                 {
                   onSuccess: (rendered) => {
                     setBody(rendered.body)
+                    box.current?.focus()
+                  },
+                  onError: () => {
+                    // Never leave the raw /shortcut sitting in the box — a client that
+                    // did would risk sending it to the guest as literal text.
+                    setBody('')
                     box.current?.focus()
                   },
                 },
