@@ -37,7 +37,7 @@ export function AppShell({
   children: ReactNode
   unreadCount?: number
 }) {
-  const { user, membership, memberships, role, can, setPropertyId } = useSession()
+  const { user, membership, memberships, role, can, setPropertyId, logout } = useSession()
   const { resolved, setTheme } = useTheme()
   const navigate = useNavigate()
 
@@ -113,6 +113,15 @@ export function AppShell({
           >
             <NavIcon name="theme" />
             Theme
+          </button>
+
+          <button
+            type="button"
+            onClick={() => logout()}
+            className="flex h-11 items-center gap-3 rounded px-3.5 text-sm font-semibold text-text3 hover:text-text"
+          >
+            <NavIcon name="signout" />
+            Sign out
           </button>
 
           <div className="flex items-center gap-2.5 px-1 py-2">

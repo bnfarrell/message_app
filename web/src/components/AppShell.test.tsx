@@ -1,8 +1,9 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useLocation } from 'react-router-dom'
+import { Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Role } from '../api/types'
+import { RequireAuth } from '../auth/RequireAuth'
 import { SessionProvider } from '../auth/SessionContext'
 import { ThemeProvider } from '../theme/ThemeContext'
 import { renderWithProviders, sessionFixture } from '../test/harness'
@@ -144,5 +145,57 @@ describe('AppShell', () => {
     await userEvent.click(screen.getByRole('menuitem', { name: /Lakeside Inn/ }))
     expect(await screen.findByTestId('location')).toHaveTextContent('/app/analytics')
     expect(screen.getByTestId('location')).not.toHaveTextContent('/app/inbox')
+  })
+
+  it('signs out through RequireAuth and lands on /login, without looping /api/auth/me', async () => {
+    let logoutCalls = 0
+    let meCalls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('/api/auth/logout')) {
+          logoutCalls += 1
+          return new Response(null, { status: 204 })
+        }
+        if (url.includes('/api/auth/me')) {
+          meCalls += 1
+          return new Response(
+            JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Signed out' } }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } },
+          )
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/app" element={<RequireAuth />}>
+          <Route
+            index
+            element={
+              <ThemeProvider>
+                <AppShell>
+                  <p>screen body</p>
+                </AppShell>
+              </ThemeProvider>
+            }
+          />
+        </Route>
+        <Route path="/login" element={<div>Login Screen</div>} />
+      </Routes>,
+      { route: '/app', session: sessionFixture({ role: 'agent' }) },
+    )
+
+    await userEvent.click(await screen.findByRole('button', { name: /sign out/i }))
+
+    expect(await screen.findByText('Login Screen')).toBeInTheDocument()
+    expect(logoutCalls).toBe(1)
+    // A refetch loop would keep calling /api/auth/me indefinitely; RequireAuth's in-flight
+    // guard should coalesce the post-logout refetch(es) into at most one extra call.
+    // Clearing the query cache re-triggers the session query once (data is gone, so the
+    // active observer refetches); that single 401 redirects without looping.
+    expect(meCalls).toBe(1)
   })
 })

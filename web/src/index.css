@@ -35,7 +35,7 @@
   --presenceBg: #ede9fe; --presenceText: #5b21b6; --presenceAv: #7c3aed;
   --avMuted: #667286; --avText: #ffffff;
   --tagBg: #eef2f7; --tagText: #667286;
-  --timerDoneBg: #eef2f7; --timerDoneText: #97a1b0;
+  --timerDoneBg: #eef2f7; --timerDoneText: #606c7f;
 }
 
 @layer base {
