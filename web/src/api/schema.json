@@ -2929,6 +2929,18 @@
         "smsConsentStatus": {
           "$ref": "#/$defs/SmsConsentStatus"
         },
+        "stayId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stayid"
+        },
         "willFail": {
           "title": "Willfail",
           "type": "boolean"

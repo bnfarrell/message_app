@@ -14,6 +14,7 @@ class SimGuest(CamelModel):
     phone: str
     room_number: str | None = None
     in_house: bool
+    stay_id: str | None = None
     sms_consent_status: SmsConsentStatus
     will_fail: bool
 

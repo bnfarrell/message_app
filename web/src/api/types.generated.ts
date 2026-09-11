@@ -366,6 +366,7 @@ export type Propertyid2 = string;
 export type Propertyname2 = string;
 export type Propertysmsnumber = string | null;
 export type Roomnumber2 = string | null;
+export type Stayid = string | null;
 export type Willfail = boolean;
 export type Departmentid11 = string | null;
 export type Avatarurl1 = string | null;
@@ -1083,6 +1084,7 @@ export interface SimGuest {
   propertySmsNumber?: Propertysmsnumber;
   roomNumber?: Roomnumber2;
   smsConsentStatus: SmsConsentStatus;
+  stayId?: Stayid;
   willFail: Willfail;
 }
 /**

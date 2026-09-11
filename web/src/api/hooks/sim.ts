@@ -55,3 +55,23 @@ export function useSendInbound() {
     },
   })
 }
+
+export function usePmsCheckIn() {
+  const client = useQueryClient()
+  return useMutation<void, ApiError, string>({
+    mutationFn: (stayId) => api<void>(`/api/dev/pms/check-in/${stayId}`, { method: 'POST' }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['sim'] })
+    },
+  })
+}
+
+export function usePmsCheckOut() {
+  const client = useQueryClient()
+  return useMutation<void, ApiError, string>({
+    mutationFn: (stayId) => api<void>(`/api/dev/pms/check-out/${stayId}`, { method: 'POST' }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['sim'] })
+    },
+  })
+}

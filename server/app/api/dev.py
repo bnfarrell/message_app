@@ -54,6 +54,7 @@ def sim_guests():
                 name=f"{g.first_name or ''} {g.last_name or ''}".strip() or "Unknown",
                 phone=g.phone_e164,
                 room_number=stay.room_number if stay else None, in_house=stay is not None,
+                stay_id=stay.id if stay else None,
                 sms_consent_status=g.sms_consent_status,
                 will_fail=g.phone_e164.endswith(FAIL_SUFFIX)))
         return ok(out)

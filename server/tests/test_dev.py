@@ -41,6 +41,16 @@ def test_sim_guests_and_thread(app, fx, client):
     assert [m["body"] for m in t["messages"]] == ["hello"] and "notes" not in t
 
 
+def test_sim_guests_carries_stay_id_for_the_pms_buttons(app, fx, client):
+    # The simulator's Fire PMS check-in/check-out buttons need a stay id per guest; a guest
+    # with no in-house stay must not carry a stale or invented one.
+    guests = client.get("/api/dev/sim/guests").get_json()
+    sarah = [g for g in guests if g["phone"] == fx.guest_inhouse_a.phone_e164][0]
+    assert sarah["stayId"] == fx.stay_inhouse_a.id
+    not_in_house = [g for g in guests if g["inHouse"] is False]
+    assert not_in_house and all(g["stayId"] is None for g in not_in_house)
+
+
 def test_sim_events_ring_buffer(app, fx, client):
     inbound(client, fx, fx.guest_inhouse_a.phone_e164, "hello")
     events = client.get("/api/dev/sim/events").get_json()

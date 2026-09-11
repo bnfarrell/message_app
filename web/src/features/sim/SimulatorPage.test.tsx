@@ -8,17 +8,17 @@ const GUESTS = [
   {
     propertyId: 'prop-a', propertyName: 'Harbourview Hotel', propertySmsNumber: '+15550100',
     guestId: 'g-1', name: 'Sarah Chen', phone: '+15551234567', roomNumber: '412',
-    inHouse: true, smsConsentStatus: 'opted_in', willFail: false,
+    inHouse: true, stayId: 'stay-1', smsConsentStatus: 'opted_in', willFail: false,
   },
   {
     propertyId: 'prop-a', propertyName: 'Harbourview Hotel', propertySmsNumber: '+15550100',
     guestId: 'g-2', name: 'Tom Becker', phone: '+15552000000', roomNumber: '516',
-    inHouse: true, smsConsentStatus: 'opted_in', willFail: true,
+    inHouse: true, stayId: 'stay-2', smsConsentStatus: 'opted_in', willFail: true,
   },
   {
     propertyId: 'prop-a', propertyName: 'Harbourview Hotel', propertySmsNumber: '+15550100',
     guestId: 'g-3', name: 'Lena Park', phone: '+15553104411', roomNumber: null,
-    inHouse: false, smsConsentStatus: 'opted_out', willFail: false,
+    inHouse: false, stayId: null, smsConsentStatus: 'opted_out', willFail: false,
   },
 ]
 
@@ -177,5 +177,58 @@ describe('SimulatorPage', () => {
       'href',
       '/app/inbox',
     )
+  })
+
+  it('disables the PMS buttons with no guest selected', async () => {
+    mount()
+    await screen.findByText('Sarah Chen')
+    expect(screen.getByRole('button', { name: /fire pms check-in/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /fire pms check-out/i })).toBeDisabled()
+  })
+
+  it('fires a PMS check-in for the selected guest\'s stay', async () => {
+    mount()
+    await userEvent.click(await screen.findByText('Sarah Chen'))
+    await userEvent.click(screen.getByRole('button', { name: /fire pms check-in/i }))
+    await waitFor(() => {
+      const call = vi.mocked(fetch).mock.calls.find(([u]) => String(u).includes('/pms/check-in/'))
+      expect(call).toBeDefined()
+      expect(String(call![0])).toBe('/api/dev/pms/check-in/stay-1')
+      expect(call![1]?.method).toBe('POST')
+    })
+  })
+
+  it('fires a PMS check-out for the selected guest\'s stay', async () => {
+    mount()
+    await userEvent.click(await screen.findByText('Sarah Chen'))
+    await userEvent.click(screen.getByRole('button', { name: /fire pms check-out/i }))
+    await waitFor(() => {
+      const call = vi.mocked(fetch).mock.calls.find(([u]) => String(u).includes('/pms/check-out/'))
+      expect(call).toBeDefined()
+      expect(String(call![0])).toBe('/api/dev/pms/check-out/stay-1')
+      expect(call![1]?.method).toBe('POST')
+    })
+  })
+
+  it('keeps the PMS buttons disabled for a guest with no stay', async () => {
+    mount()
+    await userEvent.click(await screen.findByText('Lena Park'))
+    expect(screen.getByRole('button', { name: /fire pms check-in/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /fire pms check-out/i })).toBeDisabled()
+  })
+
+  it('shows a PMS error in its own alert', async () => {
+    mount()
+    await userEvent.click(await screen.findByText('Sarah Chen'))
+    vi.mocked(fetch).mockImplementationOnce(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Stay not found' } }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    )
+    await userEvent.click(screen.getByRole('button', { name: /fire pms check-in/i }))
+    expect(await screen.findByText(/check-in error: stay not found/i)).toBeInTheDocument()
   })
 })

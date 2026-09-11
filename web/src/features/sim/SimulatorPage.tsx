@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useSendInbound, useSimEvents, useSimGuests, useSimThread } from '../../api/hooks/sim'
+import { useSendInbound, useSimEvents, useSimGuests, useSimThread, usePmsCheckIn, usePmsCheckOut } from '../../api/hooks/sim'
 import type { SimGuest } from '../../api/types'
 import { Avatar, Badge, Button, Input, Spinner } from '../../components/ui'
 import { cn } from '../../lib/cn'
@@ -27,6 +27,8 @@ export default function SimulatorPage() {
   const [manualPhone, setManualPhone] = useState('')
   const [draft, setDraft] = useState('')
   const send = useSendInbound()
+  const checkIn = usePmsCheckIn()
+  const checkOut = usePmsCheckOut()
 
   const thread = useSimThread(selected?.propertyId, selected?.phone)
 
@@ -165,9 +167,37 @@ export default function SimulatorPage() {
               Send
             </Button>
           </div>
+
+          <div className="flex gap-2">
+            <Button
+              disabled={!selected || !selected.stayId}
+              loading={checkIn.isPending}
+              onClick={() => selected?.stayId && checkIn.mutate(selected.stayId)}
+            >
+              Fire PMS check-in
+            </Button>
+            <Button
+              disabled={!selected || !selected.stayId}
+              loading={checkOut.isPending}
+              onClick={() => selected?.stayId && checkOut.mutate(selected.stayId)}
+            >
+              Fire PMS check-out
+            </Button>
+          </div>
+
           {send.error ? (
             <p role="alert" className="rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
               {send.error.message}
+            </p>
+          ) : null}
+          {checkIn.error ? (
+            <p role="alert" className="rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
+              Check-in error: {checkIn.error.message}
+            </p>
+          ) : null}
+          {checkOut.error ? (
+            <p role="alert" className="rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
+              Check-out error: {checkOut.error.message}
             </p>
           ) : null}
         </section>
