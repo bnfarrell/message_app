@@ -8,29 +8,63 @@ function failure(details: unknown, message = 'Invalid request body'): ApiError {
 
 describe('fieldErrors', () => {
   describe('the object shape — domain validators and patch_changes', () => {
-    it('keys a reason code by the camelCase field the server named', () => {
+    it('keys the copy by the camelCase field the server named', () => {
       expect(fieldErrors(failure({ escalationMinutes: 'required' }))).toEqual({
-        escalationMinutes: 'required',
+        escalationMinutes: 'This field is required.',
       })
     })
 
     it('carries every field in one failure', () => {
       // update_settings can refuse several cleared fields at once.
       expect(fieldErrors(failure({ name: 'required', currency: 'required' }))).toEqual({
-        name: 'required',
-        currency: 'required',
-      })
-    })
-
-    it('passes the reason code through verbatim, for the form to word', () => {
-      // normalize_phone raises a code, not a sentence, and not the raw input.
-      expect(fieldErrors(failure({ smsNumber: 'invalid_phone_number' }))).toEqual({
-        smsNumber: 'invalid_phone_number',
+        name: 'This field is required.',
+        currency: 'This field is required.',
       })
     })
 
     it('stringifies a non-string value rather than rendering [object Object]', () => {
       expect(fieldErrors(failure({ slaMinutes: 0 }))).toEqual({ slaMinutes: '0' })
+    })
+  })
+
+  describe('reason codes become copy (D93)', () => {
+    // Every code server/app/ raises today. Grepped, not guessed: `details={` outside
+    // `e.errors(...)` appears in _patch.py, guests.py and properties.py and nowhere else.
+    const SERVER_CODES = ['required', 'invalid_phone_number', 'invalid_timezone']
+
+    it.each(SERVER_CODES)('words %s as a sentence rather than leaving the code on screen', (code) => {
+      const shown = fieldErrors(failure({ smsNumber: code })).smsNumber!
+      expect(shown).not.toBe(code)
+      expect(shown).not.toMatch(/_/) // no snake_case survivor
+      expect(shown).toMatch(/^[A-Z].*\.$/) // a capitalised sentence, ending in a full stop
+    })
+
+    it('names the phone format instead of saying invalid_phone_number under a Phone box', () => {
+      expect(fieldErrors(failure({ phone: 'invalid_phone_number' }))).toEqual({
+        phone: 'Enter a valid phone number, for example +1 555 012 3456.',
+      })
+    })
+
+    it('says what a time zone has to be', () => {
+      expect(fieldErrors(failure({ timezone: 'invalid_timezone' }))).toEqual({
+        timezone: 'Not a recognised IANA time zone.',
+      })
+    })
+
+    it('passes an unknown code through verbatim rather than swallowing it', () => {
+      // A code this map has not caught up with must still reach the admin: ugly beats absent,
+      // and a generic apology would hide that the server said something specific.
+      expect(fieldErrors(failure({ brand: 'not_a_code_we_know' }))).toEqual({
+        brand: 'not_a_code_we_know',
+      })
+    })
+
+    it('leaves the array shape alone — msg is already a sentence', () => {
+      // The map is keyed on codes; a Pydantic msg that happened to collide would still be wrong
+      // to rewrite, so the array branch never consults it.
+      expect(fieldErrors(failure([{ loc: ['name'], msg: 'required' }]))).toEqual({
+        name: 'required',
+      })
     })
   })
 

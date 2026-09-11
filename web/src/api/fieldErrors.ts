@@ -4,6 +4,26 @@ import { ApiError } from './client'
 type PydanticError = { loc?: unknown[]; msg?: string }
 
 /**
+ * Human copy for the reason codes the object shape carries (ruling D93).
+ *
+ * The two shapes differ in what the value *means*, not only in structure: the array shape's `msg`
+ * is already an English sentence, while the object shape's value is a bare code meant to be worded
+ * by whoever renders it. `required` reads acceptably raw; `invalid_phone_number` under a Phone box
+ * does not. Mapping here rather than in each screen means every current and future form gets the
+ * same wording for the same failure, and a new form gets it for free.
+ *
+ * These are every code `server/app/` raises today — `app/domain/_patch.py` (`required`),
+ * `app/domain/guests.py` (`invalid_phone_number`) and `app/domain/properties.py`
+ * (`invalid_timezone`). An unlisted code falls through **verbatim** rather than being swallowed or
+ * replaced by a generic apology: a code on screen is ugly but actionable, and it names the gap.
+ */
+const REASON_COPY: Record<string, string> = {
+  required: 'This field is required.',
+  invalid_phone_number: 'Enter a valid phone number, for example +1 555 012 3456.',
+  invalid_timezone: 'Not a recognised IANA time zone.',
+}
+
+/**
  * Maps a 400's `details` onto the form inputs it names, so a failure lands on the field the admin
  * typed in rather than only in a banner.
  *
@@ -16,7 +36,8 @@ type PydanticError = { loc?: unknown[]; msg?: string }
  *   The field is `loc`'s last element; the message is `msg`.
  * - `app/domain/_patch.patch_changes` and the domain validators raise an **object** keyed by field:
  *   `{ "escalationMinutes": "required", "smsNumber": "invalid_phone_number" }`. The value there is
- *   a reason **code**, not a sentence — a form maps it to its own wording.
+ *   a reason **code**, not a sentence. `REASON_COPY` below turns it into one, so a form can
+ *   render what it gets either way.
  *
  * Both key on the camelCase name the client sent, so the result can be indexed by the form's own
  * field names either way. A key the form has no input for is simply never looked up; the panel's
@@ -31,7 +52,10 @@ export function fieldErrors(error: unknown): Record<string, string> {
 
   if (!Array.isArray(details)) {
     return Object.fromEntries(
-      Object.entries(details as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
+      Object.entries(details as Record<string, unknown>).map(([k, v]) => {
+        const code = String(v)
+        return [k, REASON_COPY[code] ?? code]
+      }),
     )
   }
 

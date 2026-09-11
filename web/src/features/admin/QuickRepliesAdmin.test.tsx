@@ -399,7 +399,7 @@ describe('QuickRepliesAdmin', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    const message = await screen.findByText('required')
+    const message = await screen.findByText('This field is required.')
     // It must sit with the Locale input, not float somewhere in the panel.
     expect(message.parentElement).toContainElement(screen.getByLabelText('Locale'))
   })
@@ -450,14 +450,14 @@ describe('QuickRepliesAdmin', () => {
         : null,
     )
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    await screen.findByText('required')
+    await screen.findByText('This field is required.')
 
     serve() // the next record is fine; the previous record's complaint is not about it
     await user.click(screen.getByText('Airport shuttle'))
     await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('Airport shuttle'))
-    // A red "required" pinned under a Locale holding a valid "en" is worse than the stale banner:
-    // it accuses a specific, correct input belonging to a different row.
-    expect(screen.queryByText('required')).not.toBeInTheDocument()
+    // A red "This field is required." pinned under a Locale holding a valid "en" is worse than
+    // the stale banner: it accuses a specific, correct input belonging to a different row.
+    expect(screen.queryByText('This field is required.')).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
@@ -473,13 +473,13 @@ describe('QuickRepliesAdmin', () => {
         : null,
     )
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    await screen.findByText('required')
+    await screen.findByText('This field is required.')
 
     serve()
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     await user.click(screen.getByRole('button', { name: /new quick reply/i }))
     await screen.findByLabelText('Locale')
-    expect(screen.queryByText('required')).not.toBeInTheDocument()
+    expect(screen.queryByText('This field is required.')).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
