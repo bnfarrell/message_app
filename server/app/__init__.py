@@ -64,6 +64,10 @@ def create_app(config: Config | None = None) -> Flask:
     if not config.PMS_TICK_SECONDS:
         _jobs.RECURRING.pop("pms.tick", None)
     app.extensions["worker"] = Worker(app)
+
+    from app.queue.handlers import pms as pms_handler
+
+    app.extensions["pms_adapter"] = pms_handler.adapter
     under_reloader = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
     if config.START_WORKER and (under_reloader or config.is_production):
         with app.extensions["db"].session() as db:
