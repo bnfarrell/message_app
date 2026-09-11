@@ -33,3 +33,13 @@ export function useLogout() {
     },
   })
 }
+
+export function useSetPrefs() {
+  const client = useQueryClient()
+  return useMutation<SessionOut, ApiError, { theme: 'dark' | 'light' | 'system' }>({
+    mutationFn: (body) => api<SessionOut>('/api/auth/prefs', { method: 'PATCH', json: body }),
+    onSuccess: (session) => {
+      client.setQueryData(qk.session, session)
+    },
+  })
+}

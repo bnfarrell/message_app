@@ -10,6 +10,7 @@ export function sessionFixture(opts: {
   withSecondProperty?: boolean
   secondRole?: Role
   departmentId?: string | null
+  prefs?: Record<string, unknown>
 } = {}): SessionOut {
   const memberships: MembershipOut[] = [
     {
@@ -37,6 +38,7 @@ export function sessionFixture(opts: {
       lastName: 'Nolan',
       locale: 'en',
       avatarUrl: null,
+      notificationPrefs: opts.prefs ?? {},
     },
     memberships,
   }
