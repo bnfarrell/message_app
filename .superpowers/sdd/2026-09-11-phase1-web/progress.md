@@ -3671,3 +3671,65 @@ Ruling D107 (a pre-existing AUTHORIZATION gap, disclosed not fixed, and sent for
       `git checkout -- two.png` restored it. score.png was never committed and is gone for good.
       Agents keep treating the repo root as scratch; the durable fix is that their screenshots go
       to the workspace, which the briefs now say, but the user's own files keep getting swept.
+
+R2 REVIEW RETURNED (agent a0dfd74b5303a45a8, opus): spec PASS with minor gaps, quality STRONG.
+      It re-ran all six mutation claims itself and every one reproduced to the exact count. All
+      three of R2's deviations ACCEPTED with independent verification - it confirmed from
+      routes.tsx:48-49 that work-orders/:id really is a sibling of board, and confirmed live that
+      aria-current is not lost but IMPROVED (Board carries it on a work-order card, Admin on an
+      admin screen, neither on the other's).
+
+Ruling D108 (the zero-socket warning fires on ordinary traffic - MY addition, badly scoped):
+      broadcast.py warns whenever a broadcast reaches no sockets, but `notification.created` is
+      USER-TARGETED (notifications.py:21-23 sets user_id). So every notification addressed to a
+      user who is simply offline logs a WARNING - in production, most notifications. The warning
+      I added to make a silent failure visible would drown the signal it exists to carry.
+      Fix: warn only when ev.user_id is None (a property-wide broadcast that reached nobody);
+      demote the user-targeted case to DEBUG. The LEVEL is right - there is no logging config in
+      server/, so logging.lastResort makes WARNING the floor for visibility.
+      Cost if wrong: a genuinely undelivered user notification stops being logged at WARNING, but
+      that case is normal (offline user) rather than exceptional, which is the whole point.
+
+Ruling D109 (my port guard is PORT-scoped; the hazard is PROCESS-scoped): the guard's own
+      remediation text says "stop the running server (or set PORT) and try again" - and a second
+      API process on 5201 against the SAME server/data/app.db reintroduces the split registry in
+      full, because ConnectionRegistry is per-PROCESS, not per-port. So the one workaround the
+      guard advertises defeats the guard. That is my error: I specified the guard against the
+      symptom I had seen (two servers on 5200) rather than against the mechanism (two processes
+      sharing one database).
+      Fix: drop "(or set PORT)" from the message at minimum. Better, make it a real process lock -
+      a PID file beside the sqlite file - so it catches the actual hazard rather than one instance
+      of it. Let the implementer weigh the lock's own failure modes (stale PID after a crash) and
+      choose; a wrong hint removed is already most of the value.
+      Cost if wrong: a PID lock that goes stale refuses a legitimate start, which is visible and
+      recoverable, unlike the silent split it prevents.
+
+Ruling D110 (the work-order PATCH authorization gap - reviewer AGREES and the scope is WIDER than
+      disclosed): it confirmed corporate can today reassign a work order, escalate it to urgent,
+      and move it open -> assigned -> in_progress, all actions the capability table says it cannot
+      take. R2 reported assign and priority; the reviewer found NON-CLOSING STATUS TRANSITIONS ARE
+      UNGATED TOO. Its capability mapping, which I am adopting:
+        assignedUserId / departmentId / clearAssignee -> `assign`      (exists for exactly this)
+        priority                                      -> `create_work_order`
+        status, non-closing                           -> `create_work_order`  (gated by NOTHING today)
+        status, closing (complete/verified/cancelled) -> `close_work_order`   (already correct)
+        comment                                       -> `add_note`    (decorative now, fails closed later)
+      Cost if wrong: if any of these roles legitimately needs a capability it is being denied, the
+      403 is immediate and obvious, unlike the current silent over-permission.
+
+      A claim that did NOT hold up, and it is the kind I have been trusting: R2 said "every
+      production change mutation-tested". The reviewer probed one more - the OPEN_STATUSES filter
+      on urgentCount - and it SURVIVED, because no fixture has an urgent CLOSED work order, so the
+      "2 urgent" assertion holds incidentally. The production code is right; the testing claim was
+      not. One fixture closes it. Verifying the testing claims is now clearly worth a reviewer's
+      time, not just verifying the code.
+
+      Also carried: the All badge reads 35 while the header reads 29 active once closed rows are
+      revealed, inches apart with nothing explaining the gap; a literal em dash in dev_start's
+      print renders as a replacement character on the default Windows console - the one message
+      the guard exists to show, on the platform its docstring names; and navModel's
+      `(item.match ?? [item.to])` REPLACES the target rather than extending it, so an entry that
+      sets match and forgets its own `to` silently stops lighting on itself.
+
+R2 FIX ROUND IS HELD until G1 finishes - G1 is the only writer in the tree and the fix round
+      touches server files (broadcast.py, dev_start.py, work_orders.py) that G1 may be near.
