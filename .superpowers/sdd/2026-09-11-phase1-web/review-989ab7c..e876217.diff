@@ -1,0 +1,2048 @@
+# Review package: 989ab7c..HEAD
+
+## Commits
+e876217 docs: brief the composer mode-button change the user asked for
+7640b04 feat(web): leave a standalone comment on a work order
+0718721 docs: brief the disclosed-gap fixes the user selected
+aab49e8 feat(web): raise a work order from the board, with no conversation behind it
+8208dd8 fix(web): keep a rail entry lit on every screen in its section, not just its target
+bd66fc1 feat(web): reveal verified and cancelled work orders from the board footer
+e9282f7 docs: index every ruling taken on the user's behalf
+4ceeadd fix(web): the board's filter row is single-select, as the mockup draws it
+96dbb94 chore: ledger — S1 complete; the grid fix works for a different reason than reported
+7323e9c fix(server): refuse to start a second API server, and warn on a broadcast that reaches nobody
+
+## Files changed
+ .../sdd/2026-09-11-phase1-web/RULINGS-INDEX.md     | 112 +++++++++++++++
+ .../sdd/2026-09-11-phase1-web/gap-G1-brief.md      | 141 +++++++++++++++++++
+ .../sdd/2026-09-11-phase1-web/gap-G2-brief.md      | 121 ++++++++++++++++
+ .superpowers/sdd/2026-09-11-phase1-web/progress.md | 111 +++++++++++++++
+ server/app/realtime/broadcast.py                   |  12 +-
+ server/dev_start.py                                |  24 +++-
+ server/tests/test_dev_start.py                     |  14 ++
+ web/src/components/AppShell.test.tsx               |  41 +++++-
+ web/src/components/AppShell.tsx                    |  24 ++--
+ web/src/components/navModel.test.ts                |  29 ++++
+ web/src/components/navModel.ts                     |  37 ++++-
+ web/src/features/board/BoardPage.test.tsx          | 149 +++++++++++++++++++-
+ web/src/features/board/BoardPage.tsx               | 155 ++++++++++++++++-----
+ web/src/features/board/CommentBox.tsx              |  51 +++++++
+ .../features/board/WorkOrderDetailPage.test.tsx    |  48 ++++++-
+ web/src/features/board/WorkOrderDetailPage.tsx     |  51 ++++---
+ web/src/features/board/transitions.ts              |   3 +
+ .../features/inbox/CreateWorkOrderModal.test.tsx   |  54 +++++++
+ web/src/features/inbox/CreateWorkOrderModal.tsx    |  59 ++++++--
+ 19 files changed, 1138 insertions(+), 98 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-09-11-phase1-web/RULINGS-INDEX.md b/.superpowers/sdd/2026-09-11-phase1-web/RULINGS-INDEX.md
+new file mode 100644
+index 0000000..540a6cf
+--- /dev/null
++++ b/.superpowers/sdd/2026-09-11-phase1-web/RULINGS-INDEX.md
+@@ -0,0 +1,112 @@
++# Rulings index
++
++101 decisions taken on the user's behalf, D1–D102, in the order made.
++Full reasoning and the cost-if-wrong for each is in `progress.md` (web phase) or
++`../2026-09-10-phase1-server/progress.md` (server phase). This is the index.
++
++Numbers never used: D77.
++
++
++## Web phase
++
++- **D1** — Task 1's `vite.config.ts` must import `defineConfig` from `vitest/config`, not `vite`.
++- **D2** — Task 1's vitest config must scope `include` to `src/`.
++- **D3** — Task 10's amber-threshold test times are off by six seconds and are corrected.
++- **D4** — Task 12's Interfaces block is corrected to `ConversationList({ filter, selectedId, dept })`.
++- **D5** — accept `environmentMatchGlobs: [['src/index.css.test.ts', 'node']]` in vite.config.ts.
++- **D6** — accept the added `@types/node` devDependency (`^20.16.5`).
++- **D7** — accept `noEmit: true` → `emitDeclarationOnly: true` in tsconfig.node.json.
++- **D8** — fix both.
++- **D9** — accept `dirname(fileURLToPath(import.meta.url))` in place of my `new URL('.', import.meta.url).pathname`.
++- **D10** — fix F3.
++- **D11** — fold the Minor temp-directory leak into the same fix round.
++- **D12** — the staleness guard is platform-fragile and must normalise newlines.
++- **D13** — fix M1 at dispatch rather than deferring it.
++- **D14** — F4 is real; fix it. F5 is a false positive; reject it, and the fault is mine.
++- **D15** — fold the Toast timer-cleanup Minor into the same fix round
++- **D16** — accept the `--no-experimental-webstorage` execArgv fix.
++- **D17** — fix the React Router future-flag warnings now, in the harness.
++- **D18** — fix F6, and do not let me design the fix from partial information.
++- **D19** — accept both test-scaffolding fixes; both are my defects.
++- **D20** — accept all four test/config fixes.
++- **D21** — the `/a` proxy prefix is a CRITICAL pre-existing bug in my Task 1 config; fix it now rather than deferring.
++- **D22** — fix F7, narrowly.
++- **D23** — my plan contradicted itself on the corporate Inbox, and the TEST was the wrong half.
++- **D24** — fix F8.
++- **D25** — fold both Minors into the same round.
++- **D26** — accept the `act()` fix; it is my defect.
++- **D27** — accept the `hadConnection` → `attempt.current > 0` fix; my reference code had a real hole.
++- **D28** — fix F9 with the identity guard, and make the test able to reach the path.
++- **D29** — fold in three Minors, park three.
++- **D30** — accept the `RequireAuth` infinite-loop fix, outside the task's file list.
++- **D31** — Finding against the SERVER's seed, not the web client. Recorded, not fixed here.
++- **D32** — Finding against my own plan: `npm run lint` has never worked.
++- **D33** — CORRECTION TO MY OWN FINDING. I asserted something I had not verified, and the implementer caught it.
++- **D34** — SECOND CORRECTION TO MY SEED CLAIM, from the same root cause as D33.
++- **D35** — the ordinal bug is real, user-visible, and nominated for the final fix wave.
++- **D36** — fix all three.
++- **D37** — fix F13, and fold in the `render.mutate` error gap.
++- **D38** — fix F14, and the principle matters more than the bug.
++- **D39** — park the hanging-test concern, nominated for the final wave.
++- **D40** — park the missing responsive regression test, nominated for the final wave.
++- **D41** — park both UX Minors for the final wave.
++- **D42** — THIRD unverified data claim from me, and it uncovered a real server defect.
++- **D43** — fix F15 by matching bucket identity, not substring.
++- **D44** — this is a real product gap and the user is right.
++- **D45** — fix the light `timerDone` contrast; park the rest.
++- **D46** — the Important finding resolves to a defect in MY brief, not the implementation. No fix round.
++- **D47** — port migration
++- **D48** — Task 21 brief carries the pre-D47 port
++- **D49** — the brief's START_WORKER troubleshooting note is wrong
++- **D50** — Task 21 implementer runs concurrently with the Task 20 review
++- **D51** — how to close defect D
++- **D52** — simulator chrome - the question I deliberately did NOT rule on
++- **D53** — how the fix wave is split
++- **D54** — how the nine restorations are executed
++- **D55** — ordering against the correction wave
++- **D56** — where the residual I3 bleed gets fixed
++- **D57** — the new endpoints are beyond the spec's API table, and that is now intended
++- **D58** — route shape for property settings
++- **D59** — how the admin scope is executed
++- **D60** — ordering against R2
++- **D61** — put the new domain functions in `server/app/domain/users.py`, beside `list_departments`.
++- **D62** — the ADMIN nav group - a deliberate deviation from the thumbnail the user approved
++- **D63** — what the Ctrl+K palette can honestly do
++- **D64** — the property switcher moves
++- **D65** — sequencing the shell work against the admin work
++- **D66** — the R1 screenshots in the repo root
++- **D67** — a preview endpoint, and why M9's preview half was declined for the wrong reason
++- **D68** — how many Insert chips
++- **D69** — the cn / tailwind-merge hazard
++- **D70** — two comments that A1 makes false, and who fixes them
++- **D71** — the preview renders sample values, not a real guest
++- **D72** — primaryColor is data, not palette
++- **D73** — what enters R1's fix round
++- **D74** — F5 belongs to S1, not to R1
++- **D75** — the R1 fix round WAITS for A1 to commit
++- **D76** — the generated-type seam is REAL and is A2/A3's job, confirmed not assumed
++- **D78** — the parse_body latent 500
++- **D79** — the SLA knob hole - my own mistake, caught by A1
++- **D80** — FINALISING D79 - the reviewer corrected me and it is right
++- **D81** — escalation_minutes in A3's UI
++- **D82** — the explicit-null 500 gets fixed ONCE, including the pre-existing categories copy
++- **D83** — the phone floor goes in normalize_phone, but a MINIMAL one
++- **D84** — main was RED and A1's fix round owns making it green
++- **D85** — A2 starts before A1's re-review returns
++- **D86** — a weak test, parked and REASSIGNED to S1 rather than looped
++- **D87** — the NEW CONTRACT HAS A FIELD-NAME BUG, and it must be fixed BEFORE A3 builds against it
++- **D88** — sequencing round 2
++- **D89** — the duplicate SMS counter already shipped - my D67 reasoning was right about the hazard and wrong about the facts
++- **D90** — the error contract has TWO shapes, and the normaliser IS the contract
++- **D91** — the half of my own ruling that my reasoning never reached
++- **D92** — a one-line safety net A2 was right not to add unilaterally
++- **D93** — the normaliser returns two KINDS of value, and that is a UI copy problem
++- **D94** — where the EditPanel fix belongs
++- **D95** — ACCEPTING A DEPARTURE FROM D94 - the implementer was right and I was wrong
++- **D96** — the test harness gets a safe default, not a remembered convention
++- **D97** — diagnose before fixing, and separate the diagnosis from the fix
++- **D98** — fix the operational fault, not the chain
++- **D99** — this was MY process failure, and the guard is the remedy
++- **D100** — MY OWN MISTAKE, recorded because the remedy is a rule I should have been following
++- **D101** — the `*` ignore file keeps coming BACK, and that is what broke my commits
++- **D102** — the fix is right; the reported REASON for it is wrong, and that matters
+diff --git a/.superpowers/sdd/2026-09-11-phase1-web/gap-G1-brief.md b/.superpowers/sdd/2026-09-11-phase1-web/gap-G1-brief.md
+new file mode 100644
+index 0000000..cdec9b1
+--- /dev/null
++++ b/.superpowers/sdd/2026-09-11-phase1-web/gap-G1-brief.md
+@@ -0,0 +1,141 @@
++# G1 — the server half of the disclosed-gap fixes
++
++Server only. A web wave (G2) consumes what you build, so the shapes you choose are the contract
++it is briefed against.
++
++**Read `_CURRENT-CONTRACTS.md` in this directory first.** It carries the hazards and the error
++contract in force, and it wins wherever it disagrees with this brief.
++
++These four gaps were disclosed to the user as deliberately unfixed. They chose to fix the ones
++with an obviously-correct answer and to skip the ones that would need invented behaviour. Three
++of the four are yours.
++
++---
++
++## 1. Analytics buckets hours in raw UTC, not the property's timezone
++
++`server/app/domain/analytics.py` — `by_hour = Counter(m.sent_at.hour for m in inbound)`.
++
++`sent_at` is UTC. The property's own zone is `Property.timezone`, an IANA name that is now
++validated on write, and the seeded properties are `America/New_York` and `America/Chicago`. So a
++duty manager reading "busiest hour" sees a chart shifted by four or five hours — 8am guest
++traffic appears at noon. The by-day counter has the same fault, and worse consequences: a message
++sent at 9pm New York time lands on the *following* date in UTC, so it is counted on the wrong day.
++
++Fix both. Convert each timestamp into the property's zone before taking `.hour` or `.date()`.
++
++Care needed:
++
++- `sent_at` may be naive in the database even though it is conceptually UTC — check how
++  `UTCDateTime` hands it back, and attach UTC explicitly before converting rather than letting
++  `astimezone` assume the *server's* local zone. Getting this wrong on a machine that is not
++  already UTC produces a subtly different bug rather than a visible one.
++- `default_range` and the `since`/`until` filters are UTC instants. You are changing which
++  *bucket* a message falls into, not which messages are in range. Do not shift the range
++  boundaries as well, or you will double-apply the offset.
++- `tzdata` is already a dependency, so `ZoneInfo` works on Windows and slim images.
++
++Tests: a message at a UTC hour that falls in a different local hour must land in the local bucket
++— pick a case that also crosses midnight, so the by-day fix is covered too. Assert against both
++seeded zones, not just one, because a single-zone test passes for a hardcoded offset.
++
++## 2. The seed contradicts itself and the spec
++
++Three specific holes, all previously disclosed:
++
++- **No guest has more than one stay.** 106 guests, 106 stays. So the guest panel's "Previous
++  stays" section renders empty for everyone — including guests whose denormalised stay count says
++  "4th stay", which is a visible self-contradiction on screen. Give at least two guests a
++  genuine stay history, and make sure their `stayCount` and their actual rows agree.
++- **Property B (Lakeside Inn) has zero conversations**, so switching property lands the user on
++  an empty inbox and makes the switcher look broken. Give it a realistic handful.
++- **There is no conversation without a stay**, which spec §8 calls for — a guest who texts without
++  being in-house exercises a real branch (`room_number` is null, and quick-reply interpolation
++  falls back).
++
++Constraints:
++
++- The seed is deterministic — `random.Random(42)`. Keep it that way; a seed that changes between
++  runs breaks every test that counts anything.
++- `run(reset=True)` is refused for non-SQLite URLs by design. Do not weaken that.
++- **Expect to update tests that assert seed totals**, and update them to the new true numbers.
++  **Never weaken an assertion to accommodate the change** — if a test asserted "106 guests" it
++  should now assert the new count, not "more than 100".
++- Check whether the analytics, board and inbox tests depend on the counts you are changing before
++  you change them, so you know what you are about to break rather than discovering it.
++
++## 3. Work-order photo upload — and you are choosing the storage
++
++`docs/mockups/WorkOrder.dc.html:91-94` shows a **Photos** panel with an "+ Add photo" action and
++photos captioned `Before · 18:47 · Eli` / `After · 18:56 · Eli`. Its timeline at line 111 records
++`Eli · after photo attached · 18:56`. So a photo carries a **kind** (before/after), a **time**,
++and an **author**, and attaching one is a timeline event.
++
++**There is no upload infrastructure in this server at all** — no multipart handling, no binary
++column, nothing. So you are adding the first, and the storage decision is the real work.
++
++**Ruling: store the bytes in the database, not on disk.** The deployment target is Railway, whose
++filesystem is ephemeral: a disk-backed photo would vanish on the next redeploy, silently, leaving
++a work order referencing an image that no longer exists. There is no object storage in this
++project and adding one is out of scope. Database bytes survive wherever `DATABASE_URL` points and
++need no new infrastructure. If you believe this is wrong, say so with your reasoning rather than
++doing it the other way.
++
++What that implies, and what I want you to handle deliberately:
++
++- A new model and migration. Columns at least: `property_id`, `work_order_id`, `kind`
++  (before/after), `uploaded_by_user_id`, `content_type`, `byte_size`, the bytes, and the
++  timestamp the mixin gives you.
++- **Cap the size and validate the type on the server**, not just in the client. Accept a small
++  set of image types and reject everything else with the project's 400 contract. Pick a cap you
++  can defend and say why.
++- Serve the bytes back from an endpoint with the correct `Content-Type`, gated exactly like every
++  other property-scoped route so one property cannot read another's photos. This is the part
++  most likely to leak — a photo id is a guessable handle if the route forgets `require_property`.
++- Record a `WorkOrderEvent` when a photo is attached, as the mockup's timeline shows, and an
++  `audit_log` row, as spec §6 requires of every mutation of this kind.
++- Deleting a photo: decide whether it is allowed at all, and say which. The mockup does not show
++  it. If you allow it, the same tenancy rule applies.
++
++Tests: upload and read back; a type that must be rejected; a size over the cap; **a cross-property
++read that must 403** (the acceptance-criterion-9 enumeration will cover the route automatically —
++confirm it picked yours up); the timeline event exists; the audit row exists.
++
++---
++
++## Out of scope — do not build these
++
++- Inbox / conversation search. The user was offered it and declined; Phase 1 has no search
++  endpoint and adding one is a genuine new capability.
++- Automations, blocked numbers, integrations. No models, no spec, and the mockup captions them
++  Phase 2.
++- The guest panel's "Work orders + New" — that is client work and belongs to G2.
++- Any client change at all.
++
++## Verify before you commit
++
++- The full server suite. Check `git log` for the current count first and beat it; nothing may
++  break except seed-count assertions you deliberately update.
++- Whatever lint the server runs.
++- **Check whether an API server is already listening on 127.0.0.1:5200 before starting one.** Two
++  servers on that port silently break WebSocket delivery — you now have a guard that refuses the
++  second, so do not defeat it.
++
++Commit in logical commits on `main` — the three items are unrelated and should not share one. End
++every commit message with:
++Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
++
++## Report
++
++Full report to `gap-G1-report.md`: the timezone approach and why it cannot double-apply, exactly
++what changed in the seed and which test numbers moved, the photo storage decision with the size
++cap and the accepted types, and **the exact request/response shapes G2 must code against**. Plus
++a "Found but not fixed" section.
++
++Return in your final message ONLY: status, commit shas, a one-line test summary, and concerns.
++
++If any instruction is wrong — an anchor that moved, a test that cannot fail, a claim about the
++seed that turns out false — **say so and do the correct thing instead.** Implementers here have
++caught defects in brief text nine times, several of them mine, and it has consistently been the
++highest-value thing they did. Never state a seed fact without querying it first. Never make
++production code less correct to make a test deterministic.
+diff --git a/.superpowers/sdd/2026-09-11-phase1-web/gap-G2-brief.md b/.superpowers/sdd/2026-09-11-phase1-web/gap-G2-brief.md
+new file mode 100644
+index 0000000..5def999
+--- /dev/null
++++ b/.superpowers/sdd/2026-09-11-phase1-web/gap-G2-brief.md
+@@ -0,0 +1,121 @@
++# G2 — inbox and work-order gaps
++
++Web only. Three items. G1 (server) lands first and item 3 consumes its endpoint.
++
++**Read `_CURRENT-CONTRACTS.md` in this directory first** — the hazards and the error contract in
++force. It wins wherever it disagrees with this brief. Read `gap-G1-report.md` for the exact photo
++endpoint shapes; **it wins over this brief** on any disagreement about a shape.
++
++---
++
++## 1. The Reply / Note switch is confusing (USER-REPORTED)
++
++**The user asked for this directly, looking at the running app: "can you make the note and reply
++two buttons, it is a little confusing the way it is now."**
++
++Today `Composer.tsx` renders two `ModeTab`s (defined at the foot of that file):
++`rounded px-3 py-1 text-xs font-bold uppercase tracking-wide`, where the *inactive* one is bare
++text (`text-text3`) and the active one gets `bg-surface` (reply) or `bg-noteBg` (note). Three
++things make that hard to read:
++
++- the inactive control has no button affordance at all — it looks like a label, so the pair does
++  not read as a choice;
++- the labels are 12px uppercase, the smallest type in the composer, for the most consequential
++  decision in it;
++- the active Reply state is `bg-surface` sitting on a `bg-surface2` track, which is a very small
++  step — and a reviewer found that this relationship **inverts between themes** (raised in light,
++  inset in dark), so the selected state does not even read the same way twice.
++
++**Make them two real buttons of equal weight**, each unmistakably a button whether or not it is
++selected, with a selected state that is obvious at a glance in both themes. Sentence-case labels
++at normal control size; consider an icon on each. Name them for what they do — the reply one acts
++on the guest, the note one does not, and the labels should make that impossible to misread.
++
++**What NOT to do, and this is the important part: do not collapse this into two send buttons.**
++Removing the mode and offering "Send reply" / "Add note" at submit time looks tidier and is more
++dangerous. Right now the mode is visible the *entire time you are typing* — the textarea is
++tinted with `noteBg`/`noteText`/`noteBorder` and the placeholder reads "Internal note — not sent
++to the guest". That continuous signal is what stops an agent composing a staff-only note and
++sending it to the guest. A deferred choice at submit time turns a mis-click into a message the
++guest receives and cannot unsee. **Keep the mode, keep the tint, keep the placeholder.**
++
++Belt and braces while you are here: the submit button currently reads `Send` or `Add note`. Make
++the reply case name its destination — something that says the guest will receive it. A one-word
++`Send` is the least informative label in the most consequential place.
++
++Constraints that already bite in this exact file:
++
++- `cn` resolves Tailwind conflicts via `tailwind-merge` now, but this file carries `!important`
++  overrides (`!border-noteBorder`, `focus:!border-accent`) that exist because `Textarea`'s ONLY
++  focus affordance is its border. **If you touch those classes, verify the focus ring in a real
++  browser with `getComputedStyle`, in both themes** — the test that guards it asserts a className
++  string and therefore cannot fail.
++- Corporate reaches this composer and has `add_note` but NOT `reply`. It must see the note
++  control and no reply affordance at all. `dept_staff` has `reply`. Verify both.
++
++## 2. The guest panel has no work orders (M11)
++
++`docs/mockups/Main.dc.html` shows a **Work orders** section in the guest panel with a **+ New**
++action. The shipped panel has neither, so from a conversation you cannot see what is already
++raised for that guest — which is exactly when an agent needs to know, and the reason they raise
++duplicates.
++
++Show the work orders associated with the conversation's guest, and offer creating one. Reuse what
++already exists: the board's work-order hooks and `CreateWorkOrderModal` (which a restoration wave
++made capable of standalone creation). Do not write a second creation path.
++
++Gate **+ New** on `create_work_order`. Check what the guest-scoped work-order query actually
++supports before assuming a filter exists — if there is no way to fetch work orders for a guest,
++say so in your report rather than inventing a client-side filter over the whole board.
++
++## 3. Work-order photos (consumes G1)
++
++`docs/mockups/WorkOrder.dc.html:91-94` shows a **Photos** panel with **+ Add photo**, captions of
++the form `Before · 18:47 · Eli`, and a timeline entry `Eli · after photo attached · 18:56`.
++
++Build the panel against G1's endpoints. Per photo show its kind (before/after), its time and its
++author, as the mockup captions them.
++
++Care:
++
++- **Validate type and size client-side too**, and say what is wrong in the UI rather than letting
++  the user discover a 400 after a slow upload. G1's report names the accepted types and the cap.
++- Show upload progress or at least a pending state — a photo is the slowest thing this product
++  uploads, and a silent freeze reads as a broken screen.
++- Handle the failure cases the server actually returns, using the shared `fieldErrors` normaliser
++  rather than a second copy.
++- Gate the add action on the capability G1 gates the endpoint on. Do not offer what will 403.
++
++---
++
++## Constraints
++
++- **No hardcoded hex colours.** Palette tokens mapped into Tailwind by name; the only sanctioned
++  exception in the client is `PhoneFrame.tsx`.
++- Capabilities live in `web/src/auth/capabilities.ts` — the path is `auth/`, not `lib/`.
++- Do not change the server. G1 owns it.
++- **Do not toggle the theme through the UI** — it persists to the server, and agents have
++  repeatedly mutated user records that way. Set it on the document element instead.
++- **Check whether an API server is already listening on 127.0.0.1:5200 before starting one.**
++  A guard now refuses the second; do not defeat it.
++
++## Verify before you commit
++
++- The web suite — check `git log` and G1's report for the current numbers and beat the web one.
++  `npx tsc -b` clean with no `.d.ts` under `tests/`, `npm run lint` exit 0, `npm run build` clean.
++  **Read stderr**: a green suite with React warnings in it is not a green suite.
++- Exercise all three in a real browser. For item 1, do it as **both** an agent and a corporate
++  user. Screenshots into this workspace directory, never the repo root.
++
++Commit in logical commits on `main`, one per item. End every commit message with:
++Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
++
++## Report
++
++Full report to `gap-G2-report.md`, including what you found about guest-scoped work-order
++fetching, and a "Found but not fixed" section.
++
++Return in your final message ONLY: status, commit shas, a one-line test summary, and concerns.
++
++If any instruction is wrong — a hook that does not exist, a shape G1 built differently, a test
++that cannot fail — **say so and do the correct thing instead.**
+diff --git a/.superpowers/sdd/2026-09-11-phase1-web/progress.md b/.superpowers/sdd/2026-09-11-phase1-web/progress.md
+index b268de1..db1e2d2 100644
+--- a/.superpowers/sdd/2026-09-11-phase1-web/progress.md
++++ b/.superpowers/sdd/2026-09-11-phase1-web/progress.md
+@@ -3502,10 +3502,121 @@ S1 FIX RE-REVIEW RETURNED (agent a43dcc7bd0659f472, opus): F1-F7 ALL ADDRESSED f
+       --border3 verified live in both themes: every pair now clears 3:1 (light 3.10-3.49, dark
+       3.30-3.90) and the visual cost is acceptable - card hairlines, table rules and message
+       bubbles are untouched because they use --border/--border2.
+ 
+       Data: it changed no records, and returned both users' themes to what IT found. But what it
+       found for alex@hvh.test was already wrong - an earlier reviewer had left alex on dark, I
+       restored it to light, and this one then "restored" it back to dark. Set alex to light again.
+       The lesson is small but real: toggling the theme PERSISTS to the server, so every agent that
+       checks both themes mutates a user record, and "restore what you found" compounds an earlier
+       agent's error rather than correcting it.
++
++F8 RE-REVIEW RETURNED (agent a560cda212b726605, sonnet): ADDRESSED. It reused the running server
++      rather than starting a second one, and left the theme toggle alone - both hazards I warned
++      about, both respected. Measurements match the implementer's TO THE PIXEL at 1440, 1280 and
++      420: trigger centre == header centre at each, constant 8px gap, no overlap, and
++      scrollWidth == clientWidth on both documentElement and the header. Accessible name survives
++      the 36x36 collapse. All three settled palette behaviours re-verified by instrumenting BOTH
++      fetch and XMLHttpRequest.prototype.open - zero calls on open, type and arrow. It correctly
++      identified a later stray fetch as the app's own unread-count poller rather than the palette.
++      No data changed: it injected the long name as a transient DOM textContent patch rather than
++      saving a user record, which is the first agent this session to test a long name WITHOUT
++      mutating anything.
++
++Ruling D102 (the fix is right; the reported REASON for it is wrong, and that matters): the
++      implementer said overlap is prevented because "both side groups are w-full, which pins each
++      item's width to its track". The re-reviewer ABLATED THE SHIPPED MARKUP LIVE to check, and
++      found that removing w-full from the right-hand group changes nothing at all - width stays
++      426px, no overlap. The real mechanism is that the shipped code never applies
++      `justify-self-end`: the `justify-end` in that className is `justify-content` (internal flex
++      alignment of the avatar, name and buttons), NOT `justify-self` (grid item alignment). With no
++      justify-self override, CSS Grid's default `stretch` already pins the item to its track.
++      `w-full` is present but redundant.
++      It confirmed the failure mode is real in the ABANDONED draft - reconstructing a grid with an
++      explicit `justify-self: end`, a long name overflowed its track by 60-190px - so the
++      implementer did meet a genuine bug; it simply misattributed which of its two changes cured it.
++      Recorded rather than "fixed": the code is correct and I am not touching working layout to
++      remove a redundant class. But the comment and the report say something untrue about why this
++      works, and the next person to refactor that header will trust it. Correct the explanation.
++      This is the third time this session a report has carried a false REASON alongside a correct
++      change - MessageBubble's "no className of its own", S1's "confirms the WebSocket-handshake
++      diagnosis", and now this. Outcomes are being verified well; stated causes are not.
++
++Task S1: COMPLETE (commits 8beea25..989ab7c, review clean after 1 fix round plus F7/F8).
++      Web 520 passing, server 347. The reskin, the grouped navy rail, the top bar, the Ctrl+K
++      palette and the user's centred search field are all in and independently measured.
++
++USER SCOPE DECISION (asked, not ruled — "go ahead and build those" was genuinely ambiguous: it
++      followed a list of four REMAINING planned items AND a list of seven DISCLOSED gaps, and the
++      planned four were already in flight, so the sentence most likely meant the gaps. Some of
++      those need new server capability and three of them have no spec at all, so the readings
++      differed by an order of magnitude. Asked with a concrete three-rung ladder.)
++      ANSWER: **"Fix the real defects"** — the gaps with one obviously-correct behaviour:
++        1. analytics hour AND day bucketing -> the property's timezone
++        2. the seed's self-contradictions (no multi-stay guest, Property B empty, no no-stay
++           conversation)
++        3. work-order photo upload
++        4. the guest panel's "Work orders + New" (M11)
++      NOT selected, and therefore still disclosed rather than built: inbox search (needs a real
++      search endpoint), and Automations / Blocked numbers / Integrations (no models, no endpoints,
++      no spec — building them means inventing what they do).
++
++Ruling D103 (how the gap work splits): server first, exactly as A1 -> A2/A3 worked.
++        G1 server — analytics timezone, seed, photo upload endpoint + model + migration.
++        G2 web    — photo upload UI, M11 guest-panel work orders, plus the two R3 leftovers
++                    (R3.2 analytics custom range, R3.3 simulator PMS buttons), which are web-only
++                    and were already queued.
++      G2 gains the analytics custom range specifically BECAUSE G1 fixes analytics bucketing first:
++      building a custom date range on top of a chart that is silently shifted four hours would
++      mean verifying the new control against wrong numbers.
++      Cost if wrong: a grouping too large gets split at its review.
++
++Ruling D104 (work-order photos go in the DATABASE, not on disk): the deployment target is Railway,
++      whose filesystem is EPHEMERAL. A disk-backed photo vanishes on the next redeploy, silently,
++      leaving a work order referencing an image that no longer exists — and the failure appears
++      days later, to a user, with no error anywhere. There is no object storage in this project
++      and adding one is outside the scope the user chose. Database bytes survive wherever
++      DATABASE_URL points and need no new infrastructure.
++      The mockup settles the shape: WorkOrder.dc.html:91-94 captions photos "Before - 18:47 - Eli"
++      and "After - 18:56 - Eli", and its timeline at :111 records "after photo attached", so a
++      photo carries a KIND, a TIME and an AUTHOR, and attaching one is a timeline event plus an
++      audit row.
++      Named the likeliest leak in the brief rather than leaving it to be found: a photo id is a
++      guessable handle, so the serve route must carry require_property like every sibling.
++      Cost if wrong: if photos outgrow the database, moving them to object storage is a migration
++      of a single table whose interface is one endpoint — the decision is reversible, which is
++      most of why it is the right default now.
++
++USER-REPORTED, from the running app: "can you make the note and reply two buttons, it is a little
++      confusing the way it is now." They are right about the symptom. ModeTab renders the INACTIVE
++      control as bare text with no button affordance at all, so the pair does not read as a
++      choice; the labels are 12px uppercase - the smallest type in the composer, for its most
++      consequential decision; and the active Reply state is bg-surface on a bg-surface2 track,
++      a very small step which an earlier reviewer showed INVERTS between themes. Three separate
++      reasons the control fails to communicate, none of them the user's fault to diagnose.
++
++Ruling D105 (make them two real buttons, but do NOT collapse the mode into two send buttons):
++      the obvious reading of "two buttons" is to delete the mode and offer "Send reply" and
++      "Add note" at submit time. That is tidier and MORE DANGEROUS, and I am not doing it.
++      Right now the mode is visible the ENTIRE time you type: the textarea is tinted
++      noteBg/noteText/noteBorder and the placeholder reads "Internal note — not sent to the
++      guest". That continuous signal is what stops an agent composing a staff-only note and
++      sending it to the guest. Deferring the choice to submit time turns a mis-click into a
++      message the guest receives and cannot unsee — and internal notes on this product routinely
++      carry exactly what you would not say to a guest.
++      So: keep the mode, keep the tint, keep the placeholder, and fix the thing that is actually
++      broken - the controls do not read as controls. Two equal-weight buttons, obvious selected
++      state in BOTH themes, sentence case at normal control size, labelled for what they act on.
++      Plus a submit button that names its destination instead of saying "Send".
++      Cost if wrong: if the user really did want the mode gone, the mode-free version is a smaller
++      change from here than the reverse, and I will have asked them first.
++
++Ruling D106 (regrouping the remaining web work by screen area rather than by origin): the
++      composer change, M11 and the photo UI are all inbox/work-order surfaces and share a review
++      surface; the analytics custom range and the simulator PMS buttons are different screens
++      entirely. So:
++        G2 — composer mode buttons (user-reported), M11 guest-panel work orders, photo upload UI
++        G3 — R3.2 analytics custom range, R3.3 simulator PMS buttons
++      Item 3 of G2 consumes G1's endpoint, which is why G1 goes first; items 1 and 2 do not, but
++      splitting them out would buy a dispatch seat to save no wall-clock, since one writer holds
++      the tree either way.
++      Cost if wrong: a grouping too large is split at its review, costing one dispatch.
+diff --git a/server/app/realtime/broadcast.py b/server/app/realtime/broadcast.py
+index 88bd027..fbbc9eb 100644
+--- a/server/app/realtime/broadcast.py
++++ b/server/app/realtime/broadcast.py
+@@ -1,18 +1,19 @@
+ """Realtime events are queued on the SQLAlchemy session and delivered after commit.
+ 
+ Domain code calls queue_event(); Database.session() calls deliver() for each queued event once the
+ transaction has committed, so a client that refetches on an event always sees the committed data.
+ """
+ from __future__ import annotations
+ 
+ import json
++import logging
+ import threading
+ from collections.abc import Callable
+ from dataclasses import dataclass, field
+ from datetime import datetime
+ from typing import Any
+ 
+ from sqlalchemy.orm import Session
+ 
+ from app import clock
+ from app.realtime.registry import connections
+@@ -27,33 +28,42 @@ class Event:
+     user_id: str | None = None  # None = everyone on the property
+ 
+     def to_json(self) -> str:
+         return json.dumps(
+             {"type": self.type, "propertyId": self.property_id, "payload": self.payload,
+              "at": self.at.isoformat()},
+             default=str,
+         )
+ 
+ 
++log = logging.getLogger("realtime")
++
+ _listeners: list[Callable[[Event], None]] = []
+ _lock = threading.Lock()
+ 
+ 
+ def queue_event(db: Session, property_id: str, type: str, payload: dict[str, Any],
+                 user_id: str | None = None) -> Event:
+     ev = Event(property_id=property_id, type=type, payload=payload, user_id=user_id)
+     db.info.setdefault("events", []).append(ev)
+     return ev
+ 
+ 
+ def deliver(ev: Event) -> None:
+-    connections.send(ev.property_id, ev.to_json(), user_id=ev.user_id)
++    # The delivered count used to be discarded, so an event that reached nobody looked exactly
++    # like one that reached everybody. Two API processes on the same port is the case that
++    # matters: the registry is per-process, so the worker in process B broadcasts into an empty
++    # dict while the browser's socket sits in process A, and nothing anywhere says so.
++    delivered = connections.send(ev.property_id, ev.to_json(), user_id=ev.user_id)
++    if delivered == 0:
++        log.warning("%s for property %s reached 0 sockets (%d connected to this process)",
++                    ev.type, ev.property_id, connections.count(ev.property_id))
+     with _lock:
+         listeners = list(_listeners)
+     for fn in listeners:
+         fn(ev)
+ 
+ 
+ def add_listener(fn: Callable[[Event], None]) -> None:
+     with _lock:
+         _listeners.append(fn)
+ 
+diff --git a/server/dev_start.py b/server/dev_start.py
+index c532e97..51697ff 100644
+--- a/server/dev_start.py
++++ b/server/dev_start.py
+@@ -10,20 +10,21 @@ from anywhere with `python server/dev_start.py` or, from `server/`, `python dev_
+ Deliberately does NOT `os.chdir()` into `server/`: Flask's debug reloader respawns this exact
+ process (`sys.orig_argv`, fixed at interpreter start) as a *new* process whose cwd is inherited
+ from whatever this one's cwd is at that moment — so if we'd chdir'd first, the relative script
+ path in that respawn command would resolve against the wrong directory and fail to launch. Instead
+ every path this module touches is made absolute, anchored at `SERVER_DIR`.
+ """
+ from __future__ import annotations
+ 
+ import dataclasses
+ import os
++import socket
+ import sys
+ from pathlib import Path
+ 
+ SERVER_DIR = Path(__file__).resolve().parent
+ SEEDED_EMAIL = "ava@hvh.test"
+ SEEDED_PASSWORD = "Password123!"
+ _SQLITE_PREFIX = "sqlite:///"
+ 
+ 
+ def ensure_data_dir() -> None:
+@@ -52,20 +53,34 @@ def is_db_empty(database_url: str) -> bool:
+     db = Database(database_url)
+     try:
+         if Property.__tablename__ not in inspect(db.engine).get_table_names():
+             return True
+         with db.session() as session:
+             return session.scalar(select(Property.id).limit(1)) is None
+     finally:
+         db.engine.dispose()
+ 
+ 
++def port_is_taken(port: int) -> bool:
++    """True if something already answers on 127.0.0.1:<port>.
++
++    Werkzeug sets SO_REUSEADDR, so on Windows a second dev server binds an already-listening
++    port and reports nothing. Two API processes then share a database but not the realtime
++    connection registry (`app/realtime/registry.py` is a plain in-process dict): the browser's
++    WebSocket lives in one process while the job worker that broadcasts may be in the other, so
++    events are dropped with no error anywhere. Refuse to be the second process.
++    """
++    with socket.socket() as probe:
++        probe.settimeout(0.5)
++        return probe.connect_ex(("127.0.0.1", port)) == 0
++
++
+ def prepare(database_url: str):
+     """Ensure `data/`, migrate to head, and seed only if empty.
+ 
+     Returns (seeded, summary_or_None)."""
+     from app.db import run_migrations
+ 
+     ensure_data_dir()
+     run_migrations(database_url)
+     if not is_db_empty(database_url):
+         return False, None
+@@ -78,32 +93,39 @@ def prepare(database_url: str):
+ def main() -> int:
+     os.environ["START_WORKER"] = "1"
+     os.environ.setdefault("ENABLE_DEV_ENDPOINTS", "1")
+     os.environ.setdefault("USE_RELOADER", "1")
+ 
+     from app.config import Config
+ 
+     cfg = Config.from_env()
+     cfg = dataclasses.replace(cfg, DATABASE_URL=resolve_database_url(cfg.DATABASE_URL))
+ 
++    port = int(os.getenv("PORT", "5200"))
++    # Skipped in the reloader child, which its own parent already vetted.
++    if os.environ.get("WERKZEUG_RUN_MAIN") != "true" and port_is_taken(port):
++        print(f"A server is already listening on http://127.0.0.1:{port} — not starting a second "
++              "one. Two API processes silently break realtime delivery; stop the running server "
++              "(or set PORT) and try again.", file=sys.stderr)
++        return 1
++
+     print(f"Preparing {cfg.DATABASE_URL} ...")
+     seeded, summary = prepare(cfg.DATABASE_URL)
+     if seeded:
+         print(f"Seeded {summary.properties} properties, {summary.users} users, "
+               f"{summary.guests} guests, "
+               f"{summary.stays} stays, {summary.conversations} conversations, "
+               f"{summary.messages} messages, "
+               f"{summary.work_orders} work orders.")
+     else:
+         print("Database already has data, skipping seed.")
+ 
+-    port = int(os.getenv("PORT", "5200"))
+     print(f"\nStarting server at http://127.0.0.1:{port}")
+     print(f"Log in as {SEEDED_EMAIL} / {SEEDED_PASSWORD}\n")
+ 
+     from app import create_app
+ 
+     app = create_app(cfg)
+     app.run(host="127.0.0.1", port=port, debug=cfg.USE_RELOADER, threaded=True)
+     return 0
+ 
+ 
+diff --git a/server/tests/test_dev_start.py b/server/tests/test_dev_start.py
+index ef32f4c..305769d 100644
+--- a/server/tests/test_dev_start.py
++++ b/server/tests/test_dev_start.py
+@@ -58,10 +58,24 @@ def test_prepare_is_idempotent_and_never_reseeds_over_existing_data(tmp_path, mo
+ 
+     assert first_seeded is True
+     assert second_seeded is False
+     assert second_summary is None
+ 
+     db = Database(url)
+     with db.session() as session:
+         count = session.scalar(select(func.count()).select_from(Property))
+     db.engine.dispose()
+     assert count == first_summary.properties
++
++
++def test_port_is_taken_detects_a_listening_socket_and_a_free_port():
++    # The guard this backs exists because werkzeug sets SO_REUSEADDR: on Windows a second dev
++    # server binds an already-listening port silently, and the two processes then have separate
++    # realtime connection registries, so WebSocket events are dropped with no error.
++    import socket
++
++    with socket.socket() as listener:
++        listener.bind(("127.0.0.1", 0))
++        listener.listen(1)
++        port = listener.getsockname()[1]
++        assert dev_start.port_is_taken(port) is True
++    assert dev_start.port_is_taken(port) is False
+diff --git a/web/src/components/AppShell.test.tsx b/web/src/components/AppShell.test.tsx
+index d872b93..d0f52ac 100644
+--- a/web/src/components/AppShell.test.tsx
++++ b/web/src/components/AppShell.test.tsx
+@@ -11,31 +11,37 @@ import { AppShell } from './AppShell'
+ import { visibleNavGroups } from './navModel'
+ 
+ // Reports where the router actually landed after a property switch — the thing at risk
+ // is the navigation target, not just that setPropertyId was called.
+ function LocationDisplay() {
+   const location = useLocation()
+   return <div data-testid="location">{location.pathname}</div>
+ }
+ 
+ function mount(
+-  opts: { role?: Role; withSecondProperty?: boolean; secondRole?: Role; unreadCount?: number } = {},
++  opts: {
++    role?: Role
++    withSecondProperty?: boolean
++    secondRole?: Role
++    unreadCount?: number
++    route?: string
++  } = {},
+ ) {
+   return renderWithProviders(
+     <SessionProvider>
+       <ThemeProvider>
+         <AppShell unreadCount={opts.unreadCount}>
+           <p>screen body</p>
+         </AppShell>
+       </ThemeProvider>
+     </SessionProvider>,
+-    { session: sessionFixture(opts), route: '/app/inbox' },
++    { session: sessionFixture(opts), route: opts.route ?? '/app/inbox' },
+   )
+ }
+ 
+ function mountWithLocation(
+   opts: { role?: Role; withSecondProperty?: boolean; secondRole?: Role; unreadCount?: number } = {},
+ ) {
+   return renderWithProviders(
+     <SessionProvider>
+       <ThemeProvider>
+         <AppShell unreadCount={opts.unreadCount}>
+@@ -92,20 +98,51 @@ describe('AppShell', () => {
+ 
+   it('marks the current route as the active nav item', async () => {
+     mount({ role: 'agent' })
+     expect(await screen.findByRole('link', { name: /inbox/i })).toHaveAttribute(
+       'aria-current',
+       'page',
+     )
+     expect(screen.getByRole('link', { name: /board/i })).not.toHaveAttribute('aria-current')
+   })
+ 
++  it('keeps the Admin rail entry lit on every screen inside the section', async () => {
++    // Reported from the running app: the Admin pill lit only on Users & roles, because
++    // /app/admin/departments is a sibling of the link's target, not a descendant of it.
++    const { unmount } = mount({ role: 'admin', route: '/app/admin/departments' })
++    expect(await screen.findByRole('link', { name: /admin/i })).toHaveAttribute(
++      'aria-current',
++      'page',
++    )
++    unmount()
++
++    mount({ role: 'admin', route: '/app/admin/users' })
++    expect(await screen.findByRole('link', { name: /admin/i })).toHaveAttribute(
++      'aria-current',
++      'page',
++    )
++  })
++
++  it('does not light the Admin entry from outside the section', async () => {
++    mount({ role: 'admin', route: '/app/analytics' })
++    expect(await screen.findByRole('link', { name: /admin/i })).not.toHaveAttribute('aria-current')
++    expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute('aria-current', 'page')
++  })
++
++  it('keeps Board lit on a work order, which lives outside /app/board', async () => {
++    mount({ role: 'supervisor', route: '/app/work-orders/w-204' })
++    expect(await screen.findByRole('link', { name: /board/i })).toHaveAttribute(
++      'aria-current',
++      'page',
++    )
++  })
++
+   it('shows an unread badge on Alerts only when there is something unread', async () => {
+     const { unmount } = mount({ role: 'agent', unreadCount: 3 })
+     expect(await screen.findByTestId('unread-badge')).toHaveTextContent('3')
+     unmount()
+     mount({ role: 'agent', unreadCount: 0 })
+     expect(screen.queryByTestId('unread-badge')).not.toBeInTheDocument()
+   })
+ 
+   it('names the signed-in user and their role', async () => {
+     mount({ role: 'agent' })
+diff --git a/web/src/components/AppShell.tsx b/web/src/components/AppShell.tsx
+index ef0f910..cf90553 100644
+--- a/web/src/components/AppShell.tsx
++++ b/web/src/components/AppShell.tsx
+@@ -1,20 +1,20 @@
+ import type { ReactNode } from 'react'
+-import { NavLink, useNavigate } from 'react-router-dom'
++import { Link, useLocation, useNavigate } from 'react-router-dom'
+ import { useSession } from '../auth/SessionContext'
+ import { landingPath } from '../auth/capabilities'
+ import { useTheme } from '../theme/ThemeContext'
+ import { cn } from '../lib/cn'
+ import { Avatar, Badge, Dropdown } from './ui'
+ import { NavIcon } from './NavIcon'
+ import { CommandPalette } from './CommandPalette'
+-import { visibleNavGroups } from './navModel'
++import { isNavItemActive, visibleNavGroups } from './navModel'
+ 
+ const ROLE_LABELS: Record<string, string> = {
+   agent: 'Agent',
+   dept_staff: 'Staff',
+   supervisor: 'Supervisor',
+   manager: 'Duty manager',
+   admin: 'Admin',
+   corporate: 'Corporate',
+ }
+ 
+@@ -25,20 +25,21 @@ const TOPBAR_BUTTON =
+ export function AppShell({
+   children,
+   unreadCount,
+ }: {
+   children: ReactNode
+   unreadCount?: number
+ }) {
+   const { user, membership, memberships, role, can, setPropertyId, logout } = useSession()
+   const { resolved, setTheme } = useTheme()
+   const navigate = useNavigate()
++  const { pathname } = useLocation()
+ 
+   const groups = visibleNavGroups(can)
+   const nextTheme = resolved === 'dark' ? 'light' : 'dark'
+ 
+   // Ruling D64: tenant identity carries the switcher. Single-membership users get no
+   // switcher affordance at all — the lockup is then plain text, not a dead button.
+   const lockup = (
+     <>
+       <span className="grid h-8 w-8 flex-none place-items-center rounded-md bg-navActiveBg font-mono text-xs font-bold text-navActiveText">
+         {membership.propertyCode.slice(0, 2).toUpperCase()}
+@@ -109,39 +110,38 @@ export function AppShell({
+ 
+         <div className="mt-5 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
+           {groups.map((group) => (
+             <div key={group.heading}>
+               <p className="mb-1 px-3 text-[10px] font-bold uppercase tracking-[0.12em] text-navSection">
+                 {group.heading}
+               </p>
+               <ul className="flex flex-col gap-0.5">
+                 {group.items.map((item) => (
+                   <li key={item.to}>
+-                    <NavLink
++                    <Link
+                       to={item.to}
+-                      className={({ isActive }) =>
+-                        cn(
+-                          RAIL_ITEM,
+-                          isActive
+-                            ? 'bg-navActiveBg text-navActiveText'
+-                            : 'text-navTextMuted hover:text-navText',
+-                        )
+-                      }
++                      aria-current={isNavItemActive(item, pathname) ? 'page' : undefined}
++                      className={cn(
++                        RAIL_ITEM,
++                        isNavItemActive(item, pathname)
++                          ? 'bg-navActiveBg text-navActiveText'
++                          : 'text-navTextMuted hover:text-navText',
++                      )}
+                     >
+                       <NavIcon name={item.icon} />
+                       <span className="flex-1">{item.label}</span>
+                       {item.to === '/app/notifications' && unreadCount ? (
+                         <Badge tone="danger" className="font-mono">
+                           <span data-testid="unread-badge">{unreadCount}</span>
+                         </Badge>
+                       ) : null}
+-                    </NavLink>
++                    </Link>
+                   </li>
+                 ))}
+               </ul>
+             </div>
+           ))}
+         </div>
+       </nav>
+ 
+       <div className="flex min-w-0 flex-1 flex-col">
+         {/*
+diff --git a/web/src/components/navModel.test.ts b/web/src/components/navModel.test.ts
+new file mode 100644
+index 0000000..c62129f
+--- /dev/null
++++ b/web/src/components/navModel.test.ts
+@@ -0,0 +1,29 @@
++import { describe, expect, it } from 'vitest'
++import { NAV_GROUPS, isNavItemActive } from './navModel'
++
++const item = (label: string) =>
++  NAV_GROUPS.flatMap((group) => group.items).find((i) => i.label === label)!
++
++describe('isNavItemActive', () => {
++  it('lights a section entry on every screen inside it, not only on its own target', () => {
++    const admin = item('Admin')
++    expect(admin.to).toBe('/app/admin/users')
++    expect(isNavItemActive(admin, '/app/admin/users')).toBe(true)
++    expect(isNavItemActive(admin, '/app/admin/departments')).toBe(true)
++    expect(isNavItemActive(admin, '/app/admin/property')).toBe(true)
++  })
++
++  it('compares whole path segments, so a longer name cannot light the entry', () => {
++    // A bare startsWith would light Admin on /app/administration.
++    expect(isNavItemActive(item('Admin'), '/app/administration')).toBe(false)
++    expect(isNavItemActive(item('Board'), '/app/boardroom')).toBe(false)
++  })
++
++  it('falls back to `to` for an entry with no `match`', () => {
++    const inbox = item('Inbox')
++    expect(inbox.match).toBeUndefined()
++    expect(isNavItemActive(inbox, '/app/inbox')).toBe(true)
++    expect(isNavItemActive(inbox, '/app/inbox/c-1')).toBe(true)
++    expect(isNavItemActive(inbox, '/app/board')).toBe(false)
++  })
++})
+diff --git a/web/src/components/navModel.ts b/web/src/components/navModel.ts
+index 1b25078..0404612 100644
+--- a/web/src/components/navModel.ts
++++ b/web/src/components/navModel.ts
+@@ -1,56 +1,87 @@
+ import type { Capability } from '../auth/capabilities'
+ import type { IconName } from './NavIcon'
+ 
+-export type NavItem = { label: string; to: string; icon: IconName; needs: Capability[] }
++export type NavItem = {
++  label: string
++  to: string
++  icon: IconName
++  needs: Capability[]
++  /** Path prefixes that count as "inside this section", when they are not just `to`.
++   *
++   * A rail entry needs one path to navigate to and a possibly broader one to light up for.
++   * React Router's own `isActive` only knows `to`, so it lights an entry on `to` and its
++   * descendants — and an entry that points at one screen of a section (Admin lands on Users &
++   * roles) went dark on every sibling screen of that same section, which is what a user
++   * reported for Admin on Departments. */
++  match?: string[]
++}
+ export type NavGroup = { heading: string; items: NavItem[] }
+ 
+ // `needs` is an OR: any one capability is enough to see the item. An empty `needs` is
+ // always visible. A group whose items are all filtered out renders nothing at all —
+ // not an empty heading.
+ export const NAV_GROUPS: NavGroup[] = [
+   {
+     heading: 'Overview',
+     items: [
+       // Corporate has view_all_conversations + add_note on the server (permissions.py) with no
+       // @require_capability gate on the list endpoint, so it genuinely can read (and note) every
+       // conversation — the Inbox stays visible, read-only.
+       { label: 'Inbox', to: '/app/inbox', icon: 'inbox', needs: ['reply', 'view_all_conversations'] },
+-      { label: 'Board', to: '/app/board', icon: 'board', needs: ['create_work_order', 'close_work_order'] },
++      // A work order opens at /app/work-orders/:id, a sibling of the board rather than a child
++      // of it — the same shape as the Admin defect, so it is listed here too.
++      { label: 'Board', to: '/app/board', icon: 'board', needs: ['create_work_order', 'close_work_order'], match: ['/app/board', '/app/work-orders'] },
+       { label: 'Alerts', to: '/app/notifications', icon: 'alerts', needs: [] },
+     ],
+   },
+   {
+     heading: 'Insights',
+     items: [
+       { label: 'Analytics', to: '/app/analytics', icon: 'analytics', needs: ['view_property_analytics'] },
+     ],
+   },
+   {
+     // Ruling D62: one entry, not the six admin screens. Admin.dc.html carries its own 220px
+     // sub-nav, including the three greyed Phase 2 items; hoisting the screens here would either
+     // duplicate that navigation or force permanently-disabled entries into the global rail.
+     heading: 'Admin',
+-    items: [{ label: 'Admin', to: '/app/admin/users', icon: 'admin', needs: ['manage_admin'] }],
++    items: [
++      {
++        label: 'Admin',
++        to: '/app/admin/users',
++        icon: 'admin',
++        needs: ['manage_admin'],
++        match: ['/app/admin'],
++      },
++    ],
+   },
+ ]
+ 
+ // Absolute targets: AdminPage is mounted at the "admin/*" splat, and this project's router
+ // future flags (v7_relativeSplatPath) resolve a plain relative `to` against the full current
+ // splat path rather than the section's own directory, so a relative "users" link from
+ // "/app/admin/quick-replies" resolves to ".../quick-replies/users" instead of ".../users".
+ export const ADMIN_SECTIONS = [
+   { to: '/app/admin/users', label: 'Users & roles' },
+   { to: '/app/admin/departments', label: 'Departments' },
+   { to: '/app/admin/quick-replies', label: 'Quick replies' },
+   { to: '/app/admin/assets', label: 'Digital assets' },
+   { to: '/app/admin/categories', label: 'Resolution categories' },
+   { to: '/app/admin/property', label: 'Property settings' },
+ ]
+ 
++/** Whether `pathname` is inside this item's section. Compared by whole path segments, so
++ *  /app/administration can never light the /app/admin entry. */
++export function isNavItemActive(item: NavItem, pathname: string): boolean {
++  return (item.match ?? [item.to]).some(
++    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
++  )
++}
++
+ /** The rail and the command palette must never disagree about what a role can reach. */
+ export function visibleNavGroups(can: (capability: Capability) => boolean): NavGroup[] {
+   return NAV_GROUPS.map((group) => ({
+     ...group,
+     items: group.items.filter((item) => item.needs.length === 0 || item.needs.some(can)),
+   })).filter((group) => group.items.length > 0)
+ }
+diff --git a/web/src/features/board/BoardPage.test.tsx b/web/src/features/board/BoardPage.test.tsx
+index a8b7952..76785bb 100644
+--- a/web/src/features/board/BoardPage.test.tsx
++++ b/web/src/features/board/BoardPage.test.tsx
+@@ -1,48 +1,66 @@
+ import { screen, waitFor } from '@testing-library/react'
+ import userEvent from '@testing-library/user-event'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import { SessionProvider } from '../../auth/SessionContext'
++import { ToastProvider } from '../../components/ui'
++import type { Role } from '../../api/types'
+ import { aDepartment, aStaffUser, aWorkOrder } from '../../test/factories'
+ import { renderWithProviders, sessionFixture } from '../../test/harness'
+ import { BoardPage } from './BoardPage'
+ 
+ const ORDERS = [
+   aWorkOrder({ id: 'w-1', status: 'open', title: 'Faucet dripping', locationRef: '318', priority: 'normal' }),
+   aWorkOrder({ id: 'w-2', status: 'assigned', title: 'Toilet running', locationRef: '221', assignedUserId: 'u-eli', priority: 'normal' }),
+   aWorkOrder({ id: 'w-3', status: 'in_progress', title: 'Ice machine', locationRef: '3F', priority: 'urgent' }),
+   aWorkOrder({ id: 'w-4', status: 'complete', title: 'AC not cooling', locationRef: '412', priority: 'urgent' }),
++  aWorkOrder({ id: 'w-5', status: 'verified', title: 'Pool pump serviced', locationRef: 'POOL', priority: 'normal' }),
++  aWorkOrder({ id: 'w-6', status: 'cancelled', title: 'Duplicate ice request', locationRef: '3F', priority: 'normal' }),
+ ]
+ 
++// The real server withholds verified and cancelled unless includeClosed is set, so the mock
++// must too — otherwise the reveal toggle looks like it works while fetching nothing new.
+ function serve(orders = ORDERS) {
+-  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
++  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+     const url = String(input)
++    if (init?.method === 'POST') {
++      return Promise.resolve(
++        new Response(JSON.stringify(aWorkOrder({ id: 'w-900' })), {
++          status: 201,
++          headers: { 'Content-Type': 'application/json' },
++        }),
++      )
++    }
+     const body = url.includes('/departments')
+       ? [aDepartment()]
+       : url.includes('/users')
+         ? [aStaffUser({ id: 'u-eli', firstName: 'Eli', lastName: 'Engineer' })]
+-        : orders
++        : url.includes('includeClosed=true')
++          ? orders
++          : orders.filter((w) => w.status !== 'verified' && w.status !== 'cancelled')
+     return Promise.resolve(
+       new Response(JSON.stringify(body), {
+         status: 200,
+         headers: { 'Content-Type': 'application/json' },
+       }),
+     )
+   })
+ }
+ 
+-function mount(route = '/app/board') {
++function mount(route = '/app/board', role: Role = 'supervisor') {
+   return renderWithProviders(
+     <SessionProvider>
+-      <BoardPage />
++      <ToastProvider>
++        <BoardPage />
++      </ToastProvider>
+     </SessionProvider>,
+-    { session: sessionFixture({ role: 'supervisor' }), route },
++    { session: sessionFixture({ role }), route },
+   )
+ }
+ 
+ describe('BoardPage', () => {
+   beforeEach(() => {
+     vi.stubGlobal('fetch', vi.fn())
+     serve()
+   })
+   afterEach(() => {
+     vi.unstubAllGlobals()
+@@ -97,24 +115,145 @@ describe('BoardPage', () => {
+     await userEvent.click(screen.getByRole('tab', { name: /Urgent/ }))
+     await userEvent.click(screen.getByRole('tab', { name: /All/ }))
+ 
+     // All resets the filters, not the whole query string: view=list is not a filter, and
+     // dropping it threw the user back to the board they had deliberately switched away from.
+     expect(screen.getByRole('button', { name: 'Board' })).toBeInTheDocument()
+     expect(screen.queryByRole('heading', { name: /In progress/ })).not.toBeInTheDocument()
+     expect(screen.getByRole('tab', { name: /Urgent/ })).toHaveAttribute('aria-selected', 'false')
+   })
+ 
++  it('lets only one filter tab be selected at a time', async () => {
++    // Reported from the running app: "two tabs can be selected at same time." The mockup draws
++    // five `.tab`s with exactly one `.on`, so picking a tab must clear the others.
++    // Changing mine/dept changes the query key, so the board flips through its pending spinner
++    // and re-mounts the tabs: every tab has to be looked up again after a click.
++    mount()
++    await userEvent.click(await screen.findByRole('tab', { name: 'Mine' }))
++    await waitFor(() =>
++      expect(screen.getByRole('tab', { name: 'Mine' })).toHaveAttribute('aria-selected', 'true'),
++    )
++
++    await userEvent.click(await screen.findByRole('tab', { name: 'Engineering' }))
++    await waitFor(() =>
++      expect(screen.getByRole('tab', { name: 'Engineering' })).toHaveAttribute(
++        'aria-selected',
++        'true',
++      ),
++    )
++    expect(screen.getByRole('tab', { name: 'Mine' })).toHaveAttribute('aria-selected', 'false')
++
++    await waitFor(() => {
++      const last = vi
++        .mocked(fetch)
++        .mock.calls.map(([u]) => String(u))
++        .filter((u) => u.includes('/work-orders'))
++        .at(-1)!
++      expect(last).toContain('dept=dept-eng')
++      expect(last).not.toContain('mine=true')
++    })
++  })
++
++  it('lights exactly one tab even when a stale URL still carries two filters', async () => {
++    mount('/app/board?mine=1&dept=dept-eng&urgent=1')
++    await screen.findByRole('tab', { name: 'Engineering' })
++    const lit = screen.getAllByRole('tab').filter((t) => t.getAttribute('aria-selected') === 'true')
++    expect(lit).toHaveLength(1)
++  })
++
+   it('links each card to its detail screen', async () => {
+     mount()
+     expect(await screen.findByRole('link', { name: /Faucet dripping/ })).toHaveAttribute(
+       'href',
+       '/app/work-orders/w-1',
+     )
+   })
+ 
++  it('hides verified and cancelled work until the footer control reveals them', async () => {
++    mount()
++    await screen.findByText('Faucet dripping')
++    expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('includeClosed'))).toBe(
++      false,
++    )
++    expect(screen.queryByText('Pool pump serviced')).not.toBeInTheDocument()
++    expect(screen.queryByRole('heading', { name: /Verified/ })).not.toBeInTheDocument()
++
++    await userEvent.click(screen.getByRole('button', { name: /show closed/i }))
++
++    await waitFor(() =>
++      expect(
++        vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('includeClosed=true')),
++      ).toBe(true),
++    )
++    expect(await screen.findByText('Pool pump serviced')).toBeInTheDocument()
++    expect(screen.getByText('Duplicate ice request')).toBeInTheDocument()
++    expect(screen.getByRole('heading', { name: /Verified/ })).toBeInTheDocument()
++    expect(screen.getByRole('heading', { name: /Cancelled/ })).toBeInTheDocument()
++    // A real count of what actually came back, not the mockup's illustrative "46 this week".
++    expect(screen.getByText(/Showing/)).toHaveTextContent('Showing 2 verified and cancelled')
++    // Terminal work must not be counted as active, nor absorbed into the five open columns.
++    expect(screen.getByText(/4 active · 2 urgent/)).toBeInTheDocument()
++    const complete = screen.getByRole('heading', { name: /Complete/ }).parentElement!
++    expect(complete).not.toHaveTextContent('Pool pump serviced')
++
++    await userEvent.click(screen.getByRole('button', { name: /hide them/i }))
++    await waitFor(() => expect(screen.queryByText('Pool pump serviced')).not.toBeInTheDocument())
++  })
++
++  it('round-trips the reveal through the URL, so a revealed board is linkable', async () => {
++    mount('/app/board?closed=1')
++    expect(await screen.findByText('Pool pump serviced')).toBeInTheDocument()
++    await waitFor(() =>
++      expect(
++        vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('includeClosed=true')),
++      ).toBe(true),
++    )
++  })
++
++  it('groups the revealed closed work by outcome in the list view too', async () => {
++    mount('/app/board?closed=1&view=list')
++    const verified = await screen.findByRole('heading', { name: /Verified/ })
++    expect(verified.parentElement).toHaveTextContent('Pool pump serviced')
++    expect(verified.parentElement).not.toHaveTextContent('Faucet dripping')
++    expect(screen.getByRole('heading', { name: /Cancelled/ }).parentElement).toHaveTextContent(
++      'Duplicate ice request',
++    )
++  })
++
++  it('keeps the reveal when All clears the filters', async () => {
++    mount('/app/board?closed=1&urgent=1')
++    await userEvent.click(await screen.findByRole('tab', { name: /All/ }))
++    expect(await screen.findByText('Pool pump serviced')).toBeInTheDocument()
++  })
++
++  it('raises a work order from the header with no conversation behind it', async () => {
++    mount()
++    await userEvent.click(await screen.findByRole('button', { name: 'New' }))
++    const title = await screen.findByLabelText('Title')
++    expect(title).toHaveValue('')
++
++    await userEvent.type(title, 'Elevator B juddering')
++    await userEvent.click(screen.getByRole('button', { name: /^create$/i }))
++
++    await waitFor(() =>
++      expect(vi.mocked(fetch).mock.calls.some(([, i]) => i?.method === 'POST')).toBe(true),
++    )
++    const post = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'POST')!
++    const body = JSON.parse(String(post[1]!.body))
++    expect(body).toMatchObject({ title: 'Elevator B juddering' })
++    expect('sourceConversationId' in body).toBe(false)
++    // No conversation means no prefill request to make.
++    expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('prefill'))).toBe(false)
++  })
++
++  it('hides New from a role without create_work_order', async () => {
++    mount('/app/board', 'corporate')
++    await screen.findByText('Faucet dripping')
++    expect(screen.queryByRole('button', { name: 'New' })).not.toBeInTheDocument()
++  })
++
+   it('shows an empty state when nothing matches', async () => {
+     serve([])
+     mount()
+     expect(await screen.findByText(/nothing on the board/i)).toBeInTheDocument()
+   })
+ })
+diff --git a/web/src/features/board/BoardPage.tsx b/web/src/features/board/BoardPage.tsx
+index 154fecb..7e57f0c 100644
+--- a/web/src/features/board/BoardPage.tsx
++++ b/web/src/features/board/BoardPage.tsx
+@@ -1,60 +1,101 @@
+-import { useMemo } from 'react'
++import { useMemo, useState } from 'react'
+ import { useSearchParams } from 'react-router-dom'
+ import { useWorkOrders } from '../../api/hooks/workOrders'
+ import { useDepartments, useStaff } from '../../api/hooks/users'
++import { useSession } from '../../auth/SessionContext'
+ import type { WorkOrderOut } from '../../api/types'
+ import { Button, EmptyState, Spinner } from '../../components/ui'
+ import { cn } from '../../lib/cn'
+-import { BOARD_COLUMNS, STATUS_LABELS } from './transitions'
++import { CreateWorkOrderModal } from '../inbox/CreateWorkOrderModal'
++import { BOARD_COLUMNS, CLOSED_STATUSES, OPEN_STATUSES, STATUS_LABELS } from './transitions'
+ import { WorkOrderCard } from './WorkOrderCard'
+ 
++type Filter = { kind: 'all' } | { kind: 'mine' } | { kind: 'dept'; id: string } | { kind: 'urgent' }
++
++/** The filter row is single-select: Board.dc.html draws five `.tab`s with exactly one `.on`.
++ *
++ * The three params stay separate rather than collapsing into one, so landingPath's `?mine=1`
++ * entry and every link already in the wild keep working. A URL that still carries two of them
++ * resolves to a single winner here instead of lighting two tabs. */
++function selectedFilter(params: URLSearchParams): Filter {
++  if (params.get('mine') === '1') return { kind: 'mine' }
++  const dept = params.get('dept')
++  if (dept) return { kind: 'dept', id: dept }
++  if (params.get('urgent') === '1') return { kind: 'urgent' }
++  return { kind: 'all' }
++}
++
+ export function BoardPage() {
+   // landingPath sends dept_staff and supervisors here with ?mine=1 — honour it.
+   const [params, setParams] = useSearchParams()
+-  const mine = params.get('mine') === '1'
+-  const dept = params.get('dept')
+-  const urgentOnly = params.get('urgent') === '1'
++  const { can } = useSession()
++  const [creating, setCreating] = useState(false)
++  const selected = selectedFilter(params)
++  const urgentOnly = selected.kind === 'urgent'
+   const view = params.get('view') === 'list' ? 'list' : 'board'
++  // Verified and cancelled are left out of the list entirely unless asked for, so revealing
++  // them is a refetch, not a client-side filter. In the URL so the reveal survives a reload.
++  const showClosed = params.get('closed') === '1'
+ 
+-  const { data, isPending, error } = useWorkOrders({ mine, dept })
++  const { data, isPending, error } = useWorkOrders({
++    mine: selected.kind === 'mine',
++    dept: selected.kind === 'dept' ? selected.id : null,
++    includeClosed: showClosed,
++  })
+   const { data: departments } = useDepartments()
+   const { data: staff } = useStaff()
+ 
+   const rows = useMemo(
+     () => (urgentOnly ? (data ?? []).filter((w) => w.priority === 'urgent') : (data ?? [])),
+     [data, urgentOnly],
+   )
+-  const urgentCount = (data ?? []).filter((w) => w.priority === 'urgent').length
++  const active = rows.filter((w) => OPEN_STATUSES.includes(w.status))
++  const closed = rows.filter((w) => CLOSED_STATUSES.includes(w.status))
++  const urgentCount = (data ?? []).filter(
++    (w) => w.priority === 'urgent' && OPEN_STATUSES.includes(w.status),
++  ).length
++  const columns = showClosed ? [...BOARD_COLUMNS, ...CLOSED_STATUSES] : BOARD_COLUMNS
+ 
+   function setParam(key: string, value: string | null) {
+     const next = new URLSearchParams(params)
+     if (value === null) next.delete(key)
+     else next.set(key, value)
+     setParams(next, { replace: true })
+   }
+ 
+-  // "All" clears the filters only. Resetting the whole query string also dropped view=list,
++  // Picking a tab clears the other two, so only one is ever lit. `select({})` is the "All" tab.
++  // It touches the filters only: resetting the whole query string also dropped view=list,
+   // silently throwing the user back to the board they had switched away from.
+-  function clearFilters() {
++  function select(filter: Record<string, string>) {
+     const next = new URLSearchParams(params)
+     for (const key of ['mine', 'dept', 'urgent']) next.delete(key)
++    for (const [key, value] of Object.entries(filter)) next.set(key, value)
+     setParams(next, { replace: true })
+   }
+ 
+   const nameFor = (id: string | null | undefined) => {
+     const person = staff?.find((s) => s.id === id)
+     return person ? `${person.firstName} ${person.lastName}` : null
+   }
+   const deptFor = (id: string | null | undefined) =>
+     departments?.find((d) => d.id === id)?.name ?? null
+ 
++  const card = (workOrder: WorkOrderOut) => (
++    <WorkOrderCard
++      key={workOrder.id}
++      workOrder={workOrder}
++      assigneeName={nameFor(workOrder.assignedUserId)}
++      departmentName={deptFor(workOrder.departmentId)}
++    />
++  )
++
+   const tab = (label: string, active: boolean, onClick: () => void, count?: number) => (
+     <button
+       key={label}
+       role="tab"
+       aria-selected={active}
+       onClick={onClick}
+       className={cn(
+         'inline-flex h-9 items-center gap-2 rounded px-3.5 text-[13.5px] font-semibold',
+         active ? 'bg-accent text-accentText' : 'text-text3 hover:text-text',
+       )}
+@@ -72,71 +113,115 @@ export function BoardPage() {
+     )
+   }
+   if (error) return <EmptyState title="Could not load the board" hint={error.message} />
+ 
+   return (
+     <div className="flex h-full flex-col">
+       <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+         <div>
+           <h1 className="text-base font-bold">Work orders</h1>
+           <p className="text-xs text-text3">
+-            {rows.length} active · {urgentCount} urgent
++            {active.length} active · {urgentCount} urgent
+           </p>
+         </div>
+         <div role="tablist" className="ml-4 flex flex-wrap gap-1.5">
+-          {tab('All', !mine && !dept && !urgentOnly, clearFilters, data?.length)}
+-          {tab('Mine', mine, () => setParam('mine', mine ? null : '1'))}
++          {tab('All', selected.kind === 'all', () => select({}), data?.length)}
++          {tab('Mine', selected.kind === 'mine', () => select({ mine: '1' }))}
+           {(departments ?? []).map((department) =>
+-            tab(department.name, dept === department.id, () =>
+-              setParam('dept', dept === department.id ? null : department.id),
++            tab(
++              department.name,
++              selected.kind === 'dept' && selected.id === department.id,
++              () => select({ dept: department.id }),
+             ),
+           )}
+-          {tab('Urgent', urgentOnly, () => setParam('urgent', urgentOnly ? null : '1'), urgentCount)}
++          {tab('Urgent', urgentOnly, () => select({ urgent: '1' }), urgentCount)}
+         </div>
+         <div className="ml-auto flex items-center gap-2">
+           <Button onClick={() => setParam('view', view === 'board' ? 'list' : 'board')}>
+             {view === 'board' ? 'List' : 'Board'}
+           </Button>
++          {/* Board.dc.html:69. Plenty of the mockup's work orders — POOL PUMP, 3F ICE, ELEV B —
++              have no guest conversation behind them, and none of them could be raised at all. */}
++          {can('create_work_order') ? (
++            <Button variant="primary" onClick={() => setCreating(true)}>
++              New
++            </Button>
++          ) : null}
+         </div>
+       </header>
+ 
+       {rows.length === 0 ? (
+-        <EmptyState title="Nothing on the board" hint="No work orders match this filter." />
++        <div className="flex-1">
++          <EmptyState title="Nothing on the board" hint="No work orders match this filter." />
++        </div>
+       ) : view === 'board' ? (
+         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
+-          {BOARD_COLUMNS.map((status) => {
++          {columns.map((status) => {
+             const column = rows.filter((w) => w.status === status)
+             return (
+               <div key={status} className="flex min-w-[240px] flex-1 flex-col gap-2.5">
+                 <h2 className="flex items-center gap-2 border-b-2 border-border2 pb-1.5 text-[13px] font-bold uppercase tracking-wider text-text2">
+                   {STATUS_LABELS[status]}
+                   <span className="font-mono text-xs text-text3">{column.length}</span>
+                 </h2>
+-                {column.map((workOrder: WorkOrderOut) => (
+-                  <WorkOrderCard
+-                    key={workOrder.id}
+-                    workOrder={workOrder}
+-                    assigneeName={nameFor(workOrder.assignedUserId)}
+-                    departmentName={deptFor(workOrder.departmentId)}
+-                  />
+-                ))}
++                {column.map(card)}
+               </div>
+             )
+           })}
+         </div>
+       ) : (
+         <div className="min-h-0 flex-1 overflow-y-auto p-4">
+-          <div className="flex flex-col gap-2">
+-            {rows.map((workOrder) => (
+-              <WorkOrderCard
+-                key={workOrder.id}
+-                workOrder={workOrder}
+-                assigneeName={nameFor(workOrder.assignedUserId)}
+-                departmentName={deptFor(workOrder.departmentId)}
+-              />
+-            ))}
+-          </div>
++          <div className="flex flex-col gap-2">{active.map(card)}</div>
++          {/* The card carries no status, so closed work cannot simply be mixed into the list:
++              it gets one group per terminal state, the same split the board columns make. */}
++          {CLOSED_STATUSES.map((status) => {
++            const group = closed.filter((w) => w.status === status)
++            if (group.length === 0) return null
++            return (
++              <section key={status} className="mt-5 flex flex-col gap-2">
++                <h2 className="flex items-center gap-2 border-b-2 border-border2 pb-1.5 text-[13px] font-bold uppercase tracking-wider text-text2">
++                  {STATUS_LABELS[status]}
++                  <span className="font-mono text-xs text-text3">{group.length}</span>
++                </h2>
++                {group.map(card)}
++              </section>
++            )
++          })}
+         </div>
+       )}
++
++      <footer className="flex flex-wrap items-center gap-1.5 border-t border-border px-4 py-2 text-xs text-text3">
++        {showClosed ? (
++          <>
++            <span>
++              Showing <span className="font-mono">{closed.length}</span> verified and cancelled
++            </span>
++            <span aria-hidden="true">·</span>
++            <button
++              type="button"
++              onClick={() => setParam('closed', null)}
++              className="rounded font-semibold text-accent hover:underline"
++            >
++              hide them
++            </button>
++          </>
++        ) : (
++          <>
++            <span>Verified and cancelled hidden</span>
++            <span aria-hidden="true">·</span>
++            <button
++              type="button"
++              onClick={() => setParam('closed', '1')}
++              className="rounded font-semibold text-accent hover:underline"
++            >
++              show closed
++            </button>
++          </>
++        )}
++      </footer>
++
++      {/* Mounted only while open: the modal needs a ToastProvider, the same reason the
++          composer mounts it this way. */}
++      {creating ? <CreateWorkOrderModal open onClose={() => setCreating(false)} /> : null}
+     </div>
+   )
+ }
+diff --git a/web/src/features/board/CommentBox.tsx b/web/src/features/board/CommentBox.tsx
+new file mode 100644
+index 0000000..f522175
+--- /dev/null
++++ b/web/src/features/board/CommentBox.tsx
+@@ -0,0 +1,51 @@
++import { useState } from 'react'
++import { usePatchWorkOrder } from '../../api/hooks/workOrders'
++import { Button, Textarea } from '../../components/ui'
++
++/**
++ * WorkOrder.dc.html:130-131. The only route to WorkOrderPatch.comment was TransitionButtons,
++ * and only for the two statuses that demand a reason, so the server's standalone branch
++ * (`elif p.comment: work_orders.comment(...)`) was unreachable from the client.
++ *
++ * No capability gate: that PATCH route carries @require_auth and @require_property and nothing
++ * else — the capability checks on it are for closing statuses only — so anyone who can open the
++ * work order can comment on it, and inventing a gate here would put the client out of step with
++ * the server.
++ */
++export function CommentBox({ workOrderId }: { workOrderId: string }) {
++  const patch = usePatchWorkOrder(workOrderId)
++  const [comment, setComment] = useState('')
++  const text = comment.trim()
++
++  return (
++    <section className="rounded-card border border-border2 bg-surface p-4">
++      <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-text3">Comment</h2>
++      {patch.error ? (
++        <p
++          role="alert"
++          className="mb-2 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText"
++        >
++          {patch.error.message}
++        </p>
++      ) : null}
++      <Textarea
++        aria-label="Comment"
++        rows={3}
++        placeholder="Add a note for the team…"
++        value={comment}
++        onChange={(event) => setComment(event.target.value)}
++      />
++      <div className="mt-2 flex justify-end">
++        <Button
++          variant="primary"
++          disabled={text.length === 0}
++          loading={patch.isPending}
++          // The hook already invalidates the detail query, so the note lands in the Timeline.
++          onClick={() => patch.mutate({ comment: text }, { onSuccess: () => setComment('') })}
++        >
++          Comment
++        </Button>
++      </div>
++    </section>
++  )
++}
+diff --git a/web/src/features/board/WorkOrderDetailPage.test.tsx b/web/src/features/board/WorkOrderDetailPage.test.tsx
+index 6c6061c..76b354d 100644
+--- a/web/src/features/board/WorkOrderDetailPage.test.tsx
++++ b/web/src/features/board/WorkOrderDetailPage.test.tsx
+@@ -1,26 +1,31 @@
+-import { screen } from '@testing-library/react'
++import { screen, waitFor } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import { Route, Routes } from 'react-router-dom'
+ import { SessionProvider } from '../../auth/SessionContext'
+ import { aDepartment, aStaffUser, aWorkOrderDetail } from '../../test/factories'
+ import { renderWithProviders, sessionFixture } from '../../test/harness'
+ import { WorkOrderDetailPage } from './WorkOrderDetailPage'
+ 
+-function serve(detail: unknown) {
+-  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
++// A PATCH answers with the updated detail and every later GET sees it, the way the real route
++// does — the client only learns a comment landed by refetching the detail.
++function serve(detail: unknown, afterPatch?: unknown) {
++  let current = detail
++  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+     const url = String(input)
++    if (init?.method === 'PATCH') current = afterPatch ?? detail
+     const body = url.includes('/departments')
+       ? [aDepartment()]
+       : url.includes('/users')
+         ? [aStaffUser({ id: 'u-eli', firstName: 'Eli', lastName: 'Engineer' })]
+-        : detail
++        : current
+     return Promise.resolve(
+       new Response(JSON.stringify(body), {
+         status: 200,
+         headers: { 'Content-Type': 'application/json' },
+       }),
+     )
+   })
+ }
+ 
+ function mount() {
+@@ -105,11 +110,46 @@ describe('WorkOrderDetailPage', () => {
+     serve(
+       aWorkOrderDetail({
+         events: [
+           { id: 'e1', type: 'status_changed', userId: 'u-eli', userName: 'Eli', fromValue: 'in_progress', toValue: 'blocked', comment: 'Waiting on a part', createdAt: '2026-09-10T18:50:00Z' },
+         ],
+       }),
+     )
+     mount()
+     expect(await screen.findByText('Waiting on a part')).toBeInTheDocument()
+   })
++
++  it('posts a standalone comment and shows it in the timeline', async () => {
++    serve(
++      aWorkOrderDetail({ events: [] }),
++      aWorkOrderDetail({
++        events: [
++          { id: 'e9', type: 'commented', userId: 'u-ava', userName: 'Ava', fromValue: null, toValue: null, comment: 'Parts ordered, ETA Thursday', createdAt: '2026-09-10T19:10:00Z' },
++        ],
++      }),
++    )
++    mount()
++    const box = await screen.findByLabelText('Comment')
++    await userEvent.type(box, 'Parts ordered, ETA Thursday')
++    await userEvent.click(screen.getByRole('button', { name: 'Comment' }))
++
++    const patch = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'PATCH')
++    // Comment only: no status rides along, which is what made the server branch reachable.
++    expect(JSON.parse(String(patch![1]!.body))).toEqual({ comment: 'Parts ordered, ETA Thursday' })
++
++    await waitFor(() => expect(box).toHaveValue(''))
++    expect(await screen.findByRole('listitem')).toHaveTextContent('Parts ordered, ETA Thursday')
++  })
++
++  it('will not post an empty or whitespace-only comment', async () => {
++    serve(aWorkOrderDetail())
++    mount()
++    await screen.findByLabelText('Comment')
++    expect(screen.getByRole('button', { name: 'Comment' })).toBeDisabled()
++
++    await userEvent.type(screen.getByLabelText('Comment'), '   ')
++    expect(screen.getByRole('button', { name: 'Comment' })).toBeDisabled()
++
++    await userEvent.type(screen.getByLabelText('Comment'), 'x')
++    expect(screen.getByRole('button', { name: 'Comment' })).toBeEnabled()
++  })
+ })
+diff --git a/web/src/features/board/WorkOrderDetailPage.tsx b/web/src/features/board/WorkOrderDetailPage.tsx
+index e4c2044..8e3f1e2 100644
+--- a/web/src/features/board/WorkOrderDetailPage.tsx
++++ b/web/src/features/board/WorkOrderDetailPage.tsx
+@@ -1,16 +1,17 @@
+ import type { ReactNode } from 'react'
+ import { Link, useParams } from 'react-router-dom'
+ import { useWorkOrder } from '../../api/hooks/workOrders'
+ import { useDepartments, useStaff } from '../../api/hooks/users'
+ import { Avatar, Badge, EmptyState, Spinner } from '../../components/ui'
+ import { formatClock, formatDuration } from '../../lib/time'
++import { CommentBox } from './CommentBox'
+ import { PRIORITY_TONE, STATUS_LABELS } from './transitions'
+ import { TransitionButtons } from './TransitionButtons'
+ 
+ function Field({ label, value }: { label: string; value: ReactNode }) {
+   return (
+     <div>
+       <p className="text-xs text-text3">{label}</p>
+       <p className="text-sm font-semibold">{value ?? '—'}</p>
+     </div>
+   )
+@@ -95,36 +96,42 @@ export function WorkOrderDetailPage() {
+               <p className="mt-3 text-xs text-text3">
+                 Raised from {data.guestName ?? 'a guest'}&rsquo;s message ·{' '}
+                 <Link to={`/app/inbox/${data.sourceConversationId}`} className="text-accent hover:underline">
+                   open conversation
+                 </Link>
+               </p>
+             ) : null}
+           </section>
+         </div>
+ 
+-        <section className="rounded-card border border-border2 bg-surface p-4">
+-          <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-text3">Timeline</h2>
+-          {data.events.length === 0 ? (
+-            <p className="text-xs text-text3">Nothing yet</p>
+-          ) : (
+-            <ol className="flex flex-col gap-3">
+-              {/* Newest first: the last thing that happened is what a reader wants. */}
+-              {[...data.events].reverse().map((event) => (
+-                <li key={event.id} className="border-l-2 border-border2 pl-3">
+-                  <p className="text-[13px] font-semibold">
+-                    {event.type.replace('_', ' ')}
+-                    {event.toValue ? ` → ${event.toValue.replace('_', ' ')}` : ''}
+-                  </p>
+-                  <p className="text-xs text-text3">
+-                    {[event.userName, formatClock(event.createdAt)].filter(Boolean).join(' · ')}
+-                  </p>
+-                  {event.comment ? <p className="mt-1 text-xs text-text2">{event.comment}</p> : null}
+-                </li>
+-              ))}
+-            </ol>
+-          )}
+-        </section>
++        <div className="flex flex-col gap-4">
++          <section className="rounded-card border border-border2 bg-surface p-4">
++            <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-text3">Timeline</h2>
++            {data.events.length === 0 ? (
++              <p className="text-xs text-text3">Nothing yet</p>
++            ) : (
++              <ol className="flex flex-col gap-3">
++                {/* Newest first: the last thing that happened is what a reader wants. */}
++                {[...data.events].reverse().map((event) => (
++                  <li key={event.id} className="border-l-2 border-border2 pl-3">
++                    <p className="text-[13px] font-semibold">
++                      {event.type.replace('_', ' ')}
++                      {event.toValue ? ` → ${event.toValue.replace('_', ' ')}` : ''}
++                    </p>
++                    <p className="text-xs text-text3">
++                      {[event.userName, formatClock(event.createdAt)].filter(Boolean).join(' · ')}
++                    </p>
++                    {event.comment ? (
++                      <p className="mt-1 text-xs text-text2">{event.comment}</p>
++                    ) : null}
++                  </li>
++                ))}
++              </ol>
++            )}
++          </section>
++
++          <CommentBox workOrderId={data.id} />
++        </div>
+       </div>
+     </div>
+   )
+ }
+diff --git a/web/src/features/board/transitions.ts b/web/src/features/board/transitions.ts
+index d410875..58c3257 100644
+--- a/web/src/features/board/transitions.ts
++++ b/web/src/features/board/transitions.ts
+@@ -14,20 +14,23 @@ export const TRANSITIONS: Record<WorkOrderStatus, WorkOrderStatus[]> = {
+ export const OPEN_STATUSES: WorkOrderStatus[] = [
+   'open',
+   'assigned',
+   'in_progress',
+   'blocked',
+   'complete',
+ ]
+ 
+ export const BOARD_COLUMNS = OPEN_STATUSES
+ 
++/** The terminal states. The server leaves them out of a list unless `includeClosed` is set. */
++export const CLOSED_STATUSES: WorkOrderStatus[] = ['verified', 'cancelled']
++
+ export const STATUS_LABELS: Record<WorkOrderStatus, string> = {
+   open: 'Open',
+   assigned: 'Assigned',
+   in_progress: 'In progress',
+   blocked: 'Blocked',
+   complete: 'Complete',
+   verified: 'Verified',
+   cancelled: 'Cancelled',
+ }
+ 
+diff --git a/web/src/features/inbox/CreateWorkOrderModal.test.tsx b/web/src/features/inbox/CreateWorkOrderModal.test.tsx
+index b365914..85a6fa0 100644
+--- a/web/src/features/inbox/CreateWorkOrderModal.test.tsx
++++ b/web/src/features/inbox/CreateWorkOrderModal.test.tsx
+@@ -53,20 +53,32 @@ function mount(onClose = vi.fn()) {
+     <SessionProvider>
+       <ToastProvider>
+         <CreateWorkOrderModal conversationId="c-1" open onClose={onClose} />
+       </ToastProvider>
+     </SessionProvider>,
+     { session: sessionFixture({ role: 'agent' }) },
+   )
+   return onClose
+ }
+ 
++function mountStandalone(onClose = vi.fn()) {
++  renderWithProviders(
++    <SessionProvider>
++      <ToastProvider>
++        <CreateWorkOrderModal open onClose={onClose} />
++      </ToastProvider>
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'dept_staff' }) },
++  )
++  return onClose
++}
++
+ describe('CreateWorkOrderModal', () => {
+   beforeEach(() => {
+     vi.stubGlobal('fetch', vi.fn())
+     serve()
+   })
+   afterEach(() => {
+     vi.unstubAllGlobals()
+   })
+ 
+   it('pre-fills from the server suggestion (§5.3)', async () => {
+@@ -123,20 +135,62 @@ describe('CreateWorkOrderModal', () => {
+       new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: 'Not allowed' } }), {
+         status: 403,
+         headers: { 'Content-Type': 'application/json' },
+       }),
+     )
+     await userEvent.click(screen.getByRole('button', { name: /create/i }))
+     expect(await screen.findByRole('alert')).toHaveTextContent('Not allowed')
+     expect(onClose).not.toHaveBeenCalled()
+   })
+ 
++  it('opens blank with no conversation and asks the server for no prefill', async () => {
++    // CreateWorkOrder.sourceConversationId is optional server-side, and the mockups are full of
++    // work orders with no guest behind them — POOL PUMP, 3F ICE, ELEV B.
++    mountStandalone()
++    const title = await screen.findByLabelText('Title')
++    expect(title).toHaveValue('')
++    expect(screen.getByLabelText('Description')).toHaveValue('')
++    expect(screen.getByLabelText('Location')).toHaveValue('')
++    expect(screen.getByLabelText('Priority')).toHaveValue('normal')
++    expect(screen.getByLabelText('Department')).toHaveValue('')
++    expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('prefill'))).toBe(false)
++  })
++
++  it('posts a standalone work order without a sourceConversationId key', async () => {
++    const onClose = mountStandalone()
++    await userEvent.type(await screen.findByLabelText('Title'), 'Pool pump seized')
++    await userEvent.selectOptions(screen.getByLabelText('Location type'), 'equipment')
++    await userEvent.type(screen.getByLabelText('Location'), 'POOL')
++    await userEvent.selectOptions(screen.getByLabelText('Department'), 'dept-eng')
++    await userEvent.click(screen.getByRole('button', { name: /create/i }))
++
++    const post = vi.mocked(fetch).mock.calls.find(([, i]) => i?.method === 'POST')
++    const body = JSON.parse(String(post![1]!.body))
++    expect(body).toMatchObject({
++      title: 'Pool pump seized',
++      locationType: 'equipment',
++      locationRef: 'POOL',
++      departmentId: 'dept-eng',
++    })
++    // Omitted, not null: the route branches on `if data.source_conversation_id`.
++    expect('sourceConversationId' in body).toBe(false)
++    expect('sourceMessageId' in body).toBe(false)
++    await waitFor(() => expect(onClose).toHaveBeenCalled())
++  })
++
++  it('will not save an empty title with no conversation either', async () => {
++    mountStandalone()
++    await screen.findByLabelText('Title')
++    await userEvent.click(screen.getByRole('button', { name: /create/i }))
++    expect(vi.mocked(fetch).mock.calls.some(([, i]) => i?.method === 'POST')).toBe(false)
++  })
++
+   it('resets the edited draft on Cancel, so a reopen re-seeds from a fresh prefill', async () => {
+     // The real ConversationActions keeps this modal mounted permanently and only toggles
+     // `open`, so a wrapper that does the same is the only way to exercise a genuine reopen.
+     function Wrapper() {
+       const [open, setOpen] = useState(true)
+       return (
+         <>
+           <button onClick={() => setOpen(true)}>Reopen</button>
+           <CreateWorkOrderModal conversationId="c-1" open={open} onClose={() => setOpen(false)} />
+         </>
+diff --git a/web/src/features/inbox/CreateWorkOrderModal.tsx b/web/src/features/inbox/CreateWorkOrderModal.tsx
+index 09c813a..df02998 100644
+--- a/web/src/features/inbox/CreateWorkOrderModal.tsx
++++ b/web/src/features/inbox/CreateWorkOrderModal.tsx
+@@ -1,57 +1,79 @@
+ import { useEffect, useState } from 'react'
+ import { useCreateWorkOrder, useWorkOrderPrefill } from '../../api/hooks/workOrders'
+ import { useDepartments, useStaff } from '../../api/hooks/users'
+-import type { CreateWorkOrder, Priority, WorkOrderType } from '../../api/types'
++import type { CreateWorkOrder, LocationType, Priority, WorkOrderType } from '../../api/types'
+ import { Button, Dialog, Input, Spinner, Textarea, useToast } from '../../components/ui'
+ 
+ const TYPES: WorkOrderType[] = ['maintenance', 'housekeeping', 'guest_request', 'pm', 'other']
+ const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent']
++const LOCATION_TYPES: LocationType[] = ['room', 'public_area', 'equipment', 'other']
++
++// A work order raised from the board has no suggestion to seed it. `sourceConversationId` is
++// absent rather than null, so the POST body omits it entirely.
++const BLANK: CreateWorkOrder = {
++  title: '',
++  description: '',
++  type: 'maintenance',
++  priority: 'normal',
++  locationType: 'room',
++  locationRef: '',
++  departmentId: null,
++  assignedUserId: null,
++  dueAt: null,
++}
+ 
+ const FIELD = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
+ const SELECT =
+   'h-11 w-full rounded border border-border3 bg-surface2 px-3 text-sm text-text focus:border-accent focus:outline-none'
+ 
+ export function CreateWorkOrderModal({
+   conversationId,
+   open,
+   onClose,
+ }: {
+-  conversationId: string
++  /** Absent when the work order is raised standalone, from the board. */
++  conversationId?: string
+   open: boolean
+   onClose: () => void
+ }) {
+   const prefill = useWorkOrderPrefill(open ? conversationId : undefined)
+   const create = useCreateWorkOrder()
+   const { data: departments } = useDepartments()
+   const { data: staff } = useStaff()
+   const toast = useToast()
+-  const [form, setForm] = useState<CreateWorkOrder | null>(null)
++  const [form, setForm] = useState<CreateWorkOrder | null>(() =>
++    conversationId ? null : { ...BLANK },
++  )
+ 
+-  // Seed the form once the suggestion lands; the agent owns it from then on.
++  // Seed the form once the suggestion lands; the agent owns it from then on. With no
++  // conversation there is no suggestion to wait for, so the form opens blank immediately.
+   useEffect(() => {
+-    if (prefill.data && !form) {
++    if (form || !open) return
++    if (!conversationId) {
++      setForm({ ...BLANK })
++    } else if (prefill.data) {
+       setForm({
+         title: prefill.data.title,
+         description: prefill.data.description,
+         type: prefill.data.type,
+         priority: prefill.data.priority,
+         locationType: prefill.data.locationType,
+         locationRef: prefill.data.locationRef,
+         departmentId: prefill.data.departmentId,
+         assignedUserId: null,
+         dueAt: null,
+         sourceConversationId: prefill.data.sourceConversationId,
+         sourceMessageId: prefill.data.sourceMessageId,
+       })
+     }
+-  }, [prefill.data, form])
++  }, [prefill.data, form, open, conversationId])
+ 
+   function set<K extends keyof CreateWorkOrder>(key: K, value: CreateWorkOrder[K]) {
+     setForm((current) => (current ? { ...current, [key]: value } : current))
+   }
+ 
+   // Any non-success dismissal (Cancel, Escape, backdrop) drops the edited draft so a
+   // reopen re-seeds from a fresh prefill rather than showing a stale session's edits.
+   function handleClose() {
+     setForm(null)
+     onClose()
+@@ -149,23 +171,34 @@ export function CreateWorkOrderModal({
+               <select id="wo-assignee" className={SELECT} value={form.assignedUserId ?? ''}
+                       onChange={(e) => set('assignedUserId', e.target.value || null)}>
+                 <option value="">Unassigned</option>
+                 {(staff ?? []).map((s) => (
+                   <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>
+                 ))}
+               </select>
+             </div>
+           </div>
+ 
+-          <div>
+-            <label className={FIELD} htmlFor="wo-location">Location</label>
+-            <Input
+-              id="wo-location"
+-              value={form.locationRef ?? ''}
+-              onChange={(e) => set('locationRef', e.target.value)}
+-            />
++          <div className="grid grid-cols-2 gap-3">
++            <div>
++              <label className={FIELD} htmlFor="wo-location-type">Location type</label>
++              <select id="wo-location-type" className={SELECT} value={form.locationType ?? 'room'}
++                      onChange={(e) => set('locationType', e.target.value as LocationType)}>
++                {LOCATION_TYPES.map((l) => (
++                  <option key={l} value={l}>{l.replace('_', ' ')}</option>
++                ))}
++              </select>
++            </div>
++            <div>
++              <label className={FIELD} htmlFor="wo-location">Location</label>
++              <Input
++                id="wo-location"
++                value={form.locationRef ?? ''}
++                onChange={(e) => set('locationRef', e.target.value)}
++              />
++            </div>
+           </div>
+         </>
+       )}
+     </Dialog>
+   )
+ }
