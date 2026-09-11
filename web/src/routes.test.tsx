@@ -76,30 +76,31 @@ describe('AppRoutes', () => {
 
   it('sends a manager from /app to analytics', async () => {
     mountAt('/app', 'manager')
-    expect(await (await mainScreen()).findByText('Analytics')).toBeInTheDocument()
+    // Task 17 replaced the Analytics placeholder with the real screen, which fetches on
+    // mount and (like Task 16's board) fails that fetch under this file's blanket 401 mock —
+    // so the location is the stable signal that we landed, not the screen's own "Analytics" text.
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/analytics'))
   })
 
   it('sends an admin from /app to analytics', async () => {
     mountAt('/app', 'admin')
-    expect(await (await mainScreen()).findByText('Analytics')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/analytics'))
   })
 
   it('sends corporate from /app to analytics', async () => {
     mountAt('/app', 'corporate')
-    expect(await (await mainScreen()).findByText('Analytics')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/analytics'))
   })
 
   it('keeps an agent out of analytics, bouncing them to their landing screen', async () => {
     mountAt('/app/analytics', 'agent')
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/inbox'))
-    const main = await mainScreen()
-    expect(main.queryByText('Analytics')).not.toBeInTheDocument()
   })
 
   it('keeps a manager out of admin', async () => {
     mountAt('/app/admin/users', 'manager')
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/analytics'))
     const main = await mainScreen()
-    expect(await main.findByText('Analytics')).toBeInTheDocument()
     expect(main.queryByText('Admin')).not.toBeInTheDocument()
   })
 
