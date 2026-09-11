@@ -29,7 +29,9 @@ def test_null_conversation_clears():
     assert s.snapshot("c1") == []
 
 
-def test_sweep_expires_stale_entries():
+def test_sweep_expires_stale_entries(app):
+    # `app` is requested only so its fixture's clock.reset() teardown runs after this test's
+    # clock.freeze/advance, instead of leaking a frozen clock into whichever test runs next.
     s = PresenceStore()
     clock.freeze(clock.now())
     s.update("c1", AVA, "viewing")

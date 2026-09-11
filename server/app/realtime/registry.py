@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -10,6 +10,7 @@ class Conn:
     ws: Any
     property_id: str
     user_id: str
+    send_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 class ConnectionRegistry:
@@ -42,7 +43,8 @@ class ConnectionRegistry:
         delivered = 0
         for c in targets:
             try:
-                c.ws.send(text)
+                with c.send_lock:
+                    c.ws.send(text)
                 delivered += 1
             except Exception:
                 self.remove(c.ws)

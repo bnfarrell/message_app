@@ -78,6 +78,6 @@ def create_app(config: Config | None = None) -> Flask:
     from app.realtime.ws import sock, start_sweeper
 
     sock.init_app(app)
-    if config.START_WORKER and (under_reloader or not app.debug):
+    if config.START_WORKER and (under_reloader or config.is_production):
         start_sweeper(app)
     return app

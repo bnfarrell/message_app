@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app import clock
 from app.auth.sessions import COOKIE_NAME, load_session
 from app.db import get_db
-from app.models import PropertyMembership, UserAccount
+from app.models import Conversation, PropertyMembership, UserAccount
 from app.realtime import presence
 from app.realtime.registry import connections
 
@@ -28,7 +28,8 @@ def ws_route(ws):
             s = load_session(db, token)
             if s:
                 u = db.get(UserAccount, s.user_id)
-                user = {"id": u.id, "firstName": u.first_name, "avatarUrl": u.avatar_url}
+                if u is not None:
+                    user = {"id": u.id, "firstName": u.first_name, "avatarUrl": u.avatar_url}
     if user is None:
         ws.close(4401, "unauthorized")
         return
@@ -42,6 +43,8 @@ def ws_route(ws):
                 frame = json.loads(raw)
             except ValueError:
                 continue
+            if not isinstance(frame, dict):
+                continue
             kind = frame.get("type")
             if kind == "subscribe":
                 pid = frame.get("propertyId")
@@ -51,14 +54,22 @@ def ws_route(ws):
                 if not ok:
                     ws.close(4403, "no membership")
                     return
-                if property_id:
+                if property_id and property_id != pid:
                     connections.remove(ws)
+                    presence.broadcast_presence(property_id, presence.store.clear_user(user["id"]))
                 property_id = pid
                 connections.add(ws, property_id, user["id"])
                 ws.send(json.dumps({"type": "subscribed", "propertyId": property_id, "at": clock.now().isoformat()}))
             elif kind == "presence" and property_id:
+                cid = frame.get("conversationId")
+                if cid is not None:
+                    with get_db().session() as db:
+                        conv_property_id = db.scalar(select(Conversation.property_id)
+                                                      .where(Conversation.id == cid))
+                    if conv_property_id != property_id:
+                        continue
                 state = frame.get("state") if frame.get("state") in ("viewing", "composing") else "viewing"
-                changed = presence.store.update(frame.get("conversationId"), user, state)
+                changed = presence.store.update(cid, user, state)
                 presence.broadcast_presence(property_id, changed)
             elif kind == "heartbeat" and property_id:
                 presence.store.touch(user["id"])  # refresh seen_at without changing state
@@ -78,8 +89,6 @@ def start_sweeper(app: Flask, interval: float = 5.0) -> threading.Thread:
             changed = presence.store.sweep(clock.now())
             # We don't know each conversation's property here; look them up cheaply.
             if changed:
-                from app.models import Conversation
-
                 with app.app_context(), get_db().session() as db:
                     rows = db.execute(select(Conversation.id, Conversation.property_id)
                                       .where(Conversation.id.in_(list(changed)))).all()
