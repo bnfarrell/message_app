@@ -2,6 +2,7 @@
 
 Enumerates every rule under /api/p/<property_id> so new routes are covered automatically.
 """
+import ast
 import re
 from pathlib import Path
 
@@ -75,3 +76,76 @@ def test_no_route_resolves_a_conversation_without_a_viewer_check():
             if re.search(r"\bconversations\.get\(", line):
                 offenders.append(f"{path.name}:{lineno}")
     assert not offenders, f"call conversations.get_for_viewer(...) instead: {offenders}"
+
+
+MESSAGES_MODULE = Path("app") / "domain" / "messages.py"
+
+
+def _message_constructors(path: Path) -> list[int]:
+    """Line numbers in `path` that construct the `Message` ORM model.
+
+    Resolves the local names bound to the model in this module (`from app.models import Message`,
+    `... import Message as M`, `from app.models.conversations import Message`) and flags calls to
+    any of them, plus any attribute call spelled `<anything>.Message(...)` so
+    `from app import models; models.Message(...)` is caught too.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    local_names = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("app.models")
+        for alias in node.names
+        if alias.name == "Message"
+    }
+    hits = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if (isinstance(fn, ast.Name) and fn.id in local_names) or (
+            isinstance(fn, ast.Attribute) and fn.attr == "Message"
+        ):
+            hits.append(node.lineno)
+    return hits
+
+
+def test_only_the_messages_domain_constructs_a_message():
+    """`messages.send()` is the only TCPA consent gate in the system.
+
+    Every outbound SMS must pass consent.assert_can_send() before a `Message` row exists, and
+    that call lives in exactly one place: app/domain/messages.py. Nothing structurally prevented a
+    new route, queue handler or PMS hook from writing `Message(direction=Direction.outbound, ...)`
+    itself and shipping a text to a guest who pressed STOP — a regulatory violation, not just a
+    bug, and one no existing test would notice because the bypass creates a perfectly valid row.
+
+    So: no module under `app/` except app/domain/messages.py may construct a `Message` at all.
+    The blanket rule is deliberate. A rule phrased as "no *outbound* Message" would only match a
+    spelling of the direction argument (the weakness of the `conversations.get(` guard above,
+    which matches a name rather than the invariant), and any new call site can be argued into
+    looking inbound. If you are hitting this test, call `messages.send()` (or, for a genuinely
+    guest-authored message, `messages.record_inbound()`) instead of building the row yourself.
+
+    Limits, stated plainly: this is a source-level AST check over `app/` only. It catches a direct
+    construction under any import alias, including `models.Message(...)`. It does NOT catch
+    construction through indirection (`cls = Message; cls(...)`, `getattr(...)`), a Core `insert()`
+    or raw SQL, or code outside `app/` — `seed/` and `tests/` build Message rows directly on
+    purpose, since neither ships messages to a real guest.
+    """
+    app_dir = Path(__file__).resolve().parent.parent / "app"
+    offenders = [
+        f"{path.relative_to(app_dir.parent).as_posix()}:{lineno}"
+        for path in sorted(app_dir.rglob("*.py"))
+        if path.relative_to(app_dir.parent) != MESSAGES_MODULE
+        for lineno in _message_constructors(path)
+    ]
+    assert not offenders, (
+        "only app/domain/messages.py may construct a Message: it is the sole consent gate; "
+        f"call messages.send()/record_inbound() instead: {offenders}"
+    )
+
+
+def test_the_message_constructor_guard_is_not_vacuous():
+    """The guard is worthless if it cannot see a construction, so point it at the one module
+    that is allowed to have them and require that it finds them."""
+    messages_py = Path(__file__).resolve().parent.parent / MESSAGES_MODULE
+    assert len(_message_constructors(messages_py)) >= 2
