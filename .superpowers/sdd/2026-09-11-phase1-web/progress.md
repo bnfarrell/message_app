@@ -3509,3 +3509,38 @@ S1 FIX RE-REVIEW RETURNED (agent a43dcc7bd0659f472, opus): F1-F7 ALL ADDRESSED f
       The lesson is small but real: toggling the theme PERSISTS to the server, so every agent that
       checks both themes mutates a user record, and "restore what you found" compounds an earlier
       agent's error rather than correcting it.
+
+F8 RE-REVIEW RETURNED (agent a560cda212b726605, sonnet): ADDRESSED. It reused the running server
+      rather than starting a second one, and left the theme toggle alone - both hazards I warned
+      about, both respected. Measurements match the implementer's TO THE PIXEL at 1440, 1280 and
+      420: trigger centre == header centre at each, constant 8px gap, no overlap, and
+      scrollWidth == clientWidth on both documentElement and the header. Accessible name survives
+      the 36x36 collapse. All three settled palette behaviours re-verified by instrumenting BOTH
+      fetch and XMLHttpRequest.prototype.open - zero calls on open, type and arrow. It correctly
+      identified a later stray fetch as the app's own unread-count poller rather than the palette.
+      No data changed: it injected the long name as a transient DOM textContent patch rather than
+      saving a user record, which is the first agent this session to test a long name WITHOUT
+      mutating anything.
+
+Ruling D102 (the fix is right; the reported REASON for it is wrong, and that matters): the
+      implementer said overlap is prevented because "both side groups are w-full, which pins each
+      item's width to its track". The re-reviewer ABLATED THE SHIPPED MARKUP LIVE to check, and
+      found that removing w-full from the right-hand group changes nothing at all - width stays
+      426px, no overlap. The real mechanism is that the shipped code never applies
+      `justify-self-end`: the `justify-end` in that className is `justify-content` (internal flex
+      alignment of the avatar, name and buttons), NOT `justify-self` (grid item alignment). With no
+      justify-self override, CSS Grid's default `stretch` already pins the item to its track.
+      `w-full` is present but redundant.
+      It confirmed the failure mode is real in the ABANDONED draft - reconstructing a grid with an
+      explicit `justify-self: end`, a long name overflowed its track by 60-190px - so the
+      implementer did meet a genuine bug; it simply misattributed which of its two changes cured it.
+      Recorded rather than "fixed": the code is correct and I am not touching working layout to
+      remove a redundant class. But the comment and the report say something untrue about why this
+      works, and the next person to refactor that header will trust it. Correct the explanation.
+      This is the third time this session a report has carried a false REASON alongside a correct
+      change - MessageBubble's "no className of its own", S1's "confirms the WebSocket-handshake
+      diagnosis", and now this. Outcomes are being verified well; stated causes are not.
+
+Task S1: COMPLETE (commits 8beea25..989ab7c, review clean after 1 fix round plus F7/F8).
+      Web 520 passing, server 347. The reskin, the grouped navy rail, the top bar, the Ctrl+K
+      palette and the user's centred search field are all in and independently measured.
