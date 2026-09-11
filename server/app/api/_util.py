@@ -25,14 +25,18 @@ def parse_body[M: BaseModel](model: type[M]) -> M:
     try:
         return model.model_validate(data)
     except ValidationError as e:
-        raise ValidationFailed("Invalid request body", details=e.errors(include_url=False)) from e
+        # include_input=False: `input` echoes the admin's raw typing straight back into the
+        # error body, and nothing reads it — web/src/api/fieldErrors.ts says so in its own comment.
+        raise ValidationFailed("Invalid request body",
+                               details=e.errors(include_url=False, include_input=False)) from e
 
 
 def parse_query[M: BaseModel](model: type[M]) -> M:
     try:
         return model.model_validate(request.args.to_dict())
     except ValidationError as e:
-        raise ValidationFailed("Invalid query", details=e.errors(include_url=False)) from e
+        raise ValidationFailed("Invalid query",
+                               details=e.errors(include_url=False, include_input=False)) from e
 
 
 def serialize(obj: Any) -> Any:

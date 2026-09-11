@@ -84,7 +84,10 @@ def register_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(ValidationError)
     def _pydantic_error(e: ValidationError):
-        return jsonify(ValidationFailed("Invalid request", details=e.errors()).to_body()), 400
+        # Same two arguments as _util.parse_body: no pydantic.dev URL, and no echo of the
+        # caller's raw input, which nothing reads.
+        details = e.errors(include_url=False, include_input=False)
+        return jsonify(ValidationFailed("Invalid request", details=details).to_body()), 400
 
     @app.errorhandler(HTTPException)
     def _http_error(e: HTTPException):
