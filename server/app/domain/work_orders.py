@@ -114,9 +114,9 @@ def prefill_from_conversation(db: Session, property_id: str, conversation_id: st
     guest = db.get(Guest, conv.guest_id)
     stay = db.get(Stay, conv.stay_id) if conv.stay_id else None
     inbound = db.scalars(select(Message).where(Message.conversation_id == conv.id, Message.direction == Direction.inbound)
-                         .order_by(Message.sent_at.desc()).limit(3)).all()
+                         .order_by(Message.sent_at.desc(), Message.id.desc()).limit(3)).all()
     last = inbound[0] if inbound else None
-    title = (last.body.strip().splitlines()[0][:120] if last else "Guest request")
+    title = ((last.body.strip().splitlines() or ["Guest request"])[0][:120] if last else "Guest request")
     description = "\n".join(m.body for m in reversed(inbound))
     dept_type = guess_department_type(description)
     dept_id = None
@@ -208,7 +208,11 @@ def list(db: Session, property_id: str, *, status: str | None = None, type: Work
     # module-level name `list` only after the signature is built, so the annotation means builtins.list.
     q = select(WorkOrder).where(WorkOrder.property_id == property_id)
     if status:
-        q = q.where(WorkOrder.status.in_([S(s) for s in status.split(",") if s]))
+        try:
+            statuses = [S(s) for s in status.split(",") if s]
+        except ValueError as e:
+            raise ValidationFailed(f"Unknown status in filter: {e}") from e
+        q = q.where(WorkOrder.status.in_(statuses))
     elif not include_closed:
         q = q.where(WorkOrder.status.in_(OPEN_STATUSES))
     if type:
@@ -219,7 +223,7 @@ def list(db: Session, property_id: str, *, status: str | None = None, type: Work
         q = q.where(WorkOrder.assigned_user_id == assignee)
     if mine_user_id:
         q = q.where(WorkOrder.assigned_user_id == mine_user_id)
-    rows = db.scalars(q.order_by(WorkOrder.created_at.desc())).all()
+    rows = db.scalars(q.order_by(WorkOrder.created_at.desc(), WorkOrder.id.desc())).all()
     return [WorkOrderOut.model_validate(w) for w in rows]
 
 

@@ -14,7 +14,7 @@ from app.schemas.enums import DraftPromptStatus
 def draft_body(guest_first_name: str | None, room: str | None, title: str) -> str:
     name = guest_first_name or "there"
     where = f" in {room}" if room else ""
-    return (f"Hi {name} — our team has taken care of \"{title.lower()}\"{where}. "
+    return (f"Hi {name} — our team has taken care of \"{title}\"{where}. "
             f"Please text us if anything still isn't right.")
 
 
