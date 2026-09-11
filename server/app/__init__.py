@@ -29,6 +29,7 @@ def create_app(config: Config | None = None) -> Flask:
         categories,
         conversations,
         departments,
+        guests,
         health,
         hooks,
         notifications,
@@ -42,6 +43,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(auth.bp)
     app.register_blueprint(departments.bp)
     app.register_blueprint(users.bp)
+    app.register_blueprint(guests.bp)
     app.register_blueprint(notifications.bp)
     app.register_blueprint(conversations.bp)
     app.register_blueprint(work_orders.bp)
