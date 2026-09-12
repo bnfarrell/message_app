@@ -4,11 +4,12 @@ from sqlalchemy import engine_from_config, pool
 
 import app.models  # noqa: F401  (registers all tables on Base.metadata)
 from alembic import context
+from app.config import normalise_database_url
 from app.db import Base
 
 config = context.config
-url = config.get_main_option("sqlalchemy.url") or os.environ.get(
-    "DATABASE_URL", "sqlite:///data/app.db"
+url = config.get_main_option("sqlalchemy.url") or normalise_database_url(
+    os.environ.get("DATABASE_URL", "sqlite:///data/app.db")
 )
 config.set_main_option("sqlalchemy.url", url)
 target_metadata = Base.metadata
