@@ -40,7 +40,7 @@ export function ConversationActions({ conversation }: { conversation: Conversati
   const [woOpen, setWoOpen] = useState(false)
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       {can('assign') ? (
         <Dropdown label="Assign" align="right">
           {(close) => (

@@ -57,6 +57,22 @@ function mount(route = '/app/board', role: Role = 'supervisor') {
   )
 }
 
+function stubMobileViewport() {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: query.includes('max-width'),
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+      onchange: null,
+    })),
+  )
+}
+
 describe('BoardPage', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
@@ -107,6 +123,20 @@ describe('BoardPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'List' }))
     expect(await screen.findByRole('button', { name: 'Board' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /In progress/ })).not.toBeInTheDocument()
+  })
+
+  it('defaults to the list view on a narrow viewport', async () => {
+    stubMobileViewport()
+    mount()
+    // The toggle names the mode a click would switch *to* — "Board" means list is showing.
+    expect(await screen.findByRole('button', { name: 'Board' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /In progress/ })).not.toBeInTheDocument()
+  })
+
+  it('still honours an explicit ?view=board on a narrow viewport', async () => {
+    stubMobileViewport()
+    mount('/app/board?view=board')
+    expect(await screen.findByRole('heading', { name: /In progress/ })).toBeInTheDocument()
   })
 
   it('keeps the list view when All clears the filters', async () => {

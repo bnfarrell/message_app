@@ -35,7 +35,7 @@ export function FilterTabs({
             aria-selected={value === tab.value}
             onClick={() => onChange(tab.value)}
             className={cn(
-              'inline-flex h-9 items-center gap-2 rounded px-3.5 text-[13.5px] font-semibold',
+              'inline-flex h-11 items-center gap-2 rounded px-3.5 text-[13.5px] font-semibold md:h-9',
               value === tab.value ? 'bg-accent text-accentText' : 'text-text3 hover:text-text',
             )}
           >

@@ -47,7 +47,7 @@ export function ConversationHeader({ conversation }: { conversation: Conversatio
             .join(' · ')}
         </p>
       </div>
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex flex-wrap items-center gap-2">
         {others.length > 0 ? (
           <Badge tone="presence">{presenceLine(others.map((u) => u.firstName), composing)}</Badge>
         ) : null}

@@ -6,6 +6,7 @@ import { useSession } from '../../auth/SessionContext'
 import type { WorkOrderOut } from '../../api/types'
 import { Button, EmptyState, Spinner } from '../../components/ui'
 import { cn } from '../../lib/cn'
+import { useMediaQuery } from '../../lib/useMediaQuery'
 import { CreateWorkOrderModal } from '../inbox/CreateWorkOrderModal'
 import { BOARD_COLUMNS, CLOSED_STATUSES, OPEN_STATUSES, STATUS_LABELS } from './transitions'
 import { WorkOrderCard } from './WorkOrderCard'
@@ -29,10 +30,16 @@ export function BoardPage() {
   // landingPath sends dept_staff and supervisors here with ?mine=1 — honour it.
   const [params, setParams] = useSearchParams()
   const { can } = useSession()
+  const isMobile = useMediaQuery('(max-width: 767px)')
   const [creating, setCreating] = useState(false)
   const selected = selectedFilter(params)
   const urgentOnly = selected.kind === 'urgent'
-  const view = params.get('view') === 'list' ? 'list' : 'board'
+  // The kanban board's columns scroll horizontally, which has no good affordance on a phone,
+  // so a narrow viewport defaults to the (already existing) list view — but only as a
+  // default: an explicit ?view= in the URL, from either toggle, still wins.
+  const viewParam = params.get('view')
+  const view =
+    viewParam === 'list' || viewParam === 'board' ? viewParam : isMobile ? 'list' : 'board'
   // Verified and cancelled are left out of the list entirely unless asked for, so revealing
   // them is a refetch, not a client-side filter. In the URL so the reveal survives a reload.
   const showClosed = params.get('closed') === '1'
@@ -96,7 +103,7 @@ export function BoardPage() {
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        'inline-flex h-9 items-center gap-2 rounded px-3.5 text-[13.5px] font-semibold',
+        'inline-flex h-11 items-center gap-2 rounded px-3.5 text-[13.5px] font-semibold md:h-9',
         active ? 'bg-accent text-accentText' : 'text-text3 hover:text-text',
       )}
     >

@@ -40,7 +40,7 @@ export function NotificationsPage() {
               aria-selected={unreadOnly === tab.key}
               onClick={() => setUnreadOnly(tab.key)}
               className={cn(
-                'inline-flex h-9 items-center rounded px-3.5 text-[13.5px] font-semibold',
+                'inline-flex h-11 items-center rounded px-3.5 text-[13.5px] font-semibold md:h-9',
                 unreadOnly === tab.key ? 'bg-accent text-accentText' : 'text-text3 hover:text-text',
               )}
             >

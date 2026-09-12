@@ -17,6 +17,24 @@ function LocationDisplay() {
   return <div data-testid="location">{location.pathname}</div>
 }
 
+// Routes by query text so ThemeContext's own matchMedia('(prefers-color-scheme: dark)')
+// call — made by every AppShell render — still gets an answer instead of throwing.
+function stubMobileViewport(isMobile: boolean) {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: query.includes('max-width') && isMobile,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+      onchange: null,
+    })),
+  )
+}
+
 function mount(
   opts: {
     role?: Role
@@ -275,5 +293,39 @@ describe('AppShell', () => {
     // Clearing the query cache re-triggers the session query once (data is gone, so the
     // active observer refetches); that single 401 redirects without looping.
     expect(meCalls).toBe(1)
+  })
+
+  describe('on a narrow viewport', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('replaces the rail with the bottom nav', async () => {
+      stubMobileViewport(true)
+      mount({ role: 'agent' })
+      expect(await screen.findByRole('link', { name: /inbox/i })).toBeInTheDocument()
+      // The rail is the only place these section headings render.
+      expect(screen.queryByText('Overview')).not.toBeInTheDocument()
+    })
+
+    it('moves the property identity into the header', async () => {
+      stubMobileViewport(true)
+      mount({ role: 'agent' })
+      expect(await screen.findByText('Harbourview Hotel')).toBeInTheDocument()
+    })
+
+    it('still offers the property switcher from the header', async () => {
+      stubMobileViewport(true)
+      mount({ role: 'agent', withSecondProperty: true })
+      const trigger = await screen.findByRole('button', { name: /switch property/i })
+      await userEvent.click(trigger)
+      expect(screen.getByRole('menuitem', { name: /Lakeside Inn/ })).toBeInTheDocument()
+    })
+
+    it('keeps the rail for a wide viewport', async () => {
+      stubMobileViewport(false)
+      mount({ role: 'agent' })
+      expect(await screen.findByText('Overview')).toBeInTheDocument()
+    })
   })
 })
