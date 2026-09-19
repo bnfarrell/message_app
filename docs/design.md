@@ -2,7 +2,7 @@
 ## Design Document / Build Specification
 
 **Version 1.0 — 10 September 2026**
-**Working name:** Concierge (rename before build)
+**Name:** Relay
 
 This document is written to be handed directly to Claude (or any competent engineer) as a build specification. It is deliberately prescriptive about data model, states, and acceptance criteria, because those are the things that go wrong when a spec is vague. Sections marked **[CONFIRM]** are assumptions you should validate before build starts.
 

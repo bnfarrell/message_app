@@ -1,7 +1,7 @@
 /**
  * The client's type surface. Import from here, never from `types.generated.ts`:
  * that file is overwritten by `npm run gen:types` and carries the document root
- * (`ConciergeAPI`), which is an artefact of the export, not a model.
+ * (`RelayAPI`), which is an artefact of the export, not a model.
  */
 export type {
   AgentStats, AssetIn, AssetOut, AssetPatch, AssetType, AuthorType,

@@ -1,4 +1,4 @@
-# Concierge — hotel guest engagement & operations (Phase 1)
+# Relay — hotel guest engagement & operations (Phase 1)
 
 One codebase, one database: guests text the hotel; staff answer from a shared inbox; problems become work
 orders; when the work order closes, the agent is prompted to tell the guest. Spec: `docs/design.md`.

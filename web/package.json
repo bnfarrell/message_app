@@ -1,5 +1,5 @@
 {
-  "name": "concierge-web",
+  "name": "relay-web",
   "private": true,
   "type": "module",
   "engines": {

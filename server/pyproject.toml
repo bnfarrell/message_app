@@ -1,5 +1,5 @@
 [project]
-name = "concierge-server"
+name = "relay-server"
 version = "0.1.0"
 description = "Hotel guest engagement & operations platform — Phase 1 server"
 requires-python = ">=3.12"

@@ -1,5 +1,5 @@
 {
-  "name": "concierge",
+  "name": "relay",
   "private": true,
   "scripts": {
     "server": "cd server && python run.py",

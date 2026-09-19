@@ -34,7 +34,7 @@ export type Sendcount = number;
 export type Shortcode = string;
 export type Thumbnailurl1 = string | null;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "AssetType".
  */
 export type AssetType1 = 'file' | 'link' | 'menu' | 'map' | 'form';
@@ -51,7 +51,7 @@ export type Url2 = string | null;
 export type Validfrom2 = string | null;
 export type Validuntil2 = string | null;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "AuthorType".
  */
 export type AuthorType = 'guest' | 'staff' | 'system' | 'automation';
@@ -67,7 +67,7 @@ export type Active5 = boolean | null;
 export type Name6 = string | null;
 export type Parentid2 = string | null;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "Channel".
  */
 export type Channel = 'sms' | 'web' | 'whatsapp' | 'email';
@@ -78,7 +78,7 @@ export type Body = string;
 export type Createdat = string;
 export type Id2 = string;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "DraftPromptStatus".
  */
 export type DraftPromptStatus = 'pending' | 'sent' | 'dismissed';
@@ -94,7 +94,7 @@ export type Loyaltytier = string | null;
 export type Notessummary = string | null;
 export type Phonee164 = string;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "SmsConsentStatus".
  */
 export type SmsConsentStatus = 'unknown' | 'opted_in' | 'opted_out';
@@ -107,13 +107,13 @@ export type Body1 = string;
 export type Conversationid = string;
 export type Deliveredat = string | null;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "DeliveryStatus".
  */
 export type DeliveryStatus = 'queued' | 'sent' | 'delivered' | 'failed' | 'undelivered';
 export type Digitalassetid = string | null;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "Direction".
  */
 export type Direction = 'inbound' | 'outbound';
@@ -134,7 +134,7 @@ export type Resolutioncategoryid = string | null;
 export type Sladueat = string | null;
 export type Snoozeduntil = string | null;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "ConversationStatus".
  */
 export type ConversationStatus = 'open' | 'snoozed' | 'archived';
@@ -147,7 +147,7 @@ export type Isreturnguest = boolean;
 export type Roomnumber = string | null;
 export type Roomtype = string | null;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "StayStatus".
  */
 export type StayStatus = 'reserved' | 'checked_in' | 'checked_out' | 'cancelled' | 'no_show';
@@ -159,18 +159,18 @@ export type Departmentid3 = string | null;
 export type Guestnotifiedat = string | null;
 export type Id8 = string;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "Priority".
  */
 export type Priority = 'low' | 'normal' | 'high' | 'urgent';
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderStatus".
  */
 export type WorkOrderStatus = 'open' | 'assigned' | 'in_progress' | 'blocked' | 'complete' | 'verified' | 'cancelled';
 export type Title = string;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderType".
  */
 export type WorkOrderType = 'maintenance' | 'housekeeping' | 'guest_request' | 'pm' | 'other';
@@ -199,7 +199,7 @@ export type Lastname1 = string;
 export type Password = string | null;
 export type Phone = string | null;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "Role".
  */
 export type Role = 'agent' | 'dept_staff' | 'supervisor' | 'manager' | 'admin' | 'corporate';
@@ -224,7 +224,7 @@ export type Active6 = boolean;
 export type Escalationminutes = number;
 export type Name7 = string;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "DepartmentType".
  */
 export type DepartmentType =
@@ -251,7 +251,7 @@ export type Filter = string;
 export type Limit = number;
 export type Offset = number;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "LocationType".
  */
 export type LocationType1 = 'room' | 'public_area' | 'equipment' | 'other';
@@ -390,7 +390,7 @@ export type Fromvalue = string | null;
 export type Id17 = string;
 export type Tovalue = string | null;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderEventType".
  */
 export type WorkOrderEventType =
@@ -407,7 +407,7 @@ export type Contenttype = string;
 export type Createdat6 = string;
 export type Id19 = string;
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderPhotoKind".
  */
 export type WorkOrderPhotoKind = 'before' | 'after';
@@ -458,11 +458,11 @@ export type Sourceconversationid3 = string;
 export type Sourcemessageid3 = string | null;
 export type Title8 = string;
 
-export interface ConciergeAPI {
+export interface RelayAPI {
   [k: string]: unknown;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "AgentStats".
  */
 export interface AgentStats {
@@ -477,7 +477,7 @@ export interface AgentStats {
   workOrdersCreated: Workorderscreated;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "AssetIn".
  */
 export interface AssetIn {
@@ -493,7 +493,7 @@ export interface AssetIn {
   validUntil?: Validuntil;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "AssetOut".
  */
 export interface AssetOut {
@@ -512,7 +512,7 @@ export interface AssetOut {
   validUntil?: Validuntil1;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "AssetPatch".
  */
 export interface AssetPatch {
@@ -528,7 +528,7 @@ export interface AssetPatch {
   validUntil?: Validuntil2;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "CategoryIn".
  */
 export interface CategoryIn {
@@ -537,7 +537,7 @@ export interface CategoryIn {
   parentId?: Parentid;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "CategoryOut".
  */
 export interface CategoryOut {
@@ -548,7 +548,7 @@ export interface CategoryOut {
   parentId?: Parentid1;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "CategoryPatch".
  */
 export interface CategoryPatch {
@@ -557,7 +557,7 @@ export interface CategoryPatch {
   parentId?: Parentid2;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "ConversationDetail".
  */
 export interface ConversationDetail {
@@ -581,7 +581,7 @@ export interface ConversationDetail {
   workOrders: Workorders;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "DraftPromptOut".
  */
 export interface DraftPromptOut {
@@ -593,7 +593,7 @@ export interface DraftPromptOut {
   workOrderTitle: Workordertitle;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "GuestOut".
  */
 export interface GuestOut {
@@ -608,7 +608,7 @@ export interface GuestOut {
   vip: Vip;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "MessageOut".
  */
 export interface MessageOut {
@@ -628,7 +628,7 @@ export interface MessageOut {
   sentAt?: Sentat;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "NoteOut".
  */
 export interface NoteOut {
@@ -640,7 +640,7 @@ export interface NoteOut {
   mentions: Mentions;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "StayOut".
  */
 export interface StayOut {
@@ -656,7 +656,7 @@ export interface StayOut {
   stayCount: Staycount;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderBrief".
  */
 export interface WorkOrderBrief {
@@ -672,7 +672,7 @@ export interface WorkOrderBrief {
   type: WorkOrderType;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "ConversationPatch".
  */
 export interface ConversationPatch {
@@ -684,7 +684,7 @@ export interface ConversationPatch {
   status?: ConversationStatus | null;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "ConversationSummary".
  */
 export interface ConversationSummary {
@@ -704,14 +704,14 @@ export interface ConversationSummary {
   unanswered: Unanswered;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "CreateNoteRequest".
  */
 export interface CreateNoteRequest {
   body: Body3;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "CreateStaffRequest".
  */
 export interface CreateStaffRequest {
@@ -724,7 +724,7 @@ export interface CreateStaffRequest {
   role: Role;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "CreateWorkOrder".
  */
 export interface CreateWorkOrder {
@@ -741,7 +741,7 @@ export interface CreateWorkOrder {
   type?: WorkOrderType1;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "DayBucket".
  */
 export interface DayBucket {
@@ -749,7 +749,7 @@ export interface DayBucket {
   day: Day;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "DepartmentBucket".
  */
 export interface DepartmentBucket {
@@ -759,7 +759,7 @@ export interface DepartmentBucket {
   meanTimeToResolveSeconds?: Meantimetoresolveseconds;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "DepartmentIn".
  */
 export interface DepartmentIn {
@@ -769,7 +769,7 @@ export interface DepartmentIn {
   type: DepartmentType;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "DepartmentOut".
  */
 export interface DepartmentOut {
@@ -780,7 +780,7 @@ export interface DepartmentOut {
   type: DepartmentType;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "DepartmentPatch".
  */
 export interface DepartmentPatch {
@@ -790,7 +790,7 @@ export interface DepartmentPatch {
   type?: DepartmentType | null;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "GuestDetail".
  */
 export interface GuestDetail {
@@ -799,7 +799,7 @@ export interface GuestDetail {
   stays: Stays;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "GuestThread".
  */
 export interface GuestThread {
@@ -810,7 +810,7 @@ export interface GuestThread {
 /**
  * What a guest could ever see. Deliberately has no field that could carry an internal note.
  *
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "GuestThreadMessage".
  */
 export interface GuestThreadMessage {
@@ -821,7 +821,7 @@ export interface GuestThreadMessage {
   sentAt?: Sentat1;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "HourBucket".
  */
 export interface HourBucket {
@@ -829,7 +829,7 @@ export interface HourBucket {
   hour: Hour;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "ListQuery".
  */
 export interface ListQuery {
@@ -839,7 +839,7 @@ export interface ListQuery {
   offset?: Offset;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "LoginRequest".
  */
 export interface LoginRequest {
@@ -847,7 +847,7 @@ export interface LoginRequest {
   password: Password1;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "MembershipOut".
  */
 export interface MembershipOut {
@@ -858,7 +858,7 @@ export interface MembershipOut {
   role: Role;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "NotificationOut".
  */
 export interface NotificationOut {
@@ -872,7 +872,7 @@ export interface NotificationOut {
   type: Type;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "Overview".
  */
 export interface Overview {
@@ -895,7 +895,7 @@ export interface Overview {
   workOrdersFromConversations: Workordersfromconversations;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "ResponseBucket".
  */
 export interface ResponseBucket {
@@ -906,7 +906,7 @@ export interface ResponseBucket {
 /**
  * Only the keys the client is allowed to set. `extra='forbid'` comes from CamelModel.
  *
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "PrefsPatch".
  */
 export interface PrefsPatch {
@@ -915,7 +915,7 @@ export interface PrefsPatch {
 /**
  * Previews arbitrary body text, so the admin editor can render unsaved drafts.
  *
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "PreviewRequest".
  */
 export interface PreviewRequest {
@@ -923,7 +923,7 @@ export interface PreviewRequest {
   conversationId?: Conversationid1;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "PropertySettingsOut".
  */
 export interface PropertySettingsOut {
@@ -950,7 +950,7 @@ export interface PropertySettingsOut {
  * carry only their column lengths here; their real validation lives in app/domain/properties.py
  * beside the reason each one is load-bearing.
  *
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "PropertySettingsPatch".
  */
 export interface PropertySettingsPatch {
@@ -968,7 +968,7 @@ export interface PropertySettingsPatch {
   timezone?: Timezone1;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "QuickReplyIn".
  */
 export interface QuickReplyIn {
@@ -981,7 +981,7 @@ export interface QuickReplyIn {
   title: Title3;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "QuickReplyOut".
  */
 export interface QuickReplyOut {
@@ -996,7 +996,7 @@ export interface QuickReplyOut {
   usageCount: Usagecount;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "QuickReplyPatch".
  */
 export interface QuickReplyPatch {
@@ -1009,14 +1009,14 @@ export interface QuickReplyPatch {
   title?: Title5;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "RenderRequest".
  */
 export interface RenderRequest {
   conversationId: Conversationid2;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "RenderedQuickReply".
  */
 export interface RenderedQuickReply {
@@ -1025,7 +1025,7 @@ export interface RenderedQuickReply {
   segments: Segments;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "SendMessageRequest".
  */
 export interface SendMessageRequest {
@@ -1034,7 +1034,7 @@ export interface SendMessageRequest {
   draftPromptId?: Draftpromptid;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "SessionOut".
  */
 export interface SessionOut {
@@ -1042,7 +1042,7 @@ export interface SessionOut {
   user: UserOut;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "UserOut".
  */
 export interface UserOut {
@@ -1058,7 +1058,7 @@ export interface Notificationprefs {
   [k: string]: unknown;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "SimEvent".
  */
 export interface SimEvent {
@@ -1071,7 +1071,7 @@ export interface Payload {
   [k: string]: unknown;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "SimGuest".
  */
 export interface SimGuest {
@@ -1097,7 +1097,7 @@ export interface SimGuest {
  * a person's access to *this* property is DELETE /users/<id> (the membership), not a global
  * account disable.
  *
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "StaffPatch".
  */
 export interface StaffPatch {
@@ -1105,7 +1105,7 @@ export interface StaffPatch {
   role?: Role | null;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "StaffUserOut".
  */
 export interface StaffUserOut {
@@ -1119,14 +1119,14 @@ export interface StaffUserOut {
   status: Status;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "UnreadCount".
  */
 export interface UnreadCount {
   count: Count3;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderDetail".
  */
 export interface WorkOrderDetail {
@@ -1157,7 +1157,7 @@ export interface WorkOrderDetail {
   verifiedAt?: Verifiedat;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderEventOut".
  */
 export interface WorkOrderEventOut {
@@ -1171,7 +1171,7 @@ export interface WorkOrderEventOut {
   userName?: Username;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderPhotoOut".
  */
 export interface WorkOrderPhotoOut {
@@ -1186,7 +1186,7 @@ export interface WorkOrderPhotoOut {
   workOrderId: Workorderid1;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderListQuery".
  */
 export interface WorkOrderListQuery {
@@ -1198,7 +1198,7 @@ export interface WorkOrderListQuery {
   type?: WorkOrderType | null;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderOut".
  */
 export interface WorkOrderOut {
@@ -1225,7 +1225,7 @@ export interface WorkOrderOut {
   verifiedAt?: Verifiedat1;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderPatch".
  */
 export interface WorkOrderPatch {
@@ -1239,14 +1239,14 @@ export interface WorkOrderPatch {
 /**
  * The non-file half of the multipart body. The file itself arrives as the `photo` part.
  *
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderPhotoUpload".
  */
 export interface WorkOrderPhotoUpload {
   kind: WorkOrderPhotoKind;
 }
 /**
- * This interface was referenced by `ConciergeAPI`'s JSON-Schema
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderPrefill".
  */
 export interface WorkOrderPrefill {

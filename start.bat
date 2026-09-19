@@ -54,11 +54,11 @@ if not exist "web\node_modules" (
 
 echo.
 echo Starting the API on http://127.0.0.1:5200 ...
-start "Harbourview API" ".venv\Scripts\python.exe" "server\dev_start.py"
+start "Relay API" ".venv\Scripts\python.exe" "server\dev_start.py"
 
 echo Starting the web client on http://127.0.0.1:5173 ...
 pushd web
-start "Harbourview Web" cmd /k npm run dev
+start "Relay Web" cmd /k npm run dev
 popd
 
 echo.
@@ -84,7 +84,7 @@ for /l %%i in (1,1,60) do (
 if not defined READY (
     echo.
     echo The web client did not answer on http://127.0.0.1:5173 within 60 seconds.
-    echo Check the "Harbourview Web" window for the real error - the usual causes
+    echo Check the "Relay Web" window for the real error - the usual causes
     echo are a port already in use or a failed npm install.
     echo.
     pause
@@ -101,7 +101,7 @@ echo   App:   http://127.0.0.1:5173/
 echo   Login: ava@hvh.test  /  Password123!   ^(agent - inbox^)
 echo          alex@hvh.test /  Password123!   ^(admin - admin screens^)
 echo.
-echo   Two windows are now running: "Harbourview API" and "Harbourview Web".
+echo   Two windows are now running: "Relay API" and "Relay Web".
 echo   Close both to stop the app.
 echo ---------------------------------------------------------------------------
 echo.

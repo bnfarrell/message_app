@@ -39,7 +39,7 @@ def _models() -> list[type[BaseModel]]:
 def build() -> dict:
     _, schema = models_json_schema([(m, "serialization") for m in _models()],
                                    ref_template="#/$defs/{model}",
-                                   title="Concierge API")
+                                   title="Relay API")
     schema.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
     return schema
 
