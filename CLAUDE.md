@@ -6,10 +6,89 @@ Unified hotel guest engagement & operations platform. Full spec: `docs/design.md
 Phase 1 scope, stack decisions and acceptance criteria: `docs/superpowers/specs/2026-09-10-hotel-engagement-phase1-design.md`.
 Implementation plan: `docs/superpowers/plans/2026-09-10-phase1-server.md`. Approved screens: `docs/mockups/`.
 
-Stack: Python 3.12+ · Flask 3 · SQLAlchemy 2 · Alembic · Pydantic v2 · flask-sock · pytest, on SQLite
-(PostgreSQL by changing `DATABASE_URL`); frontend Vite + React + TypeScript.
+Stack: Python 3.12 · Flask 3 · SQLAlchemy 2 · Alembic · Pydantic v2 · flask-sock · pytest;
+frontend Vite + React + TypeScript.
 
 **Remote:** https://github.com/bnfarrell/message_app — push the finished work here.
+
+---
+
+## Environment and database — read before writing any code
+
+### Commands
+
+Always invoke Python by explicit path. **Bare `python` is NOT on PATH** — it resolves to a 0-byte
+Windows Store alias stub that exits silently with no output, which looks like a hung command.
+
+```
+cd server && ../.venv/Scripts/python.exe -m pytest -q      # backend tests
+cd server && ../.venv/Scripts/python.exe -m ruff check .   # backend lint, line-length 100
+cd web && npm test && npm run lint && npm run build        # frontend, all three must be clean
+```
+
+The venv is Python 3.12, matching `Dockerfile` (`python:3.12-slim`) and ruff's
+`target-version = "py312"`. If the venv ever breaks, recreate it with
+`python -m venv .venv` from a real 3.12 install, then `pip install -e ".[dev]"` from `server/`.
+
+### PostgreSQL is the real target
+
+**Production runs PostgreSQL 18** (`ghcr.io/railwayapp-templates/postgres-ssl:18` on Railway).
+Dev and the test suite still run SQLite, so **SQLite passing is not evidence that code works.**
+
+- Write engine-portable SQL only. No `json_each`, no SQLite-only pragmas or functions.
+  If you need to filter inside a JSON array, model it as a table instead — that is exactly why
+  `log_entry_mention` is a table rather than the `mentions uuid[]` column `docs/design.md` §5.4
+  specifies.
+- Enums go through `enum_type()` in `app/models/core.py` (`native_enum=False`), which produces a
+  VARCHAR + CHECK constraint that behaves the same on both engines.
+- `app/config.py:normalise_database_url` rewrites a provider-style `postgresql://` to
+  `postgresql+psycopg://`, because a bare URL resolves to psycopg2, which is not installed.
+- Datetimes are stored **naive UTC** (`UTCDateTime` binds any aware datetime to naive UTC).
+  Convert through the property's own timezone for anything user-facing; never compare a local
+  wall-clock value straight against a column.
+
+Verify a migration against real Postgres before merging — SQLite will not catch a portability bug:
+
+```
+docker run -d --name relay-pg18 -e POSTGRES_PASSWORD=relaydev -e POSTGRES_USER=relay \
+  -e POSTGRES_DB=relay_test -p 55432:5432 postgres:18
+cd server && DATABASE_URL="postgresql://relay:relaydev@localhost:55432/relay_test" \
+  ../.venv/Scripts/python.exe -m alembic upgrade head
+```
+
+Also run `alembic downgrade <prev>` and re-upgrade. `docker-entrypoint.sh` runs
+`alembic upgrade head` on every boot **before** gunicorn, so a migration that fails takes the
+whole service down at startup, not just the new feature — and a `downgrade()` that does not
+truly reverse leaves no way back.
+
+### Generated files — never hand-edit
+
+`web/src/api/schema.json` and `web/src/api/types.generated.ts` are generated from the Pydantic
+models. Committed tests fail if they go stale. After changing any schema:
+
+```
+cd server && ../.venv/Scripts/python.exe -m app.schemas.export_json_schema
+cd web && npm run gen:types
+```
+
+When adding API models, also add them to the tuple in
+`test_schema_export.py::test_export_contains_the_public_models`, and add new tables to
+`EXPECTED_TABLES` in `test_models.py` — each slice so far has had to, and forgetting leaves the
+new things unguarded.
+
+### Two invariants the test suite enforces
+
+- **Property isolation.** `tests/test_isolation.py` enumerates every route under
+  `/api/p/<property_id>` and asserts a non-member gets 403 **and that an admin of the property
+  never does**. A capability that excludes `Role.admin` will break it as soon as a route uses it.
+- **Capability tables must not drift.** `server/app/auth/permissions.py` is authoritative;
+  `web/src/auth/capabilities.ts` mirrors it. Change both in the same commit.
+
+### Other conventions
+
+- `server/data/app.db` is tracked in git **deliberately** — it is fixture data (see `.gitignore`).
+  Do not commit incidental dev churn to it; do commit it when seed data genuinely changes.
+- API models subclass `CamelModel`: camelCase on the wire, snake_case in Python.
 
 ---
 
