@@ -11,7 +11,7 @@ def test_export_contains_the_public_models():
                  "MessageOut", "WorkOrderOut", "WorkOrderDetail", "WorkOrderPrefill",
                  "QuickReplyOut", "AssetOut", "CategoryOut",
                  "NotificationOut", "Overview", "AgentStats", "StaffUserOut", "DepartmentOut",
-                 "SimGuest"):
+                 "SimGuest", "StaffConversationOut", "StaffMessageOut"):
         assert name in defs, name
     assert defs["GuestThread"]["additionalProperties"] is False
     assert "notes" not in defs["GuestThread"]["properties"]

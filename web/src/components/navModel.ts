@@ -32,6 +32,7 @@ export const NAV_GROUPS: NavGroup[] = [
       // of it — the same shape as the Admin defect, so it is listed here too.
       { label: 'Board', to: '/app/board', icon: 'board', needs: ['create_work_order', 'close_work_order'], match: ['/app/board', '/app/work-orders'] },
       { label: 'Alerts', to: '/app/notifications', icon: 'alerts', needs: [] },
+      { label: 'Messages', to: '/app/messages', icon: 'inbox', needs: [] },
     ],
   },
   {

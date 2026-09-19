@@ -139,3 +139,9 @@ class JobStatus(StrEnum):
     done = "done"
     failed = "failed"
     dead = "dead"
+
+
+class StaffConversationKind(StrEnum):
+    dm = "dm"
+    group = "group"
+    all = "all"

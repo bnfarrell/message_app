@@ -21,6 +21,7 @@ from sqlalchemy import func, select
 from app import clock
 from app.auth.passwords import hash_password
 from app.db import Database, run_migrations
+from app.domain import staff_messages
 from app.domain.assets import new_short_code
 from app.models import (
     Conversation,
@@ -266,6 +267,17 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
                 s.stay_count = n
                 s.is_return_guest = n > 1
         db.flush()
+
+        # ---- staff messaging: everyone joins #ALL, admin posts a welcome message so the
+        # screen isn't empty on first login (design.md §11.2 — seed data should produce
+        # realistic density, not an empty state).
+        all_channel = staff_messages.get_or_create_all_conversation(db, hvh.id)
+        for key in ("ava", "marcus", "jordan", "hana", "rosa", "eli", "noah", "hk_sup", "sam",
+                   "morgan", "alex", "casey"):
+            staff_messages.ensure_participant(db, all_channel.id, staff[key].id)
+        staff_messages.send_message(db, hvh.id, all_channel.id, staff["alex"].id,
+                                    body="Welcome to Relay Messages — this channel reaches "
+                                        "every member of the team.")
 
         # ---- content
         for shortcut, title, body, dept in data.QUICK_REPLIES:

@@ -5,6 +5,11 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
+/**
+ * @minItems 1
+ * @maxItems 100
+ */
+export type Userids = [string, ...string[]];
 export type Conversationshandled = number;
 export type Firstresponsep50Seconds = number | null;
 export type Firstresponsep90Seconds = number | null;
@@ -192,6 +197,10 @@ export type Sladueat1 = string | null;
 export type Snoozeduntil2 = string | null;
 export type Unanswered = boolean;
 export type Body3 = string;
+export type Kind = 'dm' | 'group';
+export type Name7 = string | null;
+export type Userid1 = string | null;
+export type Userids1 = string[] | null;
 export type Departmentid4 = string | null;
 export type Email1 = string;
 export type Firstname1 = string;
@@ -222,7 +231,7 @@ export type Departmentname = string;
 export type Meantimetoresolveseconds = number | null;
 export type Active6 = boolean;
 export type Escalationminutes = number;
-export type Name7 = string;
+export type Name8 = string;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "DepartmentType".
@@ -232,10 +241,12 @@ export type DepartmentType =
 export type Active7 = boolean;
 export type Escalationminutes1 = number;
 export type Id10 = string;
-export type Name8 = string;
+export type Name9 = string;
 export type Active8 = boolean | null;
 export type Escalationminutes2 = number | null;
-export type Name9 = string | null;
+export type Name10 = string | null;
+export type Avatarurl = string | null;
+export type Name11 = string | null;
 export type Conversationids = string[];
 export type Stays = StayOut[];
 export type Body4 = string;
@@ -300,7 +311,7 @@ export type Currency = string;
 export type Helptext = string | null;
 export type Id13 = string;
 export type Logourl = string | null;
-export type Name10 = string;
+export type Name12 = string;
 export type Phone2 = string | null;
 export type Primarycolor = string | null;
 export type Slaminutes = number;
@@ -312,7 +323,7 @@ export type Brand1 = string | null;
 export type Currency1 = string | null;
 export type Helptext1 = string | null;
 export type Logourl1 = string | null;
-export type Name11 = string | null;
+export type Name13 = string | null;
 export type Phone3 = string | null;
 export type Primarycolor1 = string | null;
 export type Slaminutes1 = number | null;
@@ -348,8 +359,9 @@ export type Segments = number;
 export type Body11 = string;
 export type Digitalassetid1 = string | null;
 export type Draftpromptid = string | null;
+export type Body12 = string | null;
 export type Memberships = MembershipOut[];
-export type Avatarurl = string | null;
+export type Avatarurl1 = string | null;
 export type Email3 = string;
 export type Firstname2 = string;
 export type Id15 = string;
@@ -360,7 +372,7 @@ export type Propertyid1 = string;
 export type Type1 = string;
 export type Guestid = string;
 export type Inhouse = boolean;
-export type Name12 = string;
+export type Name14 = string;
 export type Phone4 = string;
 export type Propertyid2 = string;
 export type Propertyname2 = string;
@@ -368,26 +380,72 @@ export type Propertysmsnumber = string | null;
 export type Roomnumber2 = string | null;
 export type Stayid = string | null;
 export type Willfail = boolean;
-export type Departmentid11 = string | null;
-export type Avatarurl1 = string | null;
-export type Departmentid12 = string | null;
-export type Email4 = string;
-export type Firstname3 = string;
+export type Avatarurl2 = string | null;
+export type Createdat4 = string;
+export type Displayname = string;
 export type Id16 = string;
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "StaffConversationKind".
+ */
+export type StaffConversationKind = 'dm' | 'group' | 'all';
+export type Lastmessageat = string | null;
+export type Lastmessagepreview1 = string | null;
+export type Authorname1 = string;
+export type Authoruserid2 = string;
+export type Body13 = string | null;
+export type Conversationid3 = string;
+export type Createdat5 = string;
+export type Id17 = string;
+export type Photourl = string | null;
+export type Messages2 = StaffMessageOut[];
+export type Name15 = string | null;
+export type Otheruserid = string | null;
+export type Avatarurl3 = string | null;
+export type Departmentid11 = string | null;
+export type Firstname3 = string;
 export type Lastname3 = string;
+export type Userid2 = string;
+export type Participants = StaffParticipantOut[];
+export type Unread = boolean;
+export type Updatedat = string;
+export type Avatarurl4 = string | null;
+export type Createdat6 = string;
+export type Displayname1 = string;
+export type Id18 = string;
+export type Lastmessageat1 = string | null;
+export type Lastmessagepreview2 = string | null;
+export type Name16 = string | null;
+export type Otheruserid1 = string | null;
+export type Participants1 = StaffParticipantOut[];
+export type Unread1 = boolean;
+export type Updatedat1 = string;
+export type Avatarurl5 = string | null;
+export type Departmentid12 = string | null;
+export type Departmentname1 = string | null;
+export type Firstname4 = string;
+export type Lastname4 = string;
+export type Userid3 = string;
+export type Departmentid13 = string | null;
+export type Avatarurl6 = string | null;
+export type Departmentid14 = string | null;
+export type Email4 = string;
+export type Firstname5 = string;
+export type Id19 = string;
+export type Lastname5 = string;
 export type Status = string;
 export type Count3 = number;
 export type Acknowledgedat = string | null;
 export type Assigneduserid5 = string | null;
 export type Completedat1 = string | null;
-export type Createdat4 = string;
-export type Departmentid13 = string | null;
+export type Createdat7 = string;
+export type Departmentid15 = string | null;
 export type Description4 = string | null;
 export type Dueat1 = string | null;
 export type Comment = string | null;
-export type Createdat5 = string;
+export type Createdat8 = string;
 export type Fromvalue = string | null;
-export type Id17 = string;
+export type Id20 = string;
 export type Tovalue = string | null;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -395,17 +453,17 @@ export type Tovalue = string | null;
  */
 export type WorkOrderEventType =
   'created' | 'status_changed' | 'assigned' | 'commented' | 'priority_changed' | 'photo_attached';
-export type Userid1 = string | null;
+export type Userid4 = string | null;
 export type Username = string | null;
 export type Events = WorkOrderEventOut[];
 export type Guestname = string | null;
 export type Guestnotifiedat1 = string | null;
-export type Id18 = string;
+export type Id21 = string;
 export type Locationref1 = string | null;
 export type Bytesize = number;
 export type Contenttype = string;
-export type Createdat6 = string;
-export type Id19 = string;
+export type Createdat9 = string;
+export type Id22 = string;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderPhotoKind".
@@ -422,7 +480,7 @@ export type Sourceconversationid1 = string | null;
 export type Sourcemessageid1 = string | null;
 export type Startedat = string | null;
 export type Title6 = string;
-export type Updatedat = string;
+export type Updatedat2 = string;
 export type Verifiedat = string | null;
 export type Assignee = string | null;
 export type Dept1 = string | null;
@@ -432,25 +490,25 @@ export type Status1 = string | null;
 export type Acknowledgedat1 = string | null;
 export type Assigneduserid6 = string | null;
 export type Completedat2 = string | null;
-export type Createdat7 = string;
-export type Departmentid14 = string | null;
+export type Createdat10 = string;
+export type Departmentid16 = string | null;
 export type Description5 = string | null;
 export type Dueat2 = string | null;
 export type Guestnotifiedat2 = string | null;
-export type Id20 = string;
+export type Id23 = string;
 export type Locationref2 = string | null;
 export type Reportedbyuserid1 = string | null;
 export type Sourceconversationid2 = string | null;
 export type Sourcemessageid2 = string | null;
 export type Startedat1 = string | null;
 export type Title7 = string;
-export type Updatedat1 = string;
+export type Updatedat3 = string;
 export type Verifiedat1 = string | null;
 export type Assigneduserid7 = string | null;
 export type Clearassignee = boolean;
 export type Comment1 = string | null;
-export type Departmentid15 = string | null;
-export type Departmentid16 = string | null;
+export type Departmentid17 = string | null;
+export type Departmentid18 = string | null;
 export type Description6 = string;
 export type Guestname1 = string | null;
 export type Locationref3 = string | null;
@@ -460,6 +518,13 @@ export type Title8 = string;
 
 export interface RelayAPI {
   [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "AddParticipantsRequest".
+ */
+export interface AddParticipantsRequest {
+  userIds: Userids;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -711,6 +776,20 @@ export interface CreateNoteRequest {
   body: Body3;
 }
 /**
+ * POST /staff-conversations. `kind` picks which of the other fields apply; validated
+ * together in app.domain.staff_messages.create_conversation rather than as two separate
+ * Pydantic models, so the route stays a single endpoint (spec §3).
+ *
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "CreateStaffConversationRequest".
+ */
+export interface CreateStaffConversationRequest {
+  kind: Kind;
+  name?: Name7;
+  userId?: Userid1;
+  userIds?: Userids1;
+}
+/**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "CreateStaffRequest".
  */
@@ -765,7 +844,7 @@ export interface DepartmentBucket {
 export interface DepartmentIn {
   active?: Active6;
   escalationMinutes?: Escalationminutes;
-  name: Name7;
+  name: Name8;
   type: DepartmentType;
 }
 /**
@@ -776,7 +855,7 @@ export interface DepartmentOut {
   active: Active7;
   escalationMinutes: Escalationminutes1;
   id: Id10;
-  name: Name8;
+  name: Name9;
   type: DepartmentType;
 }
 /**
@@ -786,8 +865,16 @@ export interface DepartmentOut {
 export interface DepartmentPatch {
   active?: Active8;
   escalationMinutes?: Escalationminutes2;
-  name?: Name9;
+  name?: Name10;
   type?: DepartmentType | null;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "GroupPatch".
+ */
+export interface GroupPatch {
+  avatarUrl?: Avatarurl;
+  name?: Name11;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -935,7 +1022,7 @@ export interface PropertySettingsOut {
   helpText?: Helptext;
   id: Id13;
   logoUrl?: Logourl;
-  name: Name10;
+  name: Name12;
   phone?: Phone2;
   primaryColor?: Primarycolor;
   slaMinutes: Slaminutes;
@@ -960,7 +1047,7 @@ export interface PropertySettingsPatch {
   currency?: Currency1;
   helpText?: Helptext1;
   logoUrl?: Logourl1;
-  name?: Name11;
+  name?: Name13;
   phone?: Phone3;
   primaryColor?: Primarycolor1;
   slaMinutes?: Slaminutes1;
@@ -1034,6 +1121,16 @@ export interface SendMessageRequest {
   draftPromptId?: Draftpromptid;
 }
 /**
+ * The non-file half of the multipart body; a `photo` file part arrives alongside it,
+ * exactly like WorkOrderPhotoUpload.
+ *
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "SendStaffMessageRequest".
+ */
+export interface SendStaffMessageRequest {
+  body?: Body12;
+}
+/**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "SessionOut".
  */
@@ -1046,7 +1143,7 @@ export interface SessionOut {
  * via the `definition` "UserOut".
  */
 export interface UserOut {
-  avatarUrl?: Avatarurl;
+  avatarUrl?: Avatarurl1;
   email: Email3;
   firstName: Firstname2;
   id: Id15;
@@ -1077,7 +1174,7 @@ export interface Payload {
 export interface SimGuest {
   guestId: Guestid;
   inHouse: Inhouse;
-  name: Name12;
+  name: Name14;
   phone: Phone4;
   propertyId: Propertyid2;
   propertyName: Propertyname2;
@@ -1086,6 +1183,81 @@ export interface SimGuest {
   smsConsentStatus: SmsConsentStatus;
   stayId?: Stayid;
   willFail: Willfail;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "StaffConversationDetail".
+ */
+export interface StaffConversationDetail {
+  avatarUrl?: Avatarurl2;
+  createdAt: Createdat4;
+  displayName: Displayname;
+  id: Id16;
+  kind: StaffConversationKind;
+  lastMessageAt?: Lastmessageat;
+  lastMessagePreview?: Lastmessagepreview1;
+  messages: Messages2;
+  name?: Name15;
+  otherUserId?: Otheruserid;
+  participants: Participants;
+  unread: Unread;
+  updatedAt: Updatedat;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "StaffMessageOut".
+ */
+export interface StaffMessageOut {
+  authorName: Authorname1;
+  authorUserId: Authoruserid2;
+  body?: Body13;
+  conversationId: Conversationid3;
+  createdAt: Createdat5;
+  id: Id17;
+  photoUrl?: Photourl;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "StaffParticipantOut".
+ */
+export interface StaffParticipantOut {
+  avatarUrl?: Avatarurl3;
+  departmentId?: Departmentid11;
+  firstName: Firstname3;
+  lastName: Lastname3;
+  role: Role;
+  userId: Userid2;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "StaffConversationOut".
+ */
+export interface StaffConversationOut {
+  avatarUrl?: Avatarurl4;
+  createdAt: Createdat6;
+  displayName: Displayname1;
+  id: Id18;
+  kind: StaffConversationKind;
+  lastMessageAt?: Lastmessageat1;
+  lastMessagePreview?: Lastmessagepreview2;
+  name?: Name16;
+  otherUserId?: Otheruserid1;
+  participants: Participants1;
+  unread: Unread1;
+  updatedAt: Updatedat1;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "StaffDirectoryEntryOut".
+ */
+export interface StaffDirectoryEntryOut {
+  avatarUrl?: Avatarurl5;
+  departmentId?: Departmentid12;
+  departmentName?: Departmentname1;
+  firstName: Firstname4;
+  lastName: Lastname4;
+  role: Role;
+  userId: Userid3;
 }
 /**
  * Per-property membership fields only.
@@ -1101,7 +1273,7 @@ export interface SimGuest {
  * via the `definition` "StaffPatch".
  */
 export interface StaffPatch {
-  departmentId?: Departmentid11;
+  departmentId?: Departmentid13;
   role?: Role | null;
 }
 /**
@@ -1109,12 +1281,12 @@ export interface StaffPatch {
  * via the `definition` "StaffUserOut".
  */
 export interface StaffUserOut {
-  avatarUrl?: Avatarurl1;
-  departmentId?: Departmentid12;
+  avatarUrl?: Avatarurl6;
+  departmentId?: Departmentid14;
   email: Email4;
-  firstName: Firstname3;
-  id: Id16;
-  lastName: Lastname3;
+  firstName: Firstname5;
+  id: Id19;
+  lastName: Lastname5;
   role: Role;
   status: Status;
 }
@@ -1133,14 +1305,14 @@ export interface WorkOrderDetail {
   acknowledgedAt?: Acknowledgedat;
   assignedUserId?: Assigneduserid5;
   completedAt?: Completedat1;
-  createdAt: Createdat4;
-  departmentId?: Departmentid13;
+  createdAt: Createdat7;
+  departmentId?: Departmentid15;
   description?: Description4;
   dueAt?: Dueat1;
   events: Events;
   guestName?: Guestname;
   guestNotifiedAt?: Guestnotifiedat1;
-  id: Id18;
+  id: Id21;
   locationRef?: Locationref1;
   locationType: LocationType1;
   photos: Photos;
@@ -1153,7 +1325,7 @@ export interface WorkOrderDetail {
   status: WorkOrderStatus;
   title: Title6;
   type: WorkOrderType;
-  updatedAt: Updatedat;
+  updatedAt: Updatedat2;
   verifiedAt?: Verifiedat;
 }
 /**
@@ -1162,12 +1334,12 @@ export interface WorkOrderDetail {
  */
 export interface WorkOrderEventOut {
   comment?: Comment;
-  createdAt: Createdat5;
+  createdAt: Createdat8;
   fromValue?: Fromvalue;
-  id: Id17;
+  id: Id20;
   toValue?: Tovalue;
   type: WorkOrderEventType;
-  userId?: Userid1;
+  userId?: Userid4;
   userName?: Username;
 }
 /**
@@ -1177,8 +1349,8 @@ export interface WorkOrderEventOut {
 export interface WorkOrderPhotoOut {
   byteSize: Bytesize;
   contentType: Contenttype;
-  createdAt: Createdat6;
-  id: Id19;
+  createdAt: Createdat9;
+  id: Id22;
   kind: WorkOrderPhotoKind;
   uploadedByName?: Uploadedbyname;
   uploadedByUserId?: Uploadedbyuserid;
@@ -1205,12 +1377,12 @@ export interface WorkOrderOut {
   acknowledgedAt?: Acknowledgedat1;
   assignedUserId?: Assigneduserid6;
   completedAt?: Completedat2;
-  createdAt: Createdat7;
-  departmentId?: Departmentid14;
+  createdAt: Createdat10;
+  departmentId?: Departmentid16;
   description?: Description5;
   dueAt?: Dueat2;
   guestNotifiedAt?: Guestnotifiedat2;
-  id: Id20;
+  id: Id23;
   locationRef?: Locationref2;
   locationType: LocationType1;
   priority: Priority;
@@ -1221,7 +1393,7 @@ export interface WorkOrderOut {
   status: WorkOrderStatus;
   title: Title7;
   type: WorkOrderType;
-  updatedAt: Updatedat1;
+  updatedAt: Updatedat3;
   verifiedAt?: Verifiedat1;
 }
 /**
@@ -1232,7 +1404,7 @@ export interface WorkOrderPatch {
   assignedUserId?: Assigneduserid7;
   clearAssignee?: Clearassignee;
   comment?: Comment1;
-  departmentId?: Departmentid15;
+  departmentId?: Departmentid17;
   priority?: Priority | null;
   status?: WorkOrderStatus | null;
 }
@@ -1250,7 +1422,7 @@ export interface WorkOrderPhotoUpload {
  * via the `definition` "WorkOrderPrefill".
  */
 export interface WorkOrderPrefill {
-  departmentId?: Departmentid16;
+  departmentId?: Departmentid18;
   description: Description6;
   guestName?: Guestname1;
   locationRef?: Locationref3;
