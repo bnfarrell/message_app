@@ -7,6 +7,9 @@
 .venv/
 node_modules/
 
+# Isolated git worktrees for in-progress feature branches (superpowers:using-git-worktrees).
+.worktrees/
+
 # Build and tool caches, regenerated on every run.
 __pycache__/
 *.pyc
