@@ -33,6 +33,11 @@ export const qk = {
   notificationsAll: (propertyId: string) => ['notifications', propertyId] as const,
   unreadCount: (propertyId: string) => ['unreadCount', propertyId] as const,
 
+  staffConversationsAll: (propertyId: string) => ['staffConversations', propertyId] as const,
+  staffConversation: (propertyId: string, id: string) =>
+    ['staffConversation', propertyId, id] as const,
+  staffDirectory: (propertyId: string) => ['staffDirectory', propertyId] as const,
+
   analyticsOverview: (propertyId: string, from: string, to: string) =>
     ['analytics', 'overview', propertyId, from, to] as const,
   analyticsAgents: (propertyId: string, from: string, to: string) =>

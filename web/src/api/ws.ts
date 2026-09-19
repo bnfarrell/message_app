@@ -77,6 +77,15 @@ export function invalidationsFor(event: ServerEvent, propertyId: string): readon
       keys.push([...qk.notificationsAll(propertyId)])
       keys.push([...qk.unreadCount(propertyId)])
       break
+    case 'staff_conversation.created':
+    case 'staff_conversation.updated':
+      keys.push([...qk.staffConversationsAll(propertyId)])
+      if (id) keys.push([...qk.staffConversation(propertyId, id)])
+      break
+    case 'staff_message.created':
+      if (conversationId) keys.push([...qk.staffConversation(propertyId, conversationId)])
+      keys.push([...qk.staffConversationsAll(propertyId)])
+      break
     default:
       break
   }

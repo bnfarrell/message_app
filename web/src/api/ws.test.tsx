@@ -172,6 +172,31 @@ describe('invalidationsFor', () => {
     expect(keys).toContainEqual(qk.conversation('prop-a', 'c-4'))
   })
 
+  it('invalidates the list, and the detail when present, for a staff conversation event', () => {
+    const created = invalidationsFor(
+      { ...base, type: 'staff_conversation.created', payload: { id: 'sc-1' } },
+      'prop-a',
+    )
+    expect(created).toContainEqual(qk.staffConversationsAll('prop-a'))
+    expect(created).toContainEqual(qk.staffConversation('prop-a', 'sc-1'))
+
+    const updated = invalidationsFor(
+      { ...base, type: 'staff_conversation.updated', payload: { id: 'sc-2' } },
+      'prop-a',
+    )
+    expect(updated).toContainEqual(qk.staffConversationsAll('prop-a'))
+    expect(updated).toContainEqual(qk.staffConversation('prop-a', 'sc-2'))
+  })
+
+  it('routes a staff message event by its conversationId, which is the payload field', () => {
+    const keys = invalidationsFor(
+      { ...base, type: 'staff_message.created', payload: { conversationId: 'sc-9' } },
+      'prop-a',
+    )
+    expect(keys).toContainEqual(qk.staffConversation('prop-a', 'sc-9'))
+    expect(keys).toContainEqual(qk.staffConversationsAll('prop-a'))
+  })
+
   it('invalidates nothing for presence or the subscribe acknowledgement', () => {
     expect(
       invalidationsFor({ ...base, type: 'presence.update', payload: { conversationId: 'c-1' } }, 'prop-a'),
