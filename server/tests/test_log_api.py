@@ -3,7 +3,9 @@ import pytest
 from sqlalchemy import select
 
 from app import clock
+from app.api.log import MULTIPART_OVERHEAD_BYTES
 from app.domain import log as log_domain
+from app.domain.work_orders import MAX_PHOTO_BYTES
 from app.errors import ValidationFailed
 from app.models import Department, LogEntryMention, Notification, UserAccount
 from app.schemas.enums import MentionTargetType, Shift, UserStatus
@@ -398,6 +400,9 @@ def test_photo_round_trips(app, fx, login):
     got = agent.get(url)
     assert got.status_code == 200
     assert got.data == png
+    assert got.headers["X-Content-Type-Options"] == "nosniff"
+    assert got.headers["Content-Disposition"] == "inline"
+    assert got.headers["Cache-Control"] == "private, max-age=86400"
 
 
 def test_a_non_image_upload_is_rejected(app, fx, login):
@@ -416,6 +421,26 @@ def test_a_non_image_upload_is_rejected(app, fx, login):
     body = res.get_json()["error"]
     assert body["code"] == "VALIDATION_FAILED"
     assert body["details"] == {"photo": "unsupported_image_type"}
+
+
+def test_an_oversized_body_is_refused_before_it_is_parsed(app, fx, login):
+    """The Content-Length guard in front of parse_body, mirroring
+    test_work_order_photos.py's test of the same name.
+
+    Sends no `photo` part, only an oversized `junk` field, so this exercises the
+    Content-Length check specifically rather than the byte check inside
+    _photo_from_request. Without the guard, request.form is still never read cleanly:
+    Werkzeug's own max_form_memory_size (500 KB per non-file field) rejects the huge
+    `junk` value first, as a bare 413 with none of this API's error shape — proven by
+    sabotaging the guard below. The guard's job is to produce this endpoint's own 400/
+    VALIDATION_FAILED/file_too_large response before either limit is hit.
+    """
+    base = f"/api/p/{fx.property_a.id}/log-entries"
+    agent = login("agent@hvh.test")
+    res = agent.post(base, data={"junk": "x" * (MAX_PHOTO_BYTES + MULTIPART_OVERHEAD_BYTES + 1)},
+                     content_type="multipart/form-data")
+    assert res.status_code == 400, res.get_json()
+    assert res.get_json()["error"]["details"] == {"photo": "file_too_large"}
 
 
 def test_mentionables_lists_people_and_departments(app, fx, login):

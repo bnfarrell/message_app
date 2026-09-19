@@ -9,6 +9,23 @@ from app.schemas.log import CreateLogEntryRequest, LogFeedQuery
 
 bp = Blueprint("log", __name__, url_prefix="/api/p/<property_id>/log-entries")
 
+# Defined per-api-module by existing convention — app/api/staff_messages.py:47 and
+# app/api/work_orders.py:22 each carry their own copy rather than sharing one.
+MULTIPART_OVERHEAD_BYTES = 4096
+
+
+def _reject_oversized_request() -> None:
+    """Refuse before Werkzeug buffers the whole multipart body into memory.
+
+    No MAX_CONTENT_LENGTH is configured app-wide, so without this an arbitrarily large
+    upload is fully parsed before the truncated read below ever runs. Mirrors
+    app/api/staff_messages.py:54.
+    """
+    if (request.content_length or 0) > MAX_PHOTO_BYTES + MULTIPART_OVERHEAD_BYTES:
+        raise ValidationFailed(
+            f"A photo must be {MAX_PHOTO_BYTES // (1024 * 1024)} MB or smaller",
+            details={"photo": "file_too_large"})
+
 
 def _photo_from_request() -> tuple[bytes, str] | None:
     upload = request.files.get("photo")
@@ -41,6 +58,9 @@ def list_entries(property_id: str):
 @require_property
 @require_capability("post_log")
 def create_entry(property_id: str):
+    # Must run BEFORE parse_body: reading the form is what makes Werkzeug buffer the
+    # whole multipart body, so a check afterwards is a check after the damage.
+    _reject_oversized_request()
     data = parse_body(CreateLogEntryRequest)
     photo = _photo_from_request()
     with db_session() as db:
@@ -103,5 +123,8 @@ def unpin_entry(property_id: str, entry_id: str):
 def get_entry_photo(property_id: str, entry_id: str):
     with db_session() as db:
         body, content_type = log.get_photo(db, g.property_id, entry_id)
-    return Response(body, mimetype=content_type,
-                    headers={"Cache-Control": "private, max-age=86400"})
+    return Response(body, mimetype=content_type, headers={
+        "Content-Disposition": "inline",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=86400",
+    })
