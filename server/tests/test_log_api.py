@@ -159,6 +159,32 @@ def test_feed_is_newest_first_and_paginates_on_the_cursor(database, fx):
         assert [e.body for e in page.entries] == ["note 2", "note 1", "note 0"]
 
 
+def test_cursor_pagination_walks_every_entry_exactly_once_newest_first(database, fx, monkeypatch):
+    from app.schemas.log import LogFeedQuery
+
+    monkeypatch.setattr(log_domain, "FEED_PAGE_SIZE", 2)
+    with database.session() as db:
+        for i in range(5):
+            log_domain.create(db, fx.property_a.id, fx.agent_a.id, _req(body=f"note {i}"))
+            clock.advance(minutes=1)
+        db.flush()
+
+        seen: list[str] = []
+        cursor = None
+        for _ in range(10):
+            page = log_domain.feed(db, fx.property_a.id, fx.agent_a.id,
+                                   LogFeedQuery(cursor=cursor))
+            seen.extend(e.body for e in page.entries)
+            if page.next_cursor is None:
+                break
+            cursor = page.next_cursor
+        else:
+            pytest.fail("feed did not terminate within 10 pages")
+
+        assert seen == ["note 4", "note 3", "note 2", "note 1", "note 0"]
+        assert page.next_cursor is None
+
+
 def test_shift_and_department_filters(database, fx):
     from app.schemas.log import LogFeedQuery
 
@@ -188,6 +214,12 @@ def test_mentioning_me_matches_direct_and_department_mentions(database, fx):
                           _req(body="via dept",
                                mentions=[MentionRef(type=MentionTargetType.department,
                                                     id=fx.dept_engineering.id)]))
+        # engineer_a is NOT a member of housekeeping, so this must not match: proves the
+        # filter is scoped to the viewer's own departments, not "any department mention".
+        log_domain.create(db, fx.property_a.id, fx.agent_a.id,
+                          _req(body="other dept",
+                               mentions=[MentionRef(type=MentionTargetType.department,
+                                                    id=fx.dept_housekeeping.id)]))
         log_domain.create(db, fx.property_a.id, fx.agent_a.id, _req(body="unrelated"))
         db.flush()
         mine = log_domain.feed(db, fx.property_a.id, fx.engineer_a.id,
@@ -199,10 +231,12 @@ def test_the_feed_never_leaks_another_property(database, fx):
     from app.schemas.log import LogFeedQuery
 
     with database.session() as db:
-        log_domain.create(db, fx.property_b.id, fx.agent_b.id, _req(body="B only"))
+        entry = log_domain.create(db, fx.property_b.id, fx.agent_b.id, _req(body="B only"))
+        entry.pinned = True
         db.flush()
         page = log_domain.feed(db, fx.property_a.id, fx.agent_a.id, LogFeedQuery())
         assert page.entries == []
+        assert page.pinned == []
 
 
 def test_entry_out_reports_ack_progress_for_the_viewer(database, fx):
