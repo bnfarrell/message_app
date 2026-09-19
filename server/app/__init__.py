@@ -56,6 +56,7 @@ def create_app(config: Config | None = None) -> Flask:
         properties,
         quick_replies,
         short_links,
+        staff_messages,
         users,
         work_orders,
     )
@@ -75,6 +76,8 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(short_links.bp)
     app.register_blueprint(hooks.bp)
     app.register_blueprint(analytics.bp)
+    app.register_blueprint(staff_messages.bp)
+    app.register_blueprint(staff_messages.directory_bp)
 
     @app.after_request
     def _cors(resp):
