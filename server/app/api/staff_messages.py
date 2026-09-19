@@ -4,7 +4,9 @@ from app.api._util import db_session, no_content, ok, parse_body
 from app.auth.decorators import require_auth, require_property
 from app.domain import staff_messages
 from app.schemas.staff_messages import (
+    AddParticipantsRequest,
     CreateStaffConversationRequest,
+    GroupPatch,
     SendStaffMessageRequest,
     StaffDirectoryEntryOut,
     StaffMessageOut,
@@ -63,6 +65,39 @@ def mark_read(property_id: str, conversation_id: str):
     with db_session() as db:
         staff_messages.mark_read(db, g.property_id, conversation_id, g.user.id)
     return no_content()
+
+
+@bp.patch("/<conversation_id>")
+@require_auth
+@require_property
+def patch_conversation(property_id: str, conversation_id: str):
+    data = parse_body(GroupPatch)
+    with db_session() as db:
+        staff_messages.update_group(db, g.property_id, conversation_id, g.user.id, data)
+        return ok(staff_messages.detail(db, g.property_id, conversation_id, g.user.id))
+
+
+@bp.post("/<conversation_id>/participants")
+@require_auth
+@require_property
+def add_participants(property_id: str, conversation_id: str):
+    data = parse_body(AddParticipantsRequest)
+    with db_session() as db:
+        staff_messages.add_participants(db, g.property_id, conversation_id, g.user.id, data)
+        return ok(staff_messages.detail(db, g.property_id, conversation_id, g.user.id))
+
+
+@bp.delete("/<conversation_id>/participants/<user_id>")
+@require_auth
+@require_property
+def remove_participant(property_id: str, conversation_id: str, user_id: str):
+    with db_session() as db:
+        staff_messages.remove_participant(db, g.property_id, conversation_id, g.user.id, user_id)
+        # The remover themself may be the one leaving — detail() would then 404 for them, so
+        # only re-fetch when someone else was removed.
+        if user_id == g.user.id:
+            return no_content()
+        return ok(staff_messages.detail(db, g.property_id, conversation_id, g.user.id))
 
 
 @directory_bp.get("/staff-directory")

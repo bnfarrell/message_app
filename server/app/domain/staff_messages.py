@@ -18,7 +18,9 @@ from app.models import (
 from app.realtime.broadcast import queue_event
 from app.schemas.enums import StaffConversationKind
 from app.schemas.staff_messages import (
+    AddParticipantsRequest,
     CreateStaffConversationRequest,
+    GroupPatch,
     StaffConversationDetail,
     StaffConversationOut,
     StaffDirectoryEntryOut,
@@ -265,6 +267,49 @@ def mark_read(db: Session, property_id: str, conversation_id: str, user_id: str)
     conv = get_for_participant(db, property_id, conversation_id, user_id)
     participant = ensure_participant(db, conv.id, user_id)
     participant.last_read_at = clock.now()
+
+
+def _assert_group(conv: StaffConversation) -> None:
+    if conv.kind != StaffConversationKind.group:
+        raise ValidationFailed("Only group conversations can be edited this way")
+
+
+def update_group(db: Session, property_id: str, conversation_id: str, actor_user_id: str,
+                 data: GroupPatch) -> StaffConversation:
+    conv = get_for_participant(db, property_id, conversation_id, actor_user_id)
+    _assert_group(conv)
+    if data.name is not None:
+        conv.name = data.name.strip()
+    if data.avatar_url is not None:
+        conv.avatar_url = data.avatar_url
+    db.flush()
+    queue_event(db, property_id, "staff_conversation.updated", {"id": conv.id})
+    return conv
+
+
+def add_participants(db: Session, property_id: str, conversation_id: str, actor_user_id: str,
+                     data: AddParticipantsRequest) -> StaffConversation:
+    conv = get_for_participant(db, property_id, conversation_id, actor_user_id)
+    _assert_group(conv)
+    for uid in data.user_ids:
+        _assert_member(db, property_id, uid)
+        ensure_participant(db, conv.id, uid)
+    queue_event(db, property_id, "staff_conversation.updated", {"id": conv.id})
+    return conv
+
+
+def remove_participant(db: Session, property_id: str, conversation_id: str, actor_user_id: str,
+                       target_user_id: str) -> StaffConversation:
+    conv = get_for_participant(db, property_id, conversation_id, actor_user_id)
+    _assert_group(conv)
+    row = db.scalar(select(StaffConversationParticipant).where(
+        StaffConversationParticipant.conversation_id == conv.id,
+        StaffConversationParticipant.user_id == target_user_id))
+    if row is not None:
+        db.delete(row)
+        db.flush()
+    queue_event(db, property_id, "staff_conversation.updated", {"id": conv.id})
+    return conv
 
 
 def directory(db: Session, property_id: str, viewer_user_id: str) -> list[StaffDirectoryEntryOut]:

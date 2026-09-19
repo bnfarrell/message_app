@@ -135,3 +135,46 @@ def test_all_channel_message_reaches_every_member(app, fx, client, database, log
     listed = eng.get(base).get_json()
     row = next(r for r in listed if r["kind"] == "all")
     assert row["unread"] is True and row["lastMessagePreview"] == "Welcome"
+
+
+def test_group_rename_add_and_remove_participant(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    sup = login("supervisor@hvh.test")
+    group = sup.post(base, json={"kind": "group", "name": "Eng team",
+                                 "userIds": [fx.engineer_a.id]}).get_json()
+    renamed = sup.patch(f"{base}/{group['id']}", json={"name": "Engineering"})
+    assert renamed.status_code == 200 and renamed.get_json()["displayName"] == "Engineering"
+
+    added = sup.post(f"{base}/{group['id']}/participants",
+                     json={"userIds": [fx.housekeeper_a.id]})
+    assert added.status_code == 200
+    member_ids = {p["userId"] for p in added.get_json()["participants"]}
+    assert fx.housekeeper_a.id in member_ids
+
+    hk = login("housekeeper@hvh.test")
+    assert hk.get(f"{base}/{group['id']}").status_code == 200  # newly added member can see it
+
+    removed = sup.delete(f"{base}/{group['id']}/participants/{fx.housekeeper_a.id}")
+    assert removed.status_code == 200
+    assert fx.housekeeper_a.id not in {p["userId"] for p in removed.get_json()["participants"]}
+    assert hk.get(f"{base}/{group['id']}").status_code == 404  # removed member loses access
+
+
+def test_all_channel_rejects_rename_and_remove(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    admin = login("admin@hvh.test")
+    all_channel = next(r for r in admin.get(base).get_json() if r["kind"] == "all")
+    assert admin.patch(f"{base}/{all_channel['id']}",
+                       json={"name": "renamed"}).status_code == 400
+    assert admin.delete(
+        f"{base}/{all_channel['id']}/participants/{fx.engineer_a.id}"
+    ).status_code == 400
+
+
+def test_dm_rejects_rename_and_participant_changes(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    agent = login("agent@hvh.test")
+    conv = agent.post(base, json={"kind": "dm", "userId": fx.engineer_a.id}).get_json()
+    assert agent.patch(f"{base}/{conv['id']}", json={"name": "x"}).status_code == 400
+    assert agent.post(f"{base}/{conv['id']}/participants",
+                      json={"userIds": [fx.housekeeper_a.id]}).status_code == 400
