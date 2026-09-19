@@ -216,4 +216,30 @@ describe('GroupPanel', () => {
 
     expect(screen.getByRole('button', { name: 'Remove Nia Ward' })).toBeDisabled()
   })
+
+  it('resets its form state when unmounted on close and remounted (regression: must be conditionally mounted, not just `open`-toggled)', async () => {
+    // Mirrors how MessagesPage renders GroupPanel: `{open ? <GroupPanel .../> : null}`,
+    // so closing actually unmounts it instead of leaving it mounted with `open={false}`.
+    function Wrapper() {
+      const [open, setOpen] = useState(true)
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>reopen</button>
+          {open ? <GroupPanel open onClose={() => setOpen(false)} /> : null}
+        </>
+      )
+    }
+
+    render(<Wrapper />)
+
+    await userEvent.type(screen.getByPlaceholderText('Group Name'), 'Team')
+    await userEvent.click(screen.getByText('Alice Smith'))
+    expect(screen.getByText('Alice Smith').closest('button')).toHaveAttribute('aria-pressed', 'true')
+
+    await userEvent.click(screen.getByText('Cancel'))
+    await userEvent.click(screen.getByText('reopen'))
+
+    expect(screen.getByPlaceholderText('Group Name')).toHaveValue('')
+    expect(screen.getByText('Alice Smith').closest('button')).toHaveAttribute('aria-pressed', 'false')
+  })
 })

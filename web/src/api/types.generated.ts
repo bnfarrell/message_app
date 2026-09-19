@@ -7,6 +7,7 @@
 
 /**
  * @minItems 1
+ * @maxItems 100
  */
 export type Userids = [string, ...string[]];
 export type Conversationshandled = number;

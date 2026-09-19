@@ -79,7 +79,7 @@ export function MessagesPage() {
         )}
       </div>
 
-      <GroupPanel open={creatingGroup} onClose={() => setCreatingGroup(false)} />
+      {creatingGroup ? <GroupPanel open onClose={() => setCreatingGroup(false)} /> : null}
       {managingGroup ? (
         <GroupPanel
           open

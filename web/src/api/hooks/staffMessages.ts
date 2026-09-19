@@ -84,6 +84,7 @@ export function useMarkStaffConversationRead(conversationId: string) {
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: qk.staffConversationsAll(propertyId) })
+      void client.invalidateQueries({ queryKey: qk.staffConversation(propertyId, conversationId) })
     },
   })
 }
