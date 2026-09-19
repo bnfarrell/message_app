@@ -191,7 +191,7 @@ describe('AppShell', () => {
     // zero capabilities, and this is what guarantees the rail never renders a bare heading.
     const groups = visibleNavGroups(() => false)
     expect(groups.map((g) => g.heading)).toEqual(['Overview'])
-    expect(groups[0]!.items.map((i) => i.label)).toEqual(['Alerts'])
+    expect(groups[0]!.items.map((i) => i.label)).toEqual(['Alerts', 'Messages'])
   })
 
   it('keeps the property lockup as plain text, not a dead button, for one membership', async () => {

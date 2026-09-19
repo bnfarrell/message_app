@@ -103,6 +103,7 @@ describe('CommandPalette', () => {
       'Inbox',
       'Board',
       'Alerts',
+      'Messages',
       'Switch to light theme',
       'Sign out',
     ])
