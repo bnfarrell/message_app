@@ -12,6 +12,9 @@ export type Capability =
   | 'view_own_stats'
   | 'manage_admin'
   | 'export'
+  | 'view_log'
+  | 'post_log'
+  | 'pin_log_entry'
 
 const STAFF: Role[] = ['agent', 'dept_staff', 'supervisor', 'manager', 'admin', 'corporate']
 
@@ -28,6 +31,9 @@ const CAPABILITIES: Record<Capability, Role[]> = {
   view_own_stats: ['agent', 'dept_staff'],
   manage_admin: ['admin', 'corporate'],
   export: ['manager', 'admin', 'corporate'],
+  view_log: STAFF,
+  post_log: STAFF,
+  pin_log_entry: ['supervisor', 'manager', 'admin'],
 }
 
 export function hasCapability(role: Role, capability: Capability): boolean {

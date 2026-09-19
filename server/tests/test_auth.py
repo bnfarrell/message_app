@@ -112,3 +112,19 @@ def test_production_refuses_to_boot_with_the_placeholder_session_secret(template
                      SESSION_SECRET=secret)
         with pytest.raises(RuntimeError, match="SESSION_SECRET"):
             create_app(cfg)
+
+
+def test_log_capabilities_match_the_spec():
+    from app.auth.permissions import has_capability
+    from app.schemas.enums import Role
+
+    for role in Role:
+        assert has_capability(role, "view_log"), role
+        assert has_capability(role, "post_log"), role
+    assert not has_capability(Role.agent, "pin_log_entry")
+    assert not has_capability(Role.dept_staff, "pin_log_entry")
+    assert not has_capability(Role.corporate, "pin_log_entry")
+    for role in (Role.supervisor, Role.manager, Role.admin):
+        # admin must be able to pin: test_isolation.py asserts an admin is never 403 on a
+        # route of their own property, and the pin routes carry @require_capability.
+        assert has_capability(role, "pin_log_entry"), role

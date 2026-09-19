@@ -16,6 +16,9 @@ CAPABILITIES: dict[str, set[Role]] = {
     "view_own_stats": {Role.agent, Role.dept_staff},
     "manage_admin": {Role.admin, Role.corporate},
     "export": {Role.manager, Role.admin, Role.corporate},
+    "view_log": STAFF,
+    "post_log": STAFF,
+    "pin_log_entry": {Role.supervisor, Role.manager, Role.admin},
 }
 
 
