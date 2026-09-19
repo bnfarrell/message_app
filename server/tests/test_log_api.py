@@ -330,3 +330,86 @@ def test_pin_and_unpin_move_the_entry_in_and_out_of_the_pinned_block(database, f
         db.flush()
         page2 = log_domain.feed(db, fx.property_a.id, fx.agent_a.id, LogFeedQuery())
         assert page2.pinned == []
+
+
+def test_post_and_list_through_the_api(app, fx, login):
+    base = f"/api/p/{fx.property_a.id}/log-entries"
+    agent = login("agent@hvh.test")
+    res = agent.post(base, json={"body": "AM checklist done.",
+                                 "departmentId": fx.dept_front_desk.id})
+    assert res.status_code == 201
+    created = res.get_json()
+    assert created["shift"] == "am"
+    assert created["departmentName"]
+    feed = agent.get(base).get_json()
+    assert [e["id"] for e in feed["entries"]] == [created["id"]]
+    assert feed["pinned"] == []
+
+
+def test_an_agent_cannot_pin_but_a_supervisor_can(app, fx, login):
+    base = f"/api/p/{fx.property_a.id}/log-entries"
+    agent = login("agent@hvh.test")
+    entry_id = agent.post(base, json={"body": "pin me"}).get_json()["id"]
+    assert agent.post(f"{base}/{entry_id}/pin").status_code == 403
+    sup = login("supervisor@hvh.test")
+    pinned = sup.post(f"{base}/{entry_id}/pin")
+    assert pinned.status_code == 200
+    assert pinned.get_json()["pinned"] is True
+    assert sup.delete(f"{base}/{entry_id}/pin").get_json()["pinned"] is False
+
+
+def test_photo_round_trips(app, fx, login):
+    import io
+
+    # sniff_image_type only inspects the magic bytes, so a valid signature is a
+    # sufficient fixture. This mirrors the PNG constant in test_work_order_photos.py
+    # rather than constructing a real encoded image.
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00IHDR-not-a-real-png-but-the-signature-is"
+
+    base = f"/api/p/{fx.property_a.id}/log-entries"
+    agent = login("agent@hvh.test")
+    res = agent.post(base, data={"body": "with photo",
+                                 "photo": (io.BytesIO(png), "x.png", "image/png")},
+                     content_type="multipart/form-data")
+    assert res.status_code == 201, res.get_json()
+    url = res.get_json()["photoUrl"]
+    assert url
+    got = agent.get(url)
+    assert got.status_code == 200
+    assert got.data == png
+
+
+def test_a_non_image_upload_is_rejected(app, fx, login):
+    import io
+
+    base = f"/api/p/{fx.property_a.id}/log-entries"
+    agent = login("agent@hvh.test")
+    # A real GIF: an image, but deliberately not an accepted one. Proves the check
+    # is a signature allow-list rather than "does this look like any image at all".
+    gif = b"GIF89a" + b"\x00" * 40
+    res = agent.post(base, data={"body": "bad", "photo": (io.BytesIO(gif), "x.png", "image/png")},
+                     content_type="multipart/form-data")
+    # ValidationFailed is 400 in app/errors.py, NOT 422 — 422 is ConsentError only.
+    # Assert the code and details too, matching test_work_order_photos.py's convention.
+    assert res.status_code == 400, res.get_json()
+    body = res.get_json()["error"]
+    assert body["code"] == "VALIDATION_FAILED"
+    assert body["details"] == {"photo": "unsupported_image_type"}
+
+
+def test_mentionables_lists_people_and_departments(app, fx, login):
+    agent = login("agent@hvh.test")
+    rows = agent.get(f"/api/p/{fx.property_a.id}/log-entries/mentionables").get_json()
+    kinds = {r["type"] for r in rows}
+    assert kinds == {"user", "department"}
+    assert fx.dept_housekeeping.id in [r["id"] for r in rows if r["type"] == "department"]
+
+
+def test_no_route_can_change_an_entry_body(app, fx, login):
+    """Spec §4.4 — immutability is a property of the route table, so assert on the map."""
+    base = f"/api/p/{fx.property_a.id}/log-entries"
+    agent = login("agent@hvh.test")
+    entry_id = agent.post(base, json={"body": "original"}).get_json()["id"]
+    assert agent.patch(f"{base}/{entry_id}", json={"body": "rewritten"}).status_code == 405
+    assert agent.delete(f"{base}/{entry_id}").status_code == 405
+    assert agent.get(f"{base}/{entry_id}").get_json()["body"] == "original"

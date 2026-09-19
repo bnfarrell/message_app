@@ -31,6 +31,7 @@ from app.schemas.log import (
     LogEntryOut,
     LogFeedOut,
     LogFeedQuery,
+    LogMentionableOut,
     LogMentionOut,
     LogPersonOut,
     MentionRef,
@@ -357,3 +358,36 @@ def _day_bound(db: Session, property_id: str, iso_date: str, exclusive_end: bool
         day = day + timedelta(days=1)
     tz = ZoneInfo(prop.timezone)
     return datetime.combine(day, time(0, 0), tzinfo=tz).astimezone(UTC)
+
+
+def mentionables(db: Session, property_id: str) -> list[LogMentionableOut]:
+    """One flat list for the composer's picker: every active member, then every
+    department. Ids are what the composer records; display names are presentation only."""
+    rows = db.execute(
+        select(UserAccount.id, UserAccount.first_name, UserAccount.last_name,
+               PropertyMembership.role)
+        .join(PropertyMembership, PropertyMembership.user_id == UserAccount.id)
+        .where(PropertyMembership.property_id == property_id,
+               UserAccount.status == UserStatus.active)
+        .order_by(UserAccount.first_name, UserAccount.last_name)).all()
+    people = [LogMentionableOut(type=MentionTargetType.user, id=uid,
+                                display_name=f"{first} {last}", subtitle=role.value)
+              for uid, first, last, role in rows]
+    dept_rows = db.execute(
+        select(Department.id, Department.name)
+        .where(Department.property_id == property_id)
+        .order_by(Department.name)).all()
+    departments = [LogMentionableOut(type=MentionTargetType.department, id=did,
+                                     display_name=name, subtitle="Department")
+                   for did, name in dept_rows]
+    return people + departments
+
+
+def get_photo(db: Session, property_id: str, entry_id: str) -> tuple[bytes, str]:
+    get(db, property_id, entry_id)  # 404s before the blob lookup, and scopes the property
+    row = db.scalar(select(LogEntryPhoto)
+                    .where(LogEntryPhoto.log_entry_id == entry_id,
+                           LogEntryPhoto.property_id == property_id))
+    if row is None:
+        raise NotFound("No photo on this log entry")
+    return row.data, row.content_type
