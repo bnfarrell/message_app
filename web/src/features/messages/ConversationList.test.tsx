@@ -28,7 +28,7 @@ vi.mock('../../api/hooks/staffMessages', () => ({
 
 describe('ConversationList', () => {
   it('shows an unread indicator for an unread conversation', () => {
-    renderWithProviders(<ConversationList onSelect={() => {}} onStartDm={() => {}} />)
+    renderWithProviders(<ConversationList onSelect={() => {}} />)
     expect(screen.getByText('Eli Engineer')).toBeInTheDocument()
     expect(screen.getByText('AC is out')).toBeInTheDocument()
     expect(screen.getByTestId('unread-dot')).toBeInTheDocument()

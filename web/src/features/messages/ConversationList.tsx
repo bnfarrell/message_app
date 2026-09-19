@@ -17,7 +17,6 @@ export function ConversationList({
 }: {
   selectedId?: string
   onSelect: (id: string) => void
-  onStartDm: (userId: string) => void
 }) {
   const { data, isPending, error } = useStaffConversations()
 

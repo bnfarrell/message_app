@@ -14,10 +14,14 @@ export function GroupPanel({
   open,
   onClose,
   existing,
+  onSelfRemoved,
 }: {
   open: boolean
   onClose: () => void
   existing?: StaffConversationOut
+  /** Called when the removal the user just triggered turned out to be their own — the
+   * server returns no updated conversation in that case (they can no longer see it). */
+  onSelfRemoved?: () => void
 }) {
   const { data: directory, isPending: directoryPending, error: directoryError } =
     useStaffDirectory()
@@ -111,7 +115,14 @@ export function GroupPanel({
                 {p.firstName} {p.lastName}
                 <button
                   type="button"
-                  onClick={() => remove.mutate({ userId: p.userId })}
+                  onClick={() =>
+                    remove.mutate(
+                      { userId: p.userId },
+                      // A void result means the server removed the caller themselves
+                      // (it only omits the updated conversation in that case).
+                      { onSuccess: (conv) => { if (!conv) onSelfRemoved?.() } },
+                    )
+                  }
                   disabled={remove.isPending}
                   aria-label={`Remove ${p.firstName} ${p.lastName}`}
                 >
