@@ -257,7 +257,7 @@ def test_entry_out_reports_ack_progress_for_the_viewer(database, fx):
 
 
 def test_acknowledging_twice_is_idempotent(database, fx):
-    from app.models import LogEntryAck
+    from app.models import AuditLog, LogEntryAck
 
     with database.session() as db:
         entry = log_domain.create(
@@ -272,6 +272,15 @@ def test_acknowledging_twice_is_idempotent(database, fx):
         rows = db.scalars(select(LogEntryAck)
                           .where(LogEntryAck.log_entry_id == entry.id)).all()
         assert len(rows) == 1
+        # Spec §9: the repeat must not duplicate AND must not re-audit. The unique
+        # constraint on (log_entry_id, user_id) already guarantees the row count above;
+        # this guarantees the audit trail (and the realtime event) aren't touched twice.
+        audit_rows = db.scalars(select(AuditLog).where(
+            AuditLog.action == "log_entry.acknowledged",
+            AuditLog.entity_id == entry.id)).all()
+        assert len(audit_rows) == 1, "a repeat acknowledgement must not re-audit"
+        updated_events = [e for e in db.info.get("events", []) if e.type == "log.entry.updated"]
+        assert len(updated_events) == 1, "a repeat acknowledgement must not re-fire the event"
         after = log_domain.get_out(db, fx.property_a.id, fx.engineer_a.id, entry.id)
         assert after.can_ack is False
         assert after.acked_by_me is True
@@ -315,6 +324,7 @@ def test_joining_the_department_later_does_not_change_the_denominator(database, 
 
 
 def test_pin_and_unpin_move_the_entry_in_and_out_of_the_pinned_block(database, fx):
+    from app.models import AuditLog
     from app.schemas.log import LogFeedQuery
 
     with database.session() as db:
@@ -326,6 +336,17 @@ def test_pin_and_unpin_move_the_entry_in_and_out_of_the_pinned_block(database, f
         assert [e.body for e in page.pinned] == ["pin me"]
         # Still in the chronological feed too — the client renders both (spec §4.2).
         assert [e.body for e in page.entries] == ["pin me"]
+
+        # A redundant pin by someone else must be a true no-op: it must not re-audit,
+        # and it must not steal or clear credit for who actually pinned it.
+        log_domain.set_pinned(db, fx.property_a.id, fx.manager_a.id, entry.id, True)
+        db.flush()
+        pin_audits = db.scalars(select(AuditLog).where(
+            AuditLog.action == "log_entry.pinned", AuditLog.entity_id == entry.id)).all()
+        assert len(pin_audits) == 1, "a redundant pin must not re-audit"
+        assert entry.pinned_by_user_id == fx.supervisor_a.id, \
+            "a redundant pin by someone else must not overwrite who pinned it"
+
         log_domain.set_pinned(db, fx.property_a.id, fx.supervisor_a.id, entry.id, False)
         db.flush()
         page2 = log_domain.feed(db, fx.property_a.id, fx.agent_a.id, LogFeedQuery())
