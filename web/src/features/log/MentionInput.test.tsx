@@ -39,6 +39,21 @@ describe('MentionInput', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
+  it('replaces the whole query even after the caret has moved off the end of it', async () => {
+    const onChange = vi.fn()
+    render(<MentionInput value="" mentions={[]} options={OPTIONS} onChange={onChange} />)
+    const textbox = screen.getByRole('textbox')
+    await userEvent.type(textbox, '@Ana')
+    // Move the caret back inside the query without changing the text — the listbox
+    // stays open (still filtered on "Ana") but the recorded query range is now stale.
+    await userEvent.keyboard('{ArrowLeft}{ArrowLeft}')
+    await userEvent.click(screen.getByRole('option', { name: /^Ana Marquez/ }))
+    const [body] = onChange.mock.calls.at(-1)!
+    // The whole "@Ana" query must be replaced — no leftover "na" tail from the part of
+    // the query that sat after the (now-stale) live caret position.
+    expect(body).toBe(tokenFor(OPTIONS[0]!))
+  })
+
   it('moves the active option with the arrow keys and picks it with Enter', async () => {
     const onChange = vi.fn()
     render(<MentionInput value="" mentions={[]} options={OPTIONS} onChange={onChange} />)

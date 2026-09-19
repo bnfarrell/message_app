@@ -4,7 +4,10 @@ import { cn } from '../../lib/cn'
 
 export type MentionRef = { type: 'user' | 'department'; id: string }
 
-/** Matches what `tokenFor` writes. Task 12's renderer parses entry bodies with this. */
+/** Matches what `tokenFor` writes. Task 12's renderer parses entry bodies with this.
+ *  Carries the `g` flag: it's a shared instance, so calling `.test()`/`.exec()` on it
+ *  directly leaves `lastIndex` set and can silently miss matches on a later call.
+ *  Use `split()`/`matchAll()` (or a fresh copy) instead. */
 export const TOKEN_RE = /@\[([^\]]+)\]\((user|department):([0-9a-f-]{36})\)/g
 
 /** §6.1: the id is authoritative, the display name is presentation only. */
@@ -69,9 +72,14 @@ export function MentionInput({
 
   function pick(option: LogMentionableOut) {
     if (!query) return
-    const caret = ref.current?.selectionStart ?? text.length
     const token = tokenFor(option)
-    const next = text.slice(0, query.start) + token + text.slice(caret)
+    // Replace using the query's own recorded extent (the "@" plus its term), not the
+    // live caret: the caret can move — ArrowLeft/Right, Home/End, a click — without
+    // ever firing `onChange`, which is the only thing that recomputes `query`. Using
+    // the live caret there would splice the token in against a stale end-of-range and
+    // leave a stray tail of the query text behind it.
+    const queryEnd = query.start + 1 + query.term.length
+    const next = text.slice(0, query.start) + token + text.slice(queryEnd)
     const already = mentions.some((m) => m.type === option.type && m.id === option.id)
     const nextMentions = already ? mentions : [...mentions, { type: option.type, id: option.id }]
     setText(next)
