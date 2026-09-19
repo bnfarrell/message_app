@@ -196,12 +196,31 @@ export type Roomnumber1 = string | null;
 export type Sladueat1 = string | null;
 export type Snoozeduntil2 = string | null;
 export type Unanswered = boolean;
+export type Id10 = string;
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "MentionTargetType".
+ */
+export type MentionTargetType = 'user' | 'department';
+/**
+ * @maxItems 100
+ */
+export type Ackaudience = MentionRef[];
 export type Body3 = string;
+export type Departmentid4 = string | null;
+export type Linkedconversationid = string | null;
+export type Linkedworkorderid = string | null;
+/**
+ * @maxItems 100
+ */
+export type Mentions1 = MentionRef[];
+export type Requiresack = boolean;
+export type Body4 = string;
 export type Kind = 'dm' | 'group';
 export type Name7 = string | null;
 export type Userid1 = string | null;
 export type Userids1 = string[] | null;
-export type Departmentid4 = string | null;
+export type Departmentid5 = string | null;
 export type Email1 = string;
 export type Firstname1 = string;
 export type Lastname1 = string;
@@ -213,7 +232,7 @@ export type Phone = string | null;
  */
 export type Role = 'agent' | 'dept_staff' | 'supervisor' | 'manager' | 'admin' | 'corporate';
 export type Assigneduserid4 = string | null;
-export type Departmentid5 = string | null;
+export type Departmentid6 = string | null;
 export type Description3 = string | null;
 export type Dueat = string | null;
 export type Locationref = string | null;
@@ -226,7 +245,7 @@ export type WorkOrderType1 = 'maintenance' | 'housekeeping' | 'guest_request' | 
 export type Count = number;
 export type Day = string;
 export type Closed = number;
-export type Departmentid6 = string | null;
+export type Departmentid7 = string | null;
 export type Departmentname = string;
 export type Meantimetoresolveseconds = number | null;
 export type Active6 = boolean;
@@ -240,7 +259,7 @@ export type DepartmentType =
   'front_desk' | 'housekeeping' | 'engineering' | 'food_beverage' | 'spa' | 'security' | 'valet' | 'other';
 export type Active7 = boolean;
 export type Escalationminutes1 = number;
-export type Id10 = string;
+export type Id11 = string;
 export type Name9 = string;
 export type Active8 = boolean | null;
 export type Escalationminutes2 = number | null;
@@ -249,8 +268,8 @@ export type Avatarurl = string | null;
 export type Name11 = string | null;
 export type Conversationids = string[];
 export type Stays = StayOut[];
-export type Body4 = string;
-export type Id11 = string;
+export type Body5 = string;
+export type Id12 = string;
 export type Sentat1 = string | null;
 export type Messages1 = GuestThreadMessage[];
 export type Phone1 = string;
@@ -266,17 +285,61 @@ export type Offset = number;
  * via the `definition` "LocationType".
  */
 export type LocationType1 = 'room' | 'public_area' | 'equipment' | 'other';
+export type Acknowledgedat = string;
+export type Name12 = string;
+export type Userid2 = string;
+export type Ackexpectedcount = number;
+export type Ackedbyme = boolean;
+export type Acks = LogAckOut[];
+export type Authoravatarurl = string | null;
+export type Authorname1 = string;
+export type Authoruserid2 = string;
+export type Body6 = string;
+export type Canack = boolean;
+export type Createdat3 = string;
+export type Departmentid8 = string | null;
+export type Departmentname1 = string | null;
+export type Id13 = string;
+export type Linkedconversationid1 = string | null;
+export type Linkedworkorderid1 = string | null;
+export type Displayname = string;
+export type Id14 = string;
+export type Mentions2 = LogMentionOut[];
+export type Name13 = string;
+export type Userid3 = string;
+export type Outstanding = LogPersonOut[];
+export type Photourl = string | null;
+export type Pinned = boolean;
+export type Pinnedat = string | null;
+export type Pinnedbyuserid = string | null;
+export type Requiresack1 = boolean;
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "Shift".
+ */
+export type Shift = 'am' | 'pm' | 'overnight';
+export type Entries = LogEntryOut[];
+export type Nextcursor = string | null;
+export type Pinned1 = LogEntryOut[];
+export type Cursor = string | null;
+export type Departmentid9 = string | null;
+export type From = string | null;
+export type Mentioningme = boolean;
+export type To = string | null;
+export type Displayname1 = string;
+export type Id15 = string;
+export type Subtitle = string | null;
 export type Email2 = string;
 export type Password1 = string;
-export type Departmentid7 = string | null;
+export type Departmentid10 = string | null;
 export type Propertycode = string;
 export type Propertyid = string;
 export type Propertyname1 = string;
-export type Body5 = string | null;
-export type Createdat3 = string;
+export type Body7 = string | null;
+export type Createdat4 = string;
 export type Entityid = string | null;
 export type Entitytype = string | null;
-export type Id12 = string;
+export type Id16 = string;
 export type Readat = string | null;
 export type Title2 = string;
 export type Type = string;
@@ -301,7 +364,7 @@ export type Workordersclosed = number;
 export type Workorderscreated1 = number;
 export type Workordersfromconversations = number;
 export type Theme = ('dark' | 'light' | 'system') | null;
-export type Body6 = string;
+export type Body8 = string;
 export type Conversationid1 = string | null;
 export type Address = string | null;
 export type Autoresolvehours = number;
@@ -309,9 +372,9 @@ export type Brand = string | null;
 export type Code = string;
 export type Currency = string;
 export type Helptext = string | null;
-export type Id13 = string;
+export type Id17 = string;
 export type Logourl = string | null;
-export type Name12 = string;
+export type Name14 = string;
 export type Phone2 = string | null;
 export type Primarycolor = string | null;
 export type Slaminutes = number;
@@ -323,48 +386,48 @@ export type Brand1 = string | null;
 export type Currency1 = string | null;
 export type Helptext1 = string | null;
 export type Logourl1 = string | null;
-export type Name13 = string | null;
+export type Name15 = string | null;
 export type Phone3 = string | null;
 export type Primarycolor1 = string | null;
 export type Slaminutes1 = number | null;
 export type Smsnumber1 = string | null;
 export type Timezone1 = string | null;
 export type Active9 = boolean;
-export type Body7 = string;
+export type Body9 = string;
 export type Category3 = string | null;
-export type Departmentid8 = string | null;
+export type Departmentid11 = string | null;
 export type Locale = string;
 export type Shortcut = string;
 export type Title3 = string;
 export type Active10 = boolean;
-export type Body8 = string;
+export type Body10 = string;
 export type Category4 = string | null;
-export type Departmentid9 = string | null;
-export type Id14 = string;
+export type Departmentid12 = string | null;
+export type Id18 = string;
 export type Locale1 = string;
 export type Shortcut1 = string;
 export type Title4 = string;
 export type Usagecount = number;
 export type Active11 = boolean | null;
-export type Body9 = string | null;
+export type Body11 = string | null;
 export type Category5 = string | null;
-export type Departmentid10 = string | null;
+export type Departmentid13 = string | null;
 export type Locale2 = string | null;
 export type Shortcut2 = string | null;
 export type Title5 = string | null;
 export type Conversationid2 = string;
-export type Body10 = string;
+export type Body12 = string;
 export type Characters = number;
 export type Segments = number;
-export type Body11 = string;
+export type Body13 = string;
 export type Digitalassetid1 = string | null;
 export type Draftpromptid = string | null;
-export type Body12 = string | null;
+export type Body14 = string | null;
 export type Memberships = MembershipOut[];
 export type Avatarurl1 = string | null;
 export type Email3 = string;
 export type Firstname2 = string;
-export type Id15 = string;
+export type Id19 = string;
 export type Lastname2 = string;
 export type Locale3 = string;
 export type At = string;
@@ -372,7 +435,7 @@ export type Propertyid1 = string;
 export type Type1 = string;
 export type Guestid = string;
 export type Inhouse = boolean;
-export type Name14 = string;
+export type Name16 = string;
 export type Phone4 = string;
 export type Propertyid2 = string;
 export type Propertyname2 = string;
@@ -381,9 +444,9 @@ export type Roomnumber2 = string | null;
 export type Stayid = string | null;
 export type Willfail = boolean;
 export type Avatarurl2 = string | null;
-export type Createdat4 = string;
-export type Displayname = string;
-export type Id16 = string;
+export type Createdat5 = string;
+export type Displayname2 = string;
+export type Id20 = string;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "StaffConversationKind".
@@ -391,61 +454,61 @@ export type Id16 = string;
 export type StaffConversationKind = 'dm' | 'group' | 'all';
 export type Lastmessageat = string | null;
 export type Lastmessagepreview1 = string | null;
-export type Authorname1 = string;
-export type Authoruserid2 = string;
-export type Body13 = string | null;
+export type Authorname2 = string;
+export type Authoruserid3 = string;
+export type Body15 = string | null;
 export type Conversationid3 = string;
-export type Createdat5 = string;
-export type Id17 = string;
-export type Photourl = string | null;
+export type Createdat6 = string;
+export type Id21 = string;
+export type Photourl1 = string | null;
 export type Messages2 = StaffMessageOut[];
-export type Name15 = string | null;
+export type Name17 = string | null;
 export type Otheruserid = string | null;
 export type Avatarurl3 = string | null;
-export type Departmentid11 = string | null;
+export type Departmentid14 = string | null;
 export type Firstname3 = string;
 export type Lastname3 = string;
-export type Userid2 = string;
+export type Userid4 = string;
 export type Participants = StaffParticipantOut[];
 export type Unread = boolean;
 export type Updatedat = string;
 export type Avatarurl4 = string | null;
-export type Createdat6 = string;
-export type Displayname1 = string;
-export type Id18 = string;
+export type Createdat7 = string;
+export type Displayname3 = string;
+export type Id22 = string;
 export type Lastmessageat1 = string | null;
 export type Lastmessagepreview2 = string | null;
-export type Name16 = string | null;
+export type Name18 = string | null;
 export type Otheruserid1 = string | null;
 export type Participants1 = StaffParticipantOut[];
 export type Unread1 = boolean;
 export type Updatedat1 = string;
 export type Avatarurl5 = string | null;
-export type Departmentid12 = string | null;
-export type Departmentname1 = string | null;
+export type Departmentid15 = string | null;
+export type Departmentname2 = string | null;
 export type Firstname4 = string;
 export type Lastname4 = string;
-export type Userid3 = string;
-export type Departmentid13 = string | null;
+export type Userid5 = string;
+export type Departmentid16 = string | null;
 export type Avatarurl6 = string | null;
-export type Departmentid14 = string | null;
+export type Departmentid17 = string | null;
 export type Email4 = string;
 export type Firstname5 = string;
-export type Id19 = string;
+export type Id23 = string;
 export type Lastname5 = string;
 export type Status = string;
 export type Count3 = number;
-export type Acknowledgedat = string | null;
+export type Acknowledgedat1 = string | null;
 export type Assigneduserid5 = string | null;
 export type Completedat1 = string | null;
-export type Createdat7 = string;
-export type Departmentid15 = string | null;
+export type Createdat8 = string;
+export type Departmentid18 = string | null;
 export type Description4 = string | null;
 export type Dueat1 = string | null;
 export type Comment = string | null;
-export type Createdat8 = string;
+export type Createdat9 = string;
 export type Fromvalue = string | null;
-export type Id20 = string;
+export type Id24 = string;
 export type Tovalue = string | null;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -453,17 +516,17 @@ export type Tovalue = string | null;
  */
 export type WorkOrderEventType =
   'created' | 'status_changed' | 'assigned' | 'commented' | 'priority_changed' | 'photo_attached';
-export type Userid4 = string | null;
+export type Userid6 = string | null;
 export type Username = string | null;
 export type Events = WorkOrderEventOut[];
 export type Guestname = string | null;
 export type Guestnotifiedat1 = string | null;
-export type Id21 = string;
+export type Id25 = string;
 export type Locationref1 = string | null;
 export type Bytesize = number;
 export type Contenttype = string;
-export type Createdat9 = string;
-export type Id22 = string;
+export type Createdat10 = string;
+export type Id26 = string;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderPhotoKind".
@@ -487,15 +550,15 @@ export type Dept1 = string | null;
 export type Includeclosed = boolean;
 export type Mine = boolean;
 export type Status1 = string | null;
-export type Acknowledgedat1 = string | null;
+export type Acknowledgedat2 = string | null;
 export type Assigneduserid6 = string | null;
 export type Completedat2 = string | null;
-export type Createdat10 = string;
-export type Departmentid16 = string | null;
+export type Createdat11 = string;
+export type Departmentid19 = string | null;
 export type Description5 = string | null;
 export type Dueat2 = string | null;
 export type Guestnotifiedat2 = string | null;
-export type Id23 = string;
+export type Id27 = string;
 export type Locationref2 = string | null;
 export type Reportedbyuserid1 = string | null;
 export type Sourceconversationid2 = string | null;
@@ -507,8 +570,8 @@ export type Verifiedat1 = string | null;
 export type Assigneduserid7 = string | null;
 export type Clearassignee = boolean;
 export type Comment1 = string | null;
-export type Departmentid17 = string | null;
-export type Departmentid18 = string | null;
+export type Departmentid20 = string | null;
+export type Departmentid21 = string | null;
 export type Description6 = string;
 export type Guestname1 = string | null;
 export type Locationref3 = string | null;
@@ -769,11 +832,37 @@ export interface ConversationSummary {
   unanswered: Unanswered;
 }
 /**
+ * The non-file half of the body; a `photo` file part may arrive alongside it, exactly
+ * like SendStaffMessageRequest.
+ *
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "CreateLogEntryRequest".
+ */
+export interface CreateLogEntryRequest {
+  ackAudience?: Ackaudience;
+  body: Body3;
+  departmentId?: Departmentid4;
+  linkedConversationId?: Linkedconversationid;
+  linkedWorkOrderId?: Linkedworkorderid;
+  mentions?: Mentions1;
+  requiresAck?: Requiresack;
+}
+/**
+ * One @mention or one member of an acknowledgement audience.
+ *
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "MentionRef".
+ */
+export interface MentionRef {
+  id: Id10;
+  type: MentionTargetType;
+}
+/**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "CreateNoteRequest".
  */
 export interface CreateNoteRequest {
-  body: Body3;
+  body: Body4;
 }
 /**
  * POST /staff-conversations. `kind` picks which of the other fields apply; validated
@@ -794,7 +883,7 @@ export interface CreateStaffConversationRequest {
  * via the `definition` "CreateStaffRequest".
  */
 export interface CreateStaffRequest {
-  departmentId?: Departmentid4;
+  departmentId?: Departmentid5;
   email: Email1;
   firstName: Firstname1;
   lastName: Lastname1;
@@ -808,7 +897,7 @@ export interface CreateStaffRequest {
  */
 export interface CreateWorkOrder {
   assignedUserId?: Assigneduserid4;
-  departmentId?: Departmentid5;
+  departmentId?: Departmentid6;
   description?: Description3;
   dueAt?: Dueat;
   locationRef?: Locationref;
@@ -833,7 +922,7 @@ export interface DayBucket {
  */
 export interface DepartmentBucket {
   closed: Closed;
-  departmentId?: Departmentid6;
+  departmentId?: Departmentid7;
   departmentName: Departmentname;
   meanTimeToResolveSeconds?: Meantimetoresolveseconds;
 }
@@ -854,7 +943,7 @@ export interface DepartmentIn {
 export interface DepartmentOut {
   active: Active7;
   escalationMinutes: Escalationminutes1;
-  id: Id10;
+  id: Id11;
   name: Name9;
   type: DepartmentType;
 }
@@ -901,10 +990,10 @@ export interface GuestThread {
  * via the `definition` "GuestThreadMessage".
  */
 export interface GuestThreadMessage {
-  body: Body4;
+  body: Body5;
   deliveryStatus: DeliveryStatus;
   direction: Direction;
-  id: Id11;
+  id: Id12;
   sentAt?: Sentat1;
 }
 /**
@@ -927,6 +1016,93 @@ export interface ListQuery {
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "LogAckOut".
+ */
+export interface LogAckOut {
+  acknowledgedAt: Acknowledgedat;
+  name: Name12;
+  userId: Userid2;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "LogEntryOut".
+ */
+export interface LogEntryOut {
+  ackExpectedCount: Ackexpectedcount;
+  ackedByMe: Ackedbyme;
+  acks?: Acks;
+  authorAvatarUrl?: Authoravatarurl;
+  authorName: Authorname1;
+  authorUserId: Authoruserid2;
+  body: Body6;
+  canAck: Canack;
+  createdAt: Createdat3;
+  departmentId?: Departmentid8;
+  departmentName?: Departmentname1;
+  id: Id13;
+  linkedConversationId?: Linkedconversationid1;
+  linkedWorkOrderId?: Linkedworkorderid1;
+  mentions?: Mentions2;
+  outstanding?: Outstanding;
+  photoUrl?: Photourl;
+  pinned: Pinned;
+  pinnedAt?: Pinnedat;
+  pinnedByUserId?: Pinnedbyuserid;
+  requiresAck: Requiresack1;
+  shift: Shift;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "LogMentionOut".
+ */
+export interface LogMentionOut {
+  displayName: Displayname;
+  id: Id14;
+  type: MentionTargetType;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "LogPersonOut".
+ */
+export interface LogPersonOut {
+  name: Name13;
+  userId: Userid3;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "LogFeedOut".
+ */
+export interface LogFeedOut {
+  entries?: Entries;
+  nextCursor?: Nextcursor;
+  pinned?: Pinned1;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "LogFeedQuery".
+ */
+export interface LogFeedQuery {
+  cursor?: Cursor;
+  departmentId?: Departmentid9;
+  from?: From;
+  mentioningMe?: Mentioningme;
+  shift?: Shift | null;
+  to?: To;
+}
+/**
+ * One row of the composer's picker — a person or a department, one flat list.
+ *
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "LogMentionableOut".
+ */
+export interface LogMentionableOut {
+  displayName: Displayname1;
+  id: Id15;
+  subtitle?: Subtitle;
+  type: MentionTargetType;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "LoginRequest".
  */
 export interface LoginRequest {
@@ -938,7 +1114,7 @@ export interface LoginRequest {
  * via the `definition` "MembershipOut".
  */
 export interface MembershipOut {
-  departmentId?: Departmentid7;
+  departmentId?: Departmentid10;
   propertyCode: Propertycode;
   propertyId: Propertyid;
   propertyName: Propertyname1;
@@ -949,11 +1125,11 @@ export interface MembershipOut {
  * via the `definition` "NotificationOut".
  */
 export interface NotificationOut {
-  body?: Body5;
-  createdAt: Createdat3;
+  body?: Body7;
+  createdAt: Createdat4;
   entityId?: Entityid;
   entityType?: Entitytype;
-  id: Id12;
+  id: Id16;
   readAt?: Readat;
   title: Title2;
   type: Type;
@@ -1006,7 +1182,7 @@ export interface PrefsPatch {
  * via the `definition` "PreviewRequest".
  */
 export interface PreviewRequest {
-  body: Body6;
+  body: Body8;
   conversationId?: Conversationid1;
 }
 /**
@@ -1020,9 +1196,9 @@ export interface PropertySettingsOut {
   code: Code;
   currency: Currency;
   helpText?: Helptext;
-  id: Id13;
+  id: Id17;
   logoUrl?: Logourl;
-  name: Name12;
+  name: Name14;
   phone?: Phone2;
   primaryColor?: Primarycolor;
   slaMinutes: Slaminutes;
@@ -1047,7 +1223,7 @@ export interface PropertySettingsPatch {
   currency?: Currency1;
   helpText?: Helptext1;
   logoUrl?: Logourl1;
-  name?: Name13;
+  name?: Name15;
   phone?: Phone3;
   primaryColor?: Primarycolor1;
   slaMinutes?: Slaminutes1;
@@ -1060,9 +1236,9 @@ export interface PropertySettingsPatch {
  */
 export interface QuickReplyIn {
   active?: Active9;
-  body: Body7;
+  body: Body9;
   category?: Category3;
-  departmentId?: Departmentid8;
+  departmentId?: Departmentid11;
   locale?: Locale;
   shortcut: Shortcut;
   title: Title3;
@@ -1073,10 +1249,10 @@ export interface QuickReplyIn {
  */
 export interface QuickReplyOut {
   active: Active10;
-  body: Body8;
+  body: Body10;
   category?: Category4;
-  departmentId?: Departmentid9;
-  id: Id14;
+  departmentId?: Departmentid12;
+  id: Id18;
   locale: Locale1;
   shortcut: Shortcut1;
   title: Title4;
@@ -1088,9 +1264,9 @@ export interface QuickReplyOut {
  */
 export interface QuickReplyPatch {
   active?: Active11;
-  body?: Body9;
+  body?: Body11;
   category?: Category5;
-  departmentId?: Departmentid10;
+  departmentId?: Departmentid13;
   locale?: Locale2;
   shortcut?: Shortcut2;
   title?: Title5;
@@ -1107,7 +1283,7 @@ export interface RenderRequest {
  * via the `definition` "RenderedQuickReply".
  */
 export interface RenderedQuickReply {
-  body: Body10;
+  body: Body12;
   characters: Characters;
   segments: Segments;
 }
@@ -1116,7 +1292,7 @@ export interface RenderedQuickReply {
  * via the `definition` "SendMessageRequest".
  */
 export interface SendMessageRequest {
-  body: Body11;
+  body: Body13;
   digitalAssetId?: Digitalassetid1;
   draftPromptId?: Draftpromptid;
 }
@@ -1128,7 +1304,7 @@ export interface SendMessageRequest {
  * via the `definition` "SendStaffMessageRequest".
  */
 export interface SendStaffMessageRequest {
-  body?: Body12;
+  body?: Body14;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1146,7 +1322,7 @@ export interface UserOut {
   avatarUrl?: Avatarurl1;
   email: Email3;
   firstName: Firstname2;
-  id: Id15;
+  id: Id19;
   lastName: Lastname2;
   locale: Locale3;
   notificationPrefs?: Notificationprefs;
@@ -1174,7 +1350,7 @@ export interface Payload {
 export interface SimGuest {
   guestId: Guestid;
   inHouse: Inhouse;
-  name: Name14;
+  name: Name16;
   phone: Phone4;
   propertyId: Propertyid2;
   propertyName: Propertyname2;
@@ -1190,14 +1366,14 @@ export interface SimGuest {
  */
 export interface StaffConversationDetail {
   avatarUrl?: Avatarurl2;
-  createdAt: Createdat4;
-  displayName: Displayname;
-  id: Id16;
+  createdAt: Createdat5;
+  displayName: Displayname2;
+  id: Id20;
   kind: StaffConversationKind;
   lastMessageAt?: Lastmessageat;
   lastMessagePreview?: Lastmessagepreview1;
   messages: Messages2;
-  name?: Name15;
+  name?: Name17;
   otherUserId?: Otheruserid;
   participants: Participants;
   unread: Unread;
@@ -1208,13 +1384,13 @@ export interface StaffConversationDetail {
  * via the `definition` "StaffMessageOut".
  */
 export interface StaffMessageOut {
-  authorName: Authorname1;
-  authorUserId: Authoruserid2;
-  body?: Body13;
+  authorName: Authorname2;
+  authorUserId: Authoruserid3;
+  body?: Body15;
   conversationId: Conversationid3;
-  createdAt: Createdat5;
-  id: Id17;
-  photoUrl?: Photourl;
+  createdAt: Createdat6;
+  id: Id21;
+  photoUrl?: Photourl1;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1222,11 +1398,11 @@ export interface StaffMessageOut {
  */
 export interface StaffParticipantOut {
   avatarUrl?: Avatarurl3;
-  departmentId?: Departmentid11;
+  departmentId?: Departmentid14;
   firstName: Firstname3;
   lastName: Lastname3;
   role: Role;
-  userId: Userid2;
+  userId: Userid4;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1234,13 +1410,13 @@ export interface StaffParticipantOut {
  */
 export interface StaffConversationOut {
   avatarUrl?: Avatarurl4;
-  createdAt: Createdat6;
-  displayName: Displayname1;
-  id: Id18;
+  createdAt: Createdat7;
+  displayName: Displayname3;
+  id: Id22;
   kind: StaffConversationKind;
   lastMessageAt?: Lastmessageat1;
   lastMessagePreview?: Lastmessagepreview2;
-  name?: Name16;
+  name?: Name18;
   otherUserId?: Otheruserid1;
   participants: Participants1;
   unread: Unread1;
@@ -1252,12 +1428,12 @@ export interface StaffConversationOut {
  */
 export interface StaffDirectoryEntryOut {
   avatarUrl?: Avatarurl5;
-  departmentId?: Departmentid12;
-  departmentName?: Departmentname1;
+  departmentId?: Departmentid15;
+  departmentName?: Departmentname2;
   firstName: Firstname4;
   lastName: Lastname4;
   role: Role;
-  userId: Userid3;
+  userId: Userid5;
 }
 /**
  * Per-property membership fields only.
@@ -1273,7 +1449,7 @@ export interface StaffDirectoryEntryOut {
  * via the `definition` "StaffPatch".
  */
 export interface StaffPatch {
-  departmentId?: Departmentid13;
+  departmentId?: Departmentid16;
   role?: Role | null;
 }
 /**
@@ -1282,10 +1458,10 @@ export interface StaffPatch {
  */
 export interface StaffUserOut {
   avatarUrl?: Avatarurl6;
-  departmentId?: Departmentid14;
+  departmentId?: Departmentid17;
   email: Email4;
   firstName: Firstname5;
-  id: Id19;
+  id: Id23;
   lastName: Lastname5;
   role: Role;
   status: Status;
@@ -1302,17 +1478,17 @@ export interface UnreadCount {
  * via the `definition` "WorkOrderDetail".
  */
 export interface WorkOrderDetail {
-  acknowledgedAt?: Acknowledgedat;
+  acknowledgedAt?: Acknowledgedat1;
   assignedUserId?: Assigneduserid5;
   completedAt?: Completedat1;
-  createdAt: Createdat7;
-  departmentId?: Departmentid15;
+  createdAt: Createdat8;
+  departmentId?: Departmentid18;
   description?: Description4;
   dueAt?: Dueat1;
   events: Events;
   guestName?: Guestname;
   guestNotifiedAt?: Guestnotifiedat1;
-  id: Id21;
+  id: Id25;
   locationRef?: Locationref1;
   locationType: LocationType1;
   photos: Photos;
@@ -1334,12 +1510,12 @@ export interface WorkOrderDetail {
  */
 export interface WorkOrderEventOut {
   comment?: Comment;
-  createdAt: Createdat8;
+  createdAt: Createdat9;
   fromValue?: Fromvalue;
-  id: Id20;
+  id: Id24;
   toValue?: Tovalue;
   type: WorkOrderEventType;
-  userId?: Userid4;
+  userId?: Userid6;
   userName?: Username;
 }
 /**
@@ -1349,8 +1525,8 @@ export interface WorkOrderEventOut {
 export interface WorkOrderPhotoOut {
   byteSize: Bytesize;
   contentType: Contenttype;
-  createdAt: Createdat9;
-  id: Id22;
+  createdAt: Createdat10;
+  id: Id26;
   kind: WorkOrderPhotoKind;
   uploadedByName?: Uploadedbyname;
   uploadedByUserId?: Uploadedbyuserid;
@@ -1374,15 +1550,15 @@ export interface WorkOrderListQuery {
  * via the `definition` "WorkOrderOut".
  */
 export interface WorkOrderOut {
-  acknowledgedAt?: Acknowledgedat1;
+  acknowledgedAt?: Acknowledgedat2;
   assignedUserId?: Assigneduserid6;
   completedAt?: Completedat2;
-  createdAt: Createdat10;
-  departmentId?: Departmentid16;
+  createdAt: Createdat11;
+  departmentId?: Departmentid19;
   description?: Description5;
   dueAt?: Dueat2;
   guestNotifiedAt?: Guestnotifiedat2;
-  id: Id23;
+  id: Id27;
   locationRef?: Locationref2;
   locationType: LocationType1;
   priority: Priority;
@@ -1404,7 +1580,7 @@ export interface WorkOrderPatch {
   assignedUserId?: Assigneduserid7;
   clearAssignee?: Clearassignee;
   comment?: Comment1;
-  departmentId?: Departmentid17;
+  departmentId?: Departmentid20;
   priority?: Priority | null;
   status?: WorkOrderStatus | null;
 }
@@ -1422,7 +1598,7 @@ export interface WorkOrderPhotoUpload {
  * via the `definition` "WorkOrderPrefill".
  */
 export interface WorkOrderPrefill {
-  departmentId?: Departmentid18;
+  departmentId?: Departmentid21;
   description: Description6;
   guestName?: Guestname1;
   locationRef?: Locationref3;

@@ -15,6 +15,7 @@ from app.schemas import (
     content,
     conversations,
     dev,
+    log,
     notifications,
     properties,
     staff_messages,
@@ -23,7 +24,7 @@ from app.schemas import (
 )
 
 MODULES = (auth, users, conversations, work_orders, content, notifications, analytics,
-           properties, staff_messages, dev)
+           properties, staff_messages, log, dev)
 DEFAULT_OUT = str(Path(__file__).resolve().parents[3] / "web" / "src" / "api" / "schema.json")
 
 
