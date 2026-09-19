@@ -23,6 +23,7 @@ export function ThreadView({
   const [draft, setDraft] = useState('')
   const [clientError, setClientError] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     markRead.mutate()
@@ -30,6 +31,12 @@ export function ThreadView({
     // re-render would spam the endpoint.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId])
+
+  // Reveal the newest message on initial load and whenever the message count changes
+  // (a send or an incoming message) — not on every unrelated re-render.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView?.()
+  }, [data?.messages.length])
 
   if (isPending) {
     return (
@@ -96,7 +103,14 @@ export function ThreadView({
             </div>
           ))
         )}
+        <div ref={bottomRef} />
       </div>
+
+      {send.error ? (
+        <p role="alert" className="mx-4 mb-2 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
+          {send.error.message}
+        </p>
+      ) : null}
 
       {clientError ? (
         <p role="alert" className="mx-4 mb-2 rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
