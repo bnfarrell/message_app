@@ -43,7 +43,8 @@ Dev and the test suite still run SQLite, so **SQLite passing is not evidence tha
   VARCHAR + CHECK constraint that behaves the same on both engines.
 - `app/config.py:normalise_database_url` rewrites a provider-style `postgresql://` to
   `postgresql+psycopg://`, because a bare URL resolves to psycopg2, which is not installed.
-- Datetimes are stored **naive UTC** (`UTCDateTime` binds any aware datetime to naive UTC).
+- Datetimes: `UTCDateTime` stores **naive UTC** and returns **aware UTC**. It raises
+  `ValueError` on a naive input — get the time from `app.clock.now()`, which tests freeze.
   Convert through the property's own timezone for anything user-facing; never compare a local
   wall-clock value straight against a column.
 
