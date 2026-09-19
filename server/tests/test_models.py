@@ -16,6 +16,7 @@ EXPECTED_TABLES = {
     "work_order_event", "work_order_photo", "draft_prompt", "quick_reply", "digital_asset",
     "user_session",
     "job", "notification", "audit_log", "pms_event", "alembic_version",
+    "staff_conversation", "staff_conversation_participant", "staff_message",
 }
 
 
@@ -115,3 +116,22 @@ def test_utc_datetime_round_trips_aware(db_url):
         assert isinstance(loaded.created_at, datetime)
         assert loaded.created_at.tzinfo == UTC
     database.engine.dispose()
+
+
+def test_staff_conversation_round_trip(database, fx):
+    from app.models import StaffConversation, StaffConversationParticipant, StaffMessage
+    from app.schemas.enums import StaffConversationKind
+
+    with database.session() as db:
+        conv = StaffConversation(property_id=fx.property_a.id, kind=StaffConversationKind.dm)
+        db.add(conv)
+        db.flush()
+        db.add(StaffConversationParticipant(conversation_id=conv.id, user_id=fx.agent_a.id))
+        db.add(StaffConversationParticipant(conversation_id=conv.id, user_id=fx.engineer_a.id))
+        db.add(StaffMessage(conversation_id=conv.id, property_id=fx.property_a.id,
+                            author_user_id=fx.agent_a.id, body="hi"))
+        conv_id = conv.id
+
+    with database.session() as db:
+        loaded = db.get(StaffConversation, conv_id)
+        assert loaded.kind == StaffConversationKind.dm
