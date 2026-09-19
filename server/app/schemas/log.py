@@ -1,6 +1,8 @@
+import json
 from datetime import datetime
+from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.schemas.common import CamelModel
 from app.schemas.enums import MentionTargetType, Shift
@@ -28,6 +30,20 @@ class CreateLogEntryRequest(CamelModel):
     ack_audience: list[MentionRef] = Field(default_factory=list, max_length=MAX_MENTIONS)
     linked_work_order_id: str | None = None
     linked_conversation_id: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _parse_multipart_lists(cls, data: Any) -> Any:
+        """`parse_body` falls back to `request.form.to_dict()` for multipart requests, which
+        yields strings for every field. A JSON body already gives these as lists, so only
+        the string case (the multipart path) needs decoding."""
+        if not isinstance(data, dict):
+            return data
+        for field in ("mentions", "ackAudience"):
+            value = data.get(field)
+            if isinstance(value, str):
+                data[field] = json.loads(value)
+        return data
 
 
 class LogFeedQuery(CamelModel):

@@ -443,6 +443,31 @@ def test_an_oversized_body_is_refused_before_it_is_parsed(app, fx, login):
     assert res.get_json()["error"]["details"] == {"photo": "file_too_large"}
 
 
+def test_a_multipart_photo_post_still_persists_a_mention(app, fx, login):
+    """`request.form.to_dict()` yields strings for every field, so `mentions` arrives as a
+    JSON-encoded string rather than a list when the composer attaches a photo. Without
+    CreateLogEntryRequest's before-validator parsing that string, this combination fails
+    validation and the mention is silently dropped.
+    """
+    import io
+    import json
+
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00IHDR-not-a-real-png-but-the-signature-is"
+
+    base = f"/api/p/{fx.property_a.id}/log-entries"
+    agent = login("agent@hvh.test")
+    mentions = json.dumps([{"type": "user", "id": fx.engineer_a.id}])
+    res = agent.post(base, data={"body": "with photo and a mention",
+                                 "mentions": mentions,
+                                 "photo": (io.BytesIO(png), "x.png", "image/png")},
+                     content_type="multipart/form-data")
+    assert res.status_code == 201, res.get_json()
+    body = res.get_json()
+    assert body["mentions"] == [
+        {"type": "user", "id": fx.engineer_a.id, "displayName": "Eli Engineer"},
+    ]
+
+
 def test_mentionables_lists_people_and_departments(app, fx, login):
     agent = login("agent@hvh.test")
     rows = agent.get(f"/api/p/{fx.property_a.id}/log-entries/mentionables").get_json()
