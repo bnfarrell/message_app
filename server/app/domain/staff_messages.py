@@ -237,7 +237,8 @@ def photo_url(property_id: str, conversation_id: str, message_id: str) -> str:
 
 def send_message(db: Session, property_id: str, conversation_id: str, actor_user_id: str, *,
                  body: str | None = None, photo_content_type: str | None = None,
-                 photo_byte_size: int | None = None, photo_data: bytes | None = None) -> StaffMessage:
+                 photo_byte_size: int | None = None,
+                 photo_data: bytes | None = None) -> StaffMessage:
     conv = get_for_participant(db, property_id, conversation_id, actor_user_id)
     body = body.strip() if body else None
     if not body and not photo_data:
@@ -314,6 +315,16 @@ def remove_participant(db: Session, property_id: str, conversation_id: str, acto
         db.flush()
     queue_event(db, property_id, "staff_conversation.updated", {"id": conv.id})
     return conv
+
+
+def get_message_photo(db: Session, property_id: str, conversation_id: str,
+                      message_id: str) -> StaffMessage:
+    msg = db.scalar(select(StaffMessage).where(
+        StaffMessage.id == message_id, StaffMessage.property_id == property_id,
+        StaffMessage.conversation_id == conversation_id))
+    if msg is None or msg.photo_data is None:
+        raise NotFound("Photo not found")
+    return msg
 
 
 def directory(db: Session, property_id: str, viewer_user_id: str) -> list[StaffDirectoryEntryOut]:

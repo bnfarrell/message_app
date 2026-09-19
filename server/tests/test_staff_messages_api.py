@@ -192,3 +192,35 @@ def test_dm_rejects_rename_and_participant_changes(app, fx, client, database, lo
     assert agent.patch(f"{base}/{conv['id']}", json={"name": "x"}).status_code == 400
     assert agent.post(f"{base}/{conv['id']}/participants",
                       json={"userIds": [fx.housekeeper_a.id]}).status_code == 400
+
+
+JPEG_BYTES = b"\xff\xd8\xff" + b"\x00" * 100
+
+
+def test_send_photo_only_message_and_fetch_it(app, fx, client, database, login):
+    from io import BytesIO
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    agent = login("agent@hvh.test")
+    conv = agent.post(base, json={"kind": "dm", "userId": fx.engineer_a.id}).get_json()
+    res = agent.post(f"{base}/{conv['id']}/messages",
+                     data={"photo": (BytesIO(JPEG_BYTES), "room.jpg")},
+                     content_type="multipart/form-data")
+    assert res.status_code == 201
+    msg = res.get_json()
+    assert msg["body"] is None and msg["photoUrl"]
+    eng = login("engineer@hvh.test")
+    fetched = eng.get(msg["photoUrl"])
+    assert fetched.status_code == 200 and fetched.data == JPEG_BYTES
+    outsider = login("supervisor@hvh.test")
+    assert outsider.get(msg["photoUrl"]).status_code == 404
+
+
+def test_photo_rejects_bad_type_and_oversize(app, fx, client, database, login):
+    from io import BytesIO
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    agent = login("agent@hvh.test")
+    conv = agent.post(base, json={"kind": "dm", "userId": fx.engineer_a.id}).get_json()
+    bad_type = agent.post(f"{base}/{conv['id']}/messages",
+                          data={"photo": (BytesIO(b"not an image"), "x.jpg")},
+                          content_type="multipart/form-data")
+    assert bad_type.status_code == 400
