@@ -70,3 +70,68 @@ def test_directory_excludes_self_and_includes_role_department(app, fx, client, d
     assert fx.agent_a.id not in ids
     eng = next(r for r in rows if r["userId"] == fx.engineer_a.id)
     assert eng["role"] == "dept_staff" and eng["departmentName"] == "Engineering"
+
+
+def test_send_message_updates_list_and_unread(app, fx, client, database, login, events):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    agent = login("agent@hvh.test")
+    eng = login("engineer@hvh.test")
+    conv = agent.post(base, json={"kind": "dm", "userId": fx.engineer_a.id}).get_json()
+    send = agent.post(f"{base}/{conv['id']}/messages", data={"body": "AC in 412 is out"})
+    assert send.status_code == 201
+    msg = send.get_json()
+    assert msg["body"] == "AC in 412 is out" and msg["authorName"] == "Ava Agent"
+    assert any(e.type == "staff_message.created" for e in events)
+
+    listed = eng.get(base).get_json()
+    row = next(r for r in listed if r["id"] == conv["id"])
+    assert row["unread"] is True and row["lastMessagePreview"] == "AC in 412 is out"
+
+    eng.post(f"{base}/{conv['id']}/read")
+    listed_after = eng.get(base).get_json()
+    row_after = next(r for r in listed_after if r["id"] == conv["id"])
+    assert row_after["unread"] is False
+
+    # The sender was never unread on their own message.
+    sender_view = agent.get(base).get_json()
+    sender_row = next(r for r in sender_view if r["id"] == conv["id"])
+    assert sender_row["unread"] is False
+
+
+def test_send_message_notifies_other_participants(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    agent = login("agent@hvh.test")
+    conv = agent.post(base, json={"kind": "dm", "userId": fx.engineer_a.id}).get_json()
+    agent.post(f"{base}/{conv['id']}/messages", data={"body": "ping"})
+    eng = login("engineer@hvh.test")
+    notes = eng.get(f"/api/p/{fx.property_a.id}/notifications").get_json()
+    assert any(n["type"] == "staff_message" and n["entityId"] == conv["id"] for n in notes)
+
+
+def test_send_message_requires_body_or_photo(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    agent = login("agent@hvh.test")
+    conv = agent.post(base, json={"kind": "dm", "userId": fx.engineer_a.id}).get_json()
+    res = agent.post(f"{base}/{conv['id']}/messages", data={})
+    assert res.status_code == 400
+
+
+def test_non_participant_cannot_send_or_read(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    agent = login("agent@hvh.test")
+    conv = agent.post(base, json={"kind": "dm", "userId": fx.engineer_a.id}).get_json()
+    outsider = login("supervisor@hvh.test")
+    assert outsider.post(f"{base}/{conv['id']}/messages",
+                         data={"body": "hi"}).status_code == 404
+    assert outsider.post(f"{base}/{conv['id']}/read").status_code == 404
+
+
+def test_all_channel_message_reaches_every_member(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    admin = login("admin@hvh.test")
+    all_channel = next(r for r in admin.get(base).get_json() if r["kind"] == "all")
+    admin.post(f"{base}/{all_channel['id']}/messages", data={"body": "Welcome"})
+    eng = login("engineer@hvh.test")
+    listed = eng.get(base).get_json()
+    row = next(r for r in listed if r["kind"] == "all")
+    assert row["unread"] is True and row["lastMessagePreview"] == "Welcome"

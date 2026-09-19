@@ -233,6 +233,40 @@ def photo_url(property_id: str, conversation_id: str, message_id: str) -> str:
     return f"/api/p/{property_id}/staff-conversations/{conversation_id}/messages/{message_id}/photo"
 
 
+def send_message(db: Session, property_id: str, conversation_id: str, actor_user_id: str, *,
+                 body: str | None = None, photo_content_type: str | None = None,
+                 photo_byte_size: int | None = None, photo_data: bytes | None = None) -> StaffMessage:
+    conv = get_for_participant(db, property_id, conversation_id, actor_user_id)
+    body = body.strip() if body else None
+    if not body and not photo_data:
+        raise ValidationFailed("A message needs text or a photo")
+    msg = StaffMessage(conversation_id=conv.id, property_id=property_id,
+                       author_user_id=actor_user_id, body=body,
+                       photo_content_type=photo_content_type, photo_byte_size=photo_byte_size,
+                       photo_data=photo_data)
+    db.add(msg)
+    conv.last_message_at = clock.now()
+    db.flush()
+    ensure_participant(db, conv.id, actor_user_id).last_read_at = clock.now()
+    audit.record(db, property_id, actor_user_id, "staff_message.sent", "staff_conversation",
+                conv.id)
+    queue_event(db, property_id, "staff_message.created", {"conversationId": conv.id})
+    other_ids = [p.user_id for p in _participants_out(db, conv) if p.user_id != actor_user_id]
+    if other_ids:
+        sender = db.get(UserAccount, actor_user_id)
+        preview = body or "Sent a photo"
+        notifications.notify_users(db, property_id, other_ids, "staff_message",
+                                   f"{sender.first_name} {sender.last_name}", body=preview,
+                                   entity_type="staff_conversation", entity_id=conv.id)
+    return msg
+
+
+def mark_read(db: Session, property_id: str, conversation_id: str, user_id: str) -> None:
+    conv = get_for_participant(db, property_id, conversation_id, user_id)
+    participant = ensure_participant(db, conv.id, user_id)
+    participant.last_read_at = clock.now()
+
+
 def directory(db: Session, property_id: str, viewer_user_id: str) -> list[StaffDirectoryEntryOut]:
     rows = db.execute(
         select(UserAccount, PropertyMembership, Department)
