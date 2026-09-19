@@ -254,3 +254,79 @@ def test_entry_out_reports_ack_progress_for_the_viewer(database, fx):
         assert [p.user_id for p in seen_by_engineer.outstanding] == [fx.engineer_a.id]
         seen_by_author = log_domain.get_out(db, fx.property_a.id, fx.agent_a.id, entry.id)
         assert seen_by_author.can_ack is False
+
+
+def test_acknowledging_twice_is_idempotent(database, fx):
+    from app.models import LogEntryAck
+
+    with database.session() as db:
+        entry = log_domain.create(
+            db, fx.property_a.id, fx.agent_a.id,
+            _req(requires_ack=True,
+                 ack_audience=[MentionRef(type=MentionTargetType.user,
+                                          id=fx.engineer_a.id)]))
+        db.flush()
+        log_domain.acknowledge(db, fx.property_a.id, fx.engineer_a.id, entry.id)
+        log_domain.acknowledge(db, fx.property_a.id, fx.engineer_a.id, entry.id)
+        db.flush()
+        rows = db.scalars(select(LogEntryAck)
+                          .where(LogEntryAck.log_entry_id == entry.id)).all()
+        assert len(rows) == 1
+        after = log_domain.get_out(db, fx.property_a.id, fx.engineer_a.id, entry.id)
+        assert after.can_ack is False
+        assert after.acked_by_me is True
+
+
+def test_a_user_outside_the_audience_cannot_acknowledge(database, fx):
+    from app.errors import Forbidden
+
+    with database.session() as db:
+        entry = log_domain.create(
+            db, fx.property_a.id, fx.agent_a.id,
+            _req(requires_ack=True,
+                 ack_audience=[MentionRef(type=MentionTargetType.user,
+                                          id=fx.engineer_a.id)]))
+        db.flush()
+        with pytest.raises(Forbidden):
+            log_domain.acknowledge(db, fx.property_a.id, fx.housekeeper_a.id, entry.id)
+
+
+def test_joining_the_department_later_does_not_change_the_denominator(database, fx):
+    from app.errors import Forbidden
+    from app.models import PropertyMembership
+
+    with database.session() as db:
+        entry = log_domain.create(
+            db, fx.property_a.id, fx.agent_a.id,
+            _req(requires_ack=True,
+                 ack_audience=[MentionRef(type=MentionTargetType.department,
+                                          id=fx.dept_engineering.id)]))
+        db.flush()
+        before = len(entry.ack_expected)
+        membership = db.scalar(select(PropertyMembership).where(
+            PropertyMembership.user_id == fx.agent_a2.id,
+            PropertyMembership.property_id == fx.property_a.id))
+        membership.department_id = fx.dept_engineering.id
+        db.flush()
+        refreshed = log_domain.get_out(db, fx.property_a.id, fx.agent_a.id, entry.id)
+        assert refreshed.ack_expected_count == before
+        with pytest.raises(Forbidden):
+            log_domain.acknowledge(db, fx.property_a.id, fx.agent_a2.id, entry.id)
+
+
+def test_pin_and_unpin_move_the_entry_in_and_out_of_the_pinned_block(database, fx):
+    from app.schemas.log import LogFeedQuery
+
+    with database.session() as db:
+        entry = log_domain.create(db, fx.property_a.id, fx.agent_a.id, _req(body="pin me"))
+        db.flush()
+        log_domain.set_pinned(db, fx.property_a.id, fx.supervisor_a.id, entry.id, True)
+        db.flush()
+        page = log_domain.feed(db, fx.property_a.id, fx.agent_a.id, LogFeedQuery())
+        assert [e.body for e in page.pinned] == ["pin me"]
+        # Still in the chronological feed too — the client renders both (spec §4.2).
+        assert [e.body for e in page.entries] == ["pin me"]
+        log_domain.set_pinned(db, fx.property_a.id, fx.supervisor_a.id, entry.id, False)
+        db.flush()
+        page2 = log_domain.feed(db, fx.property_a.id, fx.agent_a.id, LogFeedQuery())
+        assert page2.pinned == []

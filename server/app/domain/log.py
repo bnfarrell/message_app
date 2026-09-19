@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app import clock
 from app.domain import audit, notifications
 from app.domain.users import active_members_of_department
-from app.errors import NotFound, ValidationFailed
+from app.errors import Forbidden, NotFound, ValidationFailed
 from app.models import (
     Conversation,
     Department,
@@ -309,6 +309,41 @@ def get(db: Session, property_id: str, entry_id: str) -> LogEntry:
 
 def get_out(db: Session, property_id: str, viewer_user_id: str, entry_id: str) -> LogEntryOut:
     return _to_out(db, [get(db, property_id, entry_id)], viewer_user_id)[0]
+
+
+def acknowledge(db: Session, property_id: str, user_id: str, entry_id: str) -> LogEntry:
+    entry = get(db, property_id, entry_id)
+    if user_id not in (entry.ack_expected or []):
+        # An acknowledgement from somebody who was never asked is noise in the audit
+        # trail, so it is refused rather than silently recorded (spec §5).
+        raise Forbidden("You were not asked to acknowledge this entry")
+    existing = db.scalar(select(LogEntryAck).where(
+        LogEntryAck.log_entry_id == entry.id, LogEntryAck.user_id == user_id))
+    if existing is not None:
+        return entry
+    db.add(LogEntryAck(log_entry_id=entry.id, property_id=property_id, user_id=user_id,
+                       acknowledged_at=clock.now()))
+    db.flush()
+    audit.record(db, property_id, user_id, "log_entry.acknowledged", "log_entry", entry.id)
+    queue_event(db, property_id, "log.entry.updated", {"id": entry.id})
+    return entry
+
+
+def set_pinned(db: Session, property_id: str, user_id: str, entry_id: str,
+               pinned: bool) -> LogEntry:
+    entry = get(db, property_id, entry_id)
+    if entry.pinned == pinned:
+        return entry
+    before = {"pinned": entry.pinned}
+    entry.pinned = pinned
+    entry.pinned_by_user_id = user_id if pinned else None
+    entry.pinned_at = clock.now() if pinned else None
+    db.flush()
+    audit.record(db, property_id, user_id, "log_entry.pinned" if pinned else
+                 "log_entry.unpinned", "log_entry", entry.id,
+                 before=before, after={"pinned": pinned})
+    queue_event(db, property_id, "log.entry.updated", {"id": entry.id})
+    return entry
 
 
 def _day_bound(db: Session, property_id: str, iso_date: str, exclusive_end: bool) -> datetime:
