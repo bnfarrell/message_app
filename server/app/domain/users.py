@@ -18,7 +18,7 @@ from app.models import (
     UserAccount,
     WorkOrder,
 )
-from app.schemas.enums import Role
+from app.schemas.enums import Role, UserStatus
 from app.schemas.users import (
     CreateStaffRequest,
     DepartmentIn,
@@ -103,6 +103,27 @@ def members_of_department(db: Session, property_id: str, department_id: str) -> 
             select(PropertyMembership.user_id).where(
                 PropertyMembership.property_id == property_id,
                 PropertyMembership.department_id == department_id,
+            )
+        ).all()
+    )
+
+
+def active_members_of_department(db: Session, property_id: str,
+                                 department_id: str) -> list[str]:
+    """Like members_of_department, but only accounts that can actually act.
+
+    The hotel log's acknowledgement denominator uses this: a disabled account can never
+    acknowledge, so counting it would make the denominator permanently unreachable
+    (hotel-log spec §3.2).
+    """
+    return list(
+        db.scalars(
+            select(PropertyMembership.user_id)
+            .join(UserAccount, UserAccount.id == PropertyMembership.user_id)
+            .where(
+                PropertyMembership.property_id == property_id,
+                PropertyMembership.department_id == department_id,
+                UserAccount.status == UserStatus.active,
             )
         ).all()
     )
