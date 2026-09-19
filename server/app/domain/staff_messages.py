@@ -109,7 +109,7 @@ def create_conversation(db: Session, property_id: str, actor_user_id: str,
         queue_event(db, property_id, "staff_conversation.created", {"id": conv.id})
         return conv, True
 
-    if not data.name or not data.user_ids:
+    if not data.name or not data.name.strip() or not data.user_ids:
         raise ValidationFailed("name and userIds are required for a group")
     for uid in data.user_ids:
         _assert_member(db, property_id, uid)
@@ -279,11 +279,16 @@ def update_group(db: Session, property_id: str, conversation_id: str, actor_user
                  data: GroupPatch) -> StaffConversation:
     conv = get_for_participant(db, property_id, conversation_id, actor_user_id)
     _assert_group(conv)
+    before = {"name": conv.name, "avatar_url": conv.avatar_url}
     if data.name is not None:
+        if not data.name.strip():
+            raise ValidationFailed("name must not be blank")
         conv.name = data.name.strip()
     if data.avatar_url is not None:
         conv.avatar_url = data.avatar_url
     db.flush()
+    audit.record(db, property_id, actor_user_id, "staff_conversation.renamed", "staff_conversation",
+                conv.id, before=before, after={"name": conv.name, "avatar_url": conv.avatar_url})
     queue_event(db, property_id, "staff_conversation.updated", {"id": conv.id})
     return conv
 
@@ -299,6 +304,8 @@ def add_participants(db: Session, property_id: str, conversation_id: str, actor_
     for uid in data.user_ids:
         _assert_member(db, property_id, uid)
         ensure_participant(db, conv.id, uid)
+    audit.record(db, property_id, actor_user_id, "staff_conversation.participant_added",
+                "staff_conversation", conv.id, after={"user_ids": data.user_ids})
     queue_event(db, property_id, "staff_conversation.updated", {"id": conv.id})
     return conv
 
@@ -313,6 +320,8 @@ def remove_participant(db: Session, property_id: str, conversation_id: str, acto
     if row is not None:
         db.delete(row)
         db.flush()
+        audit.record(db, property_id, actor_user_id, "staff_conversation.participant_removed",
+                    "staff_conversation", conv.id, after={"user_id": target_user_id})
     queue_event(db, property_id, "staff_conversation.updated", {"id": conv.id})
     return conv
 

@@ -90,7 +90,8 @@ def get_message_photo(property_id: str, conversation_id: str, message_id: str):
     with db_session() as db:
         staff_messages.get_for_participant(db, g.property_id, conversation_id, g.user.id)
         msg = staff_messages.get_message_photo(db, g.property_id, conversation_id, message_id)
-    return Response(msg.photo_data, mimetype=msg.photo_content_type, headers={
+        body, content_type = msg.photo_data, msg.photo_content_type
+    return Response(body, mimetype=content_type, headers={
         "Content-Disposition": "inline",
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, max-age=86400",

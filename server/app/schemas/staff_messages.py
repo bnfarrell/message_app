@@ -6,6 +6,8 @@ from pydantic import Field
 from app.schemas.common import CamelModel
 from app.schemas.enums import Role, StaffConversationKind
 
+MAX_PARTICIPANTS_PER_REQUEST = 100  # generous for a hotel; bounds the per-id _assert_member SELECTs
+
 
 class CreateStaffConversationRequest(CamelModel):
     """POST /staff-conversations. `kind` picks which of the other fields apply; validated
@@ -15,7 +17,8 @@ class CreateStaffConversationRequest(CamelModel):
     kind: Literal[StaffConversationKind.dm, StaffConversationKind.group]
     user_id: str | None = None          # required, kind=dm
     name: str | None = Field(default=None, min_length=1, max_length=100)  # required, kind=group
-    user_ids: list[str] | None = None   # required, kind=group
+    # required, kind=group
+    user_ids: list[str] | None = Field(default=None, max_length=MAX_PARTICIPANTS_PER_REQUEST)
 
 
 class GroupPatch(CamelModel):
@@ -24,7 +27,7 @@ class GroupPatch(CamelModel):
 
 
 class AddParticipantsRequest(CamelModel):
-    user_ids: list[str] = Field(min_length=1)
+    user_ids: list[str] = Field(min_length=1, max_length=MAX_PARTICIPANTS_PER_REQUEST)
 
 
 class SendStaffMessageRequest(CamelModel):

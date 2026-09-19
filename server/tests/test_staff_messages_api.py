@@ -52,6 +52,20 @@ def test_non_participant_gets_404(app, fx, client, database, login):
     assert outsider.get(f"{base}/{conv['id']}").status_code == 404
 
 
+def test_create_dm_rejects_user_from_another_property(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    agent = login("agent@hvh.test")
+    res = agent.post(base, json={"kind": "dm", "userId": fx.agent_b.id})
+    assert res.status_code == 400
+
+
+def test_create_group_rejects_user_from_another_property(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    sup = login("supervisor@hvh.test")
+    res = sup.post(base, json={"kind": "group", "name": "Team", "userIds": [fx.agent_b.id]})
+    assert res.status_code == 400
+
+
 def test_cross_property_isolation(app, fx, client, database, login):
     base_a = f"/api/p/{fx.property_a.id}/staff-conversations"
     base_b = f"/api/p/{fx.property_b.id}/staff-conversations"
@@ -160,6 +174,22 @@ def test_group_rename_add_and_remove_participant(app, fx, client, database, logi
     assert hk.get(f"{base}/{group['id']}").status_code == 404  # removed member loses access
 
 
+def test_group_create_rejects_whitespace_only_name(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    sup = login("supervisor@hvh.test")
+    res = sup.post(base, json={"kind": "group", "name": "   ", "userIds": [fx.engineer_a.id]})
+    assert res.status_code == 400
+
+
+def test_group_rename_rejects_whitespace_only_name(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    sup = login("supervisor@hvh.test")
+    group = sup.post(base, json={"kind": "group", "name": "Eng team",
+                                 "userIds": [fx.engineer_a.id]}).get_json()
+    res = sup.patch(f"{base}/{group['id']}", json={"name": "   "})
+    assert res.status_code == 400
+
+
 def test_all_channel_rejects_rename_and_remove(app, fx, client, database, login):
     base = f"/api/p/{fx.property_a.id}/staff-conversations"
     admin = login("admin@hvh.test")
@@ -215,7 +245,7 @@ def test_send_photo_only_message_and_fetch_it(app, fx, client, database, login):
     assert outsider.get(msg["photoUrl"]).status_code == 404
 
 
-def test_photo_rejects_bad_type_and_oversize(app, fx, client, database, login):
+def test_photo_rejects_bad_type(app, fx, client, database, login):
     from io import BytesIO
     base = f"/api/p/{fx.property_a.id}/staff-conversations"
     agent = login("agent@hvh.test")
