@@ -1,5 +1,23 @@
 {
   "$defs": {
+    "AddParticipantsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "userIds": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Userids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "userIds"
+      ],
+      "title": "AddParticipantsRequest",
+      "type": "object"
+    },
     "AgentStats": {
       "additionalProperties": false,
       "properties": {
@@ -992,6 +1010,66 @@
       "title": "CreateNoteRequest",
       "type": "object"
     },
+    "CreateStaffConversationRequest": {
+      "additionalProperties": false,
+      "description": "POST /staff-conversations. `kind` picks which of the other fields apply; validated\ntogether in app.domain.staff_messages.create_conversation rather than as two separate\nPydantic models, so the route stays a single endpoint (spec \u00a73).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "dm",
+            "group"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "userId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Userid"
+        },
+        "userIds": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Userids"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "CreateStaffConversationRequest",
+      "type": "object"
+    },
     "CreateStaffRequest": {
       "additionalProperties": false,
       "properties": {
@@ -1439,6 +1517,39 @@
       ],
       "title": "DraftPromptStatus",
       "type": "string"
+    },
+    "GroupPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "avatarUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatarurl"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        }
+      },
+      "title": "GroupPatch",
+      "type": "object"
     },
     "GuestDetail": {
       "additionalProperties": false,
@@ -2823,6 +2934,27 @@
       "title": "SendMessageRequest",
       "type": "object"
     },
+    "SendStaffMessageRequest": {
+      "additionalProperties": false,
+      "description": "The non-file half of the multipart body; a `photo` file part arrives alongside it,\nexactly like WorkOrderPhotoUpload.",
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        }
+      },
+      "title": "SendStaffMessageRequest",
+      "type": "object"
+    },
     "SessionOut": {
       "additionalProperties": false,
       "properties": {
@@ -2967,6 +3099,416 @@
       ],
       "title": "SmsConsentStatus",
       "type": "string"
+    },
+    "StaffConversationDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "avatarUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatarurl"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "displayName": {
+          "title": "Displayname",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/StaffConversationKind"
+        },
+        "lastMessageAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastmessageat"
+        },
+        "lastMessagePreview": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastmessagepreview"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/StaffMessageOut"
+          },
+          "title": "Messages",
+          "type": "array"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "otherUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Otheruserid"
+        },
+        "participants": {
+          "items": {
+            "$ref": "#/$defs/StaffParticipantOut"
+          },
+          "title": "Participants",
+          "type": "array"
+        },
+        "unread": {
+          "title": "Unread",
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "format": "date-time",
+          "title": "Updatedat",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "displayName",
+        "participants",
+        "unread",
+        "createdAt",
+        "updatedAt",
+        "messages"
+      ],
+      "title": "StaffConversationDetail",
+      "type": "object"
+    },
+    "StaffConversationKind": {
+      "enum": [
+        "dm",
+        "group",
+        "all"
+      ],
+      "title": "StaffConversationKind",
+      "type": "string"
+    },
+    "StaffConversationOut": {
+      "additionalProperties": false,
+      "properties": {
+        "avatarUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatarurl"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "displayName": {
+          "title": "Displayname",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/StaffConversationKind"
+        },
+        "lastMessageAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastmessageat"
+        },
+        "lastMessagePreview": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastmessagepreview"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "otherUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Otheruserid"
+        },
+        "participants": {
+          "items": {
+            "$ref": "#/$defs/StaffParticipantOut"
+          },
+          "title": "Participants",
+          "type": "array"
+        },
+        "unread": {
+          "title": "Unread",
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "format": "date-time",
+          "title": "Updatedat",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "displayName",
+        "participants",
+        "unread",
+        "createdAt",
+        "updatedAt"
+      ],
+      "title": "StaffConversationOut",
+      "type": "object"
+    },
+    "StaffDirectoryEntryOut": {
+      "additionalProperties": false,
+      "properties": {
+        "avatarUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatarurl"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "departmentName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentname"
+        },
+        "firstName": {
+          "title": "Firstname",
+          "type": "string"
+        },
+        "lastName": {
+          "title": "Lastname",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/Role"
+        },
+        "userId": {
+          "title": "Userid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "userId",
+        "firstName",
+        "lastName",
+        "role"
+      ],
+      "title": "StaffDirectoryEntryOut",
+      "type": "object"
+    },
+    "StaffMessageOut": {
+      "additionalProperties": false,
+      "properties": {
+        "authorName": {
+          "title": "Authorname",
+          "type": "string"
+        },
+        "authorUserId": {
+          "title": "Authoruserid",
+          "type": "string"
+        },
+        "body": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        },
+        "conversationId": {
+          "title": "Conversationid",
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "photoUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Photourl"
+        }
+      },
+      "required": [
+        "id",
+        "conversationId",
+        "authorUserId",
+        "authorName",
+        "createdAt"
+      ],
+      "title": "StaffMessageOut",
+      "type": "object"
+    },
+    "StaffParticipantOut": {
+      "additionalProperties": false,
+      "properties": {
+        "avatarUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatarurl"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "firstName": {
+          "title": "Firstname",
+          "type": "string"
+        },
+        "lastName": {
+          "title": "Lastname",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/Role"
+        },
+        "userId": {
+          "title": "Userid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "userId",
+        "firstName",
+        "lastName",
+        "role"
+      ],
+      "title": "StaffParticipantOut",
+      "type": "object"
     },
     "StaffPatch": {
       "additionalProperties": false,

@@ -17,12 +17,13 @@ from app.schemas import (
     dev,
     notifications,
     properties,
+    staff_messages,
     users,
     work_orders,
 )
 
 MODULES = (auth, users, conversations, work_orders, content, notifications, analytics,
-           properties, dev)
+           properties, staff_messages, dev)
 DEFAULT_OUT = str(Path(__file__).resolve().parents[3] / "web" / "src" / "api" / "schema.json")
 
 
