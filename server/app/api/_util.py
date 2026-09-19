@@ -27,8 +27,13 @@ def parse_body[M: BaseModel](model: type[M]) -> M:
     except ValidationError as e:
         # include_input=False: `input` echoes the admin's raw typing straight back into the
         # error body, and nothing reads it — web/src/api/fieldErrors.ts says so in its own comment.
+        # include_context=False: when a validator raises a plain exception (e.g.
+        # CreateLogEntryRequest's json.loads on a malformed multipart field), pydantic's `ctx`
+        # carries that exception object itself, which jsonify() cannot serialize — turning a
+        # 400 into a 500. Nothing reads `ctx` either.
         raise ValidationFailed("Invalid request body",
-                               details=e.errors(include_url=False, include_input=False)) from e
+                               details=e.errors(include_url=False, include_input=False,
+                                                 include_context=False)) from e
 
 
 def parse_query[M: BaseModel](model: type[M]) -> M:

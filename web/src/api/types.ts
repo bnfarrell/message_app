@@ -11,7 +11,7 @@ export type {
   DeliveryStatus, DepartmentBucket, DepartmentIn, DepartmentOut,
   DepartmentPatch, DepartmentType, Direction, DraftPromptOut,
   DraftPromptStatus, GroupPatch, GuestDetail, GuestOut, GuestThread, GuestThreadMessage,
-  HourBucket, ListQuery, LocationType, LoginRequest, LogEntryOut, LogFeedOut, LogMentionableOut, MembershipOut,
+  HourBucket, ListQuery, LocationType, LogEntryOut, LogFeedOut, LogMentionableOut, LoginRequest, MembershipOut,
   MessageOut, NoteOut, NotificationOut, Overview, PreviewRequest, Priority,
   PropertySettingsOut, PropertySettingsPatch, QuickReplyIn, QuickReplyOut,
   QuickReplyPatch, RenderRequest, RenderedQuickReply, ResponseBucket, Role,

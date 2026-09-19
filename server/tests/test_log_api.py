@@ -468,6 +468,19 @@ def test_a_multipart_photo_post_still_persists_a_mention(app, fx, login):
     ]
 
 
+def test_malformed_json_in_a_multipart_mentions_field_is_a_clean_400(app, fx, login):
+    """The before-validator's `json.loads` on a multipart `mentions` string can itself raise
+    on bad input. That must surface as this endpoint's own 400/VALIDATION_FAILED, not an
+    unhandled 500, when json.JSONDecodeError escapes uncaught.
+    """
+    base = f"/api/p/{fx.property_a.id}/log-entries"
+    agent = login("agent@hvh.test")
+    res = agent.post(base, data={"body": "bad mentions", "mentions": "not-json{"},
+                     content_type="multipart/form-data")
+    assert res.status_code == 400, res.get_json()
+    assert res.get_json()["error"]["code"] == "VALIDATION_FAILED"
+
+
 def test_mentionables_lists_people_and_departments(app, fx, login):
     agent = login("agent@hvh.test")
     rows = agent.get(f"/api/p/{fx.property_a.id}/log-entries/mentionables").get_json()

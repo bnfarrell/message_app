@@ -72,6 +72,8 @@ export function useCreateLogEntry() {
       if (rest.mentions?.length) form.set('mentions', JSON.stringify(rest.mentions))
       if (rest.requiresAck) form.set('requiresAck', 'true')
       if (rest.ackAudience?.length) form.set('ackAudience', JSON.stringify(rest.ackAudience))
+      if (rest.linkedWorkOrderId) form.set('linkedWorkOrderId', rest.linkedWorkOrderId)
+      if (rest.linkedConversationId) form.set('linkedConversationId', rest.linkedConversationId)
       form.set('photo', photo)
       return api<LogEntryOut>(propertyPath(propertyId, 'log-entries'), {
         method: 'POST',
