@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from app import clock
 from app.domain import audit, notifications
 from app.domain.users import active_members_of_department
-from app.errors import ValidationFailed
+from app.errors import NotFound, ValidationFailed
 from app.models import (
     Conversation,
     Department,
     LogEntry,
+    LogEntryAck,
     LogEntryMention,
     LogEntryPhoto,
     Property,
@@ -23,7 +24,17 @@ from app.models import (
 )
 from app.realtime.broadcast import queue_event
 from app.schemas.enums import MentionTargetType, Shift, UserStatus
-from app.schemas.log import CreateLogEntryRequest, MentionRef
+from app.schemas.log import (
+    FEED_PAGE_SIZE,
+    CreateLogEntryRequest,
+    LogAckOut,
+    LogEntryOut,
+    LogFeedOut,
+    LogFeedQuery,
+    LogMentionOut,
+    LogPersonOut,
+    MentionRef,
+)
 
 # Spec §3.3. Overridable per property via settings["shift_boundaries"].
 DEFAULT_SHIFT_BOUNDARIES = {"am": "07:00", "pm": "15:00", "overnight": "23:00"}
@@ -158,3 +169,156 @@ def create(db: Session, property_id: str, author_user_id: str,
                  after={"shift": entry.shift.value, "requires_ack": entry.requires_ack})
     queue_event(db, property_id, "log.entry.created", {"id": entry.id})
     return entry
+
+
+def photo_url(property_id: str, entry_id: str) -> str:
+    return f"/api/p/{property_id}/log-entries/{entry_id}/photo"
+
+
+def _encode_cursor(entry: LogEntry) -> str:
+    return f"{entry.created_at.isoformat()}|{entry.id}"
+
+
+def _decode_cursor(raw: str) -> tuple[datetime, str]:
+    created, _, entry_id = raw.partition("|")
+    try:
+        return datetime.fromisoformat(created), entry_id
+    except ValueError as e:
+        raise ValidationFailed("Invalid cursor") from e
+
+
+def _viewer_department_ids(db: Session, property_id: str, user_id: str) -> list[str]:
+    return list(db.scalars(select(PropertyMembership.department_id).where(
+        PropertyMembership.property_id == property_id,
+        PropertyMembership.user_id == user_id,
+        PropertyMembership.department_id.is_not(None))).all())
+
+
+def _to_out(db: Session, entries: list[LogEntry], viewer_user_id: str) -> list[LogEntryOut]:
+    """One pass over a page of entries, batching the joins the cards need."""
+    if not entries:
+        return []
+    ids = [e.id for e in entries]
+    property_id = entries[0].property_id
+    # Both lookups are property-scoped. An unscoped SELECT over user_account cannot leak
+    # here (only ids present on this property's entries are read back), but it loads the
+    # whole table on every feed page and is a standing trap in a property-isolated codebase.
+    names: dict[str, str] = {}
+    avatars: dict[str, str | None] = {}
+    for uid, first, last, avatar in db.execute(
+            select(UserAccount.id, UserAccount.first_name, UserAccount.last_name,
+                   UserAccount.avatar_url)
+            .join(PropertyMembership, PropertyMembership.user_id == UserAccount.id)
+            .where(PropertyMembership.property_id == property_id)).all():
+        names[uid] = f"{first} {last}"
+        avatars[uid] = avatar
+    dept_names = dict(db.execute(
+        select(Department.id, Department.name)
+        .where(Department.property_id == property_id)).all())
+
+    mentions: dict[str, list[LogMentionOut]] = {i: [] for i in ids}
+    for row in db.scalars(select(LogEntryMention)
+                          .where(LogEntryMention.log_entry_id.in_(ids))
+                          .order_by(LogEntryMention.position)).all():
+        display = (names.get(row.target_id) if row.type == MentionTargetType.user
+                   else dept_names.get(row.target_id)) or "Unknown"
+        mentions[row.log_entry_id].append(
+            LogMentionOut(type=row.type, id=row.target_id, display_name=display))
+
+    acks: dict[str, list[LogAckOut]] = {i: [] for i in ids}
+    for row in db.scalars(select(LogEntryAck)
+                          .where(LogEntryAck.log_entry_id.in_(ids))
+                          .order_by(LogEntryAck.acknowledged_at)).all():
+        acks[row.log_entry_id].append(
+            LogAckOut(user_id=row.user_id, name=names.get(row.user_id, "Unknown"),
+                      acknowledged_at=row.acknowledged_at))
+
+    has_photo = set(db.scalars(select(LogEntryPhoto.log_entry_id)
+                               .where(LogEntryPhoto.log_entry_id.in_(ids))).all())
+
+    out: list[LogEntryOut] = []
+    for e in entries:
+        acked = {a.user_id for a in acks[e.id]}
+        expected = list(e.ack_expected or [])
+        out.append(LogEntryOut(
+            id=e.id, created_at=e.created_at,
+            author_user_id=e.author_user_id,
+            author_name=names.get(e.author_user_id, "Unknown"),
+            author_avatar_url=avatars.get(e.author_user_id),
+            department_id=e.department_id,
+            department_name=dept_names.get(e.department_id) if e.department_id else None,
+            shift=e.shift, body=e.body, mentions=mentions[e.id],
+            pinned=e.pinned, pinned_by_user_id=e.pinned_by_user_id, pinned_at=e.pinned_at,
+            requires_ack=e.requires_ack, ack_expected_count=len(expected),
+            acks=acks[e.id],
+            outstanding=[LogPersonOut(user_id=u, name=names.get(u, "Unknown"))
+                         for u in expected if u not in acked],
+            acked_by_me=viewer_user_id in acked,
+            can_ack=viewer_user_id in expected and viewer_user_id not in acked,
+            photo_url=photo_url(e.property_id, e.id) if e.id in has_photo else None,
+            linked_work_order_id=e.linked_work_order_id,
+            linked_conversation_id=e.linked_conversation_id,
+        ))
+    return out
+
+
+def feed(db: Session, property_id: str, viewer_user_id: str, query: LogFeedQuery) -> LogFeedOut:
+    stmt = select(LogEntry).where(LogEntry.property_id == property_id)
+    if query.shift:
+        stmt = stmt.where(LogEntry.shift == query.shift)
+    if query.department_id:
+        stmt = stmt.where(LogEntry.department_id == query.department_id)
+    if query.from_:
+        stmt = stmt.where(LogEntry.created_at >= _day_bound(db, property_id, query.from_, False))
+    if query.to:
+        stmt = stmt.where(LogEntry.created_at < _day_bound(db, property_id, query.to, True))
+    if query.mentioning_me:
+        dept_ids = _viewer_department_ids(db, property_id, viewer_user_id)
+        stmt = stmt.where(select(LogEntryMention.id).where(
+            LogEntryMention.log_entry_id == LogEntry.id,
+            or_(and_(LogEntryMention.type == MentionTargetType.user,
+                     LogEntryMention.target_id == viewer_user_id),
+                and_(LogEntryMention.type == MentionTargetType.department,
+                     LogEntryMention.target_id.in_(dept_ids or [""])))).exists())
+    if query.cursor:
+        created, entry_id = _decode_cursor(query.cursor)
+        stmt = stmt.where(tuple_(LogEntry.created_at, LogEntry.id) < (created, entry_id))
+
+    rows = list(db.scalars(
+        stmt.order_by(LogEntry.created_at.desc(), LogEntry.id.desc())
+        .limit(FEED_PAGE_SIZE + 1)).all())
+    next_cursor = _encode_cursor(rows[FEED_PAGE_SIZE - 1]) if len(rows) > FEED_PAGE_SIZE else None
+    rows = rows[:FEED_PAGE_SIZE]
+
+    pinned_rows = list(db.scalars(
+        select(LogEntry)
+        .where(LogEntry.property_id == property_id, LogEntry.pinned.is_(True))
+        .order_by(LogEntry.created_at.desc())).all())
+
+    return LogFeedOut(pinned=_to_out(db, pinned_rows, viewer_user_id),
+                      entries=_to_out(db, rows, viewer_user_id),
+                      next_cursor=next_cursor)
+
+
+def get(db: Session, property_id: str, entry_id: str) -> LogEntry:
+    entry = db.get(LogEntry, entry_id)
+    if entry is None or entry.property_id != property_id:
+        raise NotFound("Log entry not found")
+    return entry
+
+
+def get_out(db: Session, property_id: str, viewer_user_id: str, entry_id: str) -> LogEntryOut:
+    return _to_out(db, [get(db, property_id, entry_id)], viewer_user_id)[0]
+
+
+def _day_bound(db: Session, property_id: str, iso_date: str, exclusive_end: bool) -> datetime:
+    """`from`/`to` are dates on the property's clock, not UTC (spec §4.2)."""
+    prop = db.get(Property, property_id)
+    try:
+        day = date.fromisoformat(iso_date)
+    except ValueError as e:
+        raise ValidationFailed("Dates must be ISO (YYYY-MM-DD)") from e
+    if exclusive_end:
+        day = day + timedelta(days=1)
+    tz = ZoneInfo(prop.timezone)
+    return datetime.combine(day, time(0, 0), tzinfo=tz).astimezone(UTC)

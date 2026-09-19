@@ -2,6 +2,7 @@
 import pytest
 from sqlalchemy import select
 
+from app import clock
 from app.domain import log as log_domain
 from app.errors import ValidationFailed
 from app.models import Department, LogEntryMention, Notification, UserAccount
@@ -126,3 +127,78 @@ def test_a_cross_property_department_tag_is_rejected(database, fx):
         with pytest.raises(ValidationFailed):
             log_domain.create(db, fx.property_a.id, fx.agent_a.id,
                               _req(department_id=dept_b))
+
+
+def test_feed_is_newest_first_and_paginates_on_the_cursor(database, fx):
+    from app.schemas.log import LogFeedQuery
+
+    with database.session() as db:
+        for i in range(3):
+            log_domain.create(db, fx.property_a.id, fx.agent_a.id, _req(body=f"note {i}"))
+            clock.advance(minutes=1)
+        db.flush()
+        page = log_domain.feed(db, fx.property_a.id, fx.agent_a.id, LogFeedQuery())
+        assert [e.body for e in page.entries] == ["note 2", "note 1", "note 0"]
+
+
+def test_shift_and_department_filters(database, fx):
+    from app.schemas.log import LogFeedQuery
+
+    with database.session() as db:
+        log_domain.create(db, fx.property_a.id, fx.agent_a.id,
+                          _req(body="tagged", department_id=fx.dept_housekeeping.id))
+        log_domain.create(db, fx.property_a.id, fx.agent_a.id, _req(body="untagged"))
+        db.flush()
+        tagged = log_domain.feed(db, fx.property_a.id, fx.agent_a.id,
+                                 LogFeedQuery(department_id=fx.dept_housekeeping.id))
+        assert [e.body for e in tagged.entries] == ["tagged"]
+        am = log_domain.feed(db, fx.property_a.id, fx.agent_a.id, LogFeedQuery(shift=Shift.am))
+        assert len(am.entries) == 2
+        pm = log_domain.feed(db, fx.property_a.id, fx.agent_a.id, LogFeedQuery(shift=Shift.pm))
+        assert pm.entries == []
+
+
+def test_mentioning_me_matches_direct_and_department_mentions(database, fx):
+    from app.schemas.log import LogFeedQuery
+
+    with database.session() as db:
+        log_domain.create(db, fx.property_a.id, fx.agent_a.id,
+                          _req(body="direct",
+                               mentions=[MentionRef(type=MentionTargetType.user,
+                                                    id=fx.engineer_a.id)]))
+        log_domain.create(db, fx.property_a.id, fx.agent_a.id,
+                          _req(body="via dept",
+                               mentions=[MentionRef(type=MentionTargetType.department,
+                                                    id=fx.dept_engineering.id)]))
+        log_domain.create(db, fx.property_a.id, fx.agent_a.id, _req(body="unrelated"))
+        db.flush()
+        mine = log_domain.feed(db, fx.property_a.id, fx.engineer_a.id,
+                               LogFeedQuery(mentioning_me=True))
+        assert {e.body for e in mine.entries} == {"direct", "via dept"}
+
+
+def test_the_feed_never_leaks_another_property(database, fx):
+    from app.schemas.log import LogFeedQuery
+
+    with database.session() as db:
+        log_domain.create(db, fx.property_b.id, fx.agent_b.id, _req(body="B only"))
+        db.flush()
+        page = log_domain.feed(db, fx.property_a.id, fx.agent_a.id, LogFeedQuery())
+        assert page.entries == []
+
+
+def test_entry_out_reports_ack_progress_for_the_viewer(database, fx):
+    with database.session() as db:
+        entry = log_domain.create(
+            db, fx.property_a.id, fx.agent_a.id,
+            _req(requires_ack=True,
+                 ack_audience=[MentionRef(type=MentionTargetType.user,
+                                          id=fx.engineer_a.id)]))
+        db.flush()
+        seen_by_engineer = log_domain.get_out(db, fx.property_a.id, fx.engineer_a.id, entry.id)
+        assert seen_by_engineer.ack_expected_count == 1
+        assert seen_by_engineer.can_ack is True
+        assert seen_by_engineer.acked_by_me is False
+        assert [p.user_id for p in seen_by_engineer.outstanding] == [fx.engineer_a.id]
+        seen_by_author = log_domain.get_out(db, fx.property_a.id, fx.agent_a.id, entry.id)
+        assert seen_by_author.can_ack is False
