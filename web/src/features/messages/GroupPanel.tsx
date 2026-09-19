@@ -44,18 +44,26 @@ export function GroupPanel({
     if (existing) {
       const renamed = trimmed.length > 0 && trimmed !== existing.name
       const adding = selected.size > 0
-      if (renamed) update.mutate({ name: trimmed }, { onSuccess: adding ? undefined : onClose })
-      if (adding) {
+      const addSelected = () =>
         // Guarded by `adding` (selected.size > 0), so this is never actually empty.
         add.mutate({ userIds: [...selected] as [string, ...string[]] }, { onSuccess: onClose })
+      if (renamed && adding) {
+        // Sequence the rename before the add: firing both mutations independently let a
+        // failed rename's error get hidden by the add's onSuccess closing the panel anyway.
+        update.mutate({ name: trimmed }, { onSuccess: addSelected })
+      } else if (renamed) {
+        update.mutate({ name: trimmed }, { onSuccess: onClose })
+      } else if (adding) {
+        addSelected()
+      } else {
+        onClose()
       }
-      if (!renamed && !adding) onClose()
       return
     }
     create.mutate({ kind: 'group', name: trimmed, userIds: [...selected] }, { onSuccess: onClose })
   }
 
-  const busy = create.isPending || update.isPending || add.isPending
+  const busy = create.isPending || update.isPending || add.isPending || remove.isPending
   const trimmedName = name.trim()
   const canSubmit = existing ? trimmedName.length > 0 : trimmedName.length > 0 && selected.size > 0
   const mutationError = create.error ?? update.error ?? add.error ?? remove.error
@@ -104,6 +112,7 @@ export function GroupPanel({
                 <button
                   type="button"
                   onClick={() => remove.mutate({ userId: p.userId })}
+                  disabled={remove.isPending}
                   aria-label={`Remove ${p.firstName} ${p.lastName}`}
                 >
                   ×
