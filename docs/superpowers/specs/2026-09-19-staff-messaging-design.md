@@ -55,20 +55,25 @@ Notes:
 New blueprint `app/api/staff_conversations.py`, `url_prefix="/api/p/<property_id>/staff-conversations"`, registered in `app/__init__.py` alongside the existing blueprints. All routes: `@require_auth`, `@require_property` — no new capability. Messaging between property staff is available to every role in `STAFF` (`app/auth/permissions.py`), matching the screenshots (front desk, housekeeping, F&B, managers all message freely) and the existing convention that any authenticated property member reaches this surface.
 
 ```
-GET    /api/p/:pid/staff-conversations                 # list mine, ordered by last_message_at desc
+GET    /api/p/:pid/staff-conversations                 # list mine, ordered by last activity desc
 POST   /api/p/:pid/staff-conversations                 # {kind: dm, userId} or {kind: group, name, userIds[]}
-GET    /api/p/:pid/staff-conversations/:id
+GET    /api/p/:pid/staff-conversations/:id              # metadata + participants + messages
+                                                          # (embedded, capped at the most recent 200 —
+                                                          # no separate paginated messages endpoint;
+                                                          # these threads are short, and a
+                                                          # ConversationDetail-style embed is the
+                                                          # pattern the guest inbox already uses)
 PATCH  /api/p/:pid/staff-conversations/:id              # rename / change avatar (group only)
 POST   /api/p/:pid/staff-conversations/:id/participants # add member(s) (group only)
 DELETE /api/p/:pid/staff-conversations/:id/participants/:userId  # remove member, or "leave" for self
-GET    /api/p/:pid/staff-conversations/:id/messages?cursor=
 POST   /api/p/:pid/staff-conversations/:id/messages     # multipart: body (text, optional) + photo (file, optional)
 POST   /api/p/:pid/staff-conversations/:id/read         # bump last_read_at to now
 GET    /api/p/:pid/staff-conversations/:id/messages/:messageId/photo   # serves bytes, like work-order photos
 
-GET    /api/p/:pid/staff-directory                      # all property members with role/department,
-                                                          # minus users already in a DM with me —
-                                                          # backs the "New Conversations" list
+GET    /api/p/:pid/staff-directory                      # all property members with role/department;
+                                                          # the client excludes anyone it already has
+                                                          # a DM with (via each conversation's
+                                                          # otherUserId) to build "New Conversations"
 ```
 
 All routes 404 (not 403) a conversation the caller isn't a participant of — same information-hiding stance already used for property isolation elsewhere in the API.
@@ -87,9 +92,9 @@ broadcast property-wide (thin payload, no message content — consistent with ho
 
 ## 5. Notifications
 
-A new message in a conversation where the recipient isn't actively viewing it creates a row in the existing `notification` table — `type="staff_message"`, `entity_type="staff_conversation"`, `entity_id=<conversation id>`, `title` = sender name, `body` = message preview (or "sent a photo"). This reuses the notification centre, its unread badge, and its realtime delivery exactly as-is; no new notification infrastructure.
+Every message creates a `notification` row for every other participant, unconditionally — `type="staff_message"`, `entity_type="staff_conversation"`, `entity_id=<conversation id>`, `title` = sender name, `body` = message preview (or "Sent a photo"). This is the same unconditional-on-the-triggering-action pattern `work_orders.assign` already uses (it notifies the assignee regardless of whether they're currently looking at the board); staff messaging has no "is this user actively viewing" concept to suppress on, and inventing one is out of scope (§7). This reuses the notification centre, its unread badge, and its realtime delivery exactly as-is; no new notification infrastructure.
 
-`#ALL` auto-join: `app/domain/users.py`, where `property_membership` rows are created, also inserts a `staff_conversation_participant` row for that property's `all` channel. The property-creation path (and `seed/seed.py`) creates the `all` channel itself.
+`#ALL` participation is lazy rather than hooked into membership creation: there is no single domain function that creates a `property_membership` (the two places properties and staff get seeded — `tests/fixtures.py` and `seed/seed.py` — build the row directly), so nothing to hook. Instead, `get_or_create_all_conversation(property_id)` creates the property's singleton `all` conversation on first access if missing, and any domain function touching a conversation on a given user's behalf (list, detail, send, read) ensures that user has a `staff_conversation_participant` row before proceeding, creating one on the fly if absent. This makes `#ALL` membership self-healing for every caller regardless of how their `property_membership` came to exist, with no dependency on a creation hook.
 
 ## 6. Frontend
 
