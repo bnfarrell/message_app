@@ -2,9 +2,10 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 import pytest
-from sqlalchemy import Column, MetaData, String, Table, inspect, text
+from sqlalchemy import Column, MetaData, String, Table, inspect, select, text
 from sqlalchemy.exc import StatementError
 
+from app import clock
 from app.db import Database, run_migrations
 from app.models import Conversation, Guest, Property
 from app.models.core import enum_type
@@ -135,3 +136,73 @@ def test_staff_conversation_round_trip(database, fx):
     with database.session() as db:
         loaded = db.get(StaffConversation, conv_id)
         assert loaded.kind == StaffConversationKind.dm
+
+
+def test_log_entry_round_trips_with_mentions_photo_and_ack(database, fx):
+    from app.models import LogEntry, LogEntryAck, LogEntryMention, LogEntryPhoto
+    from app.schemas.enums import MentionTargetType, Shift
+
+    with database.session() as db:
+        entry = LogEntry(
+            property_id=fx.property_a.id,
+            author_user_id=fx.agent_a.id,
+            department_id=fx.dept_housekeeping.id,
+            shift=Shift.am,
+            body="327 fridge does not work but room is clean.",
+            requires_ack=True,
+            ack_expected=[fx.housekeeper_a.id],
+        )
+        db.add(entry)
+        db.flush()
+        db.add(LogEntryMention(log_entry_id=entry.id, property_id=fx.property_a.id,
+                               type=MentionTargetType.department,
+                               target_id=fx.dept_housekeeping.id, position=0))
+        db.add(LogEntryMention(log_entry_id=entry.id, property_id=fx.property_a.id,
+                               type=MentionTargetType.user,
+                               target_id=fx.engineer_a.id, position=1))
+        db.add(LogEntryPhoto(log_entry_id=entry.id, property_id=fx.property_a.id,
+                             uploaded_by_user_id=fx.agent_a.id,
+                             content_type="image/png", byte_size=3, data=b"abc"))
+        db.add(LogEntryAck(log_entry_id=entry.id, property_id=fx.property_a.id,
+                           user_id=fx.housekeeper_a.id, acknowledged_at=clock.now()))
+        db.flush()
+        entry_id = entry.id
+
+    with database.session() as db:
+        row = db.get(LogEntry, entry_id)
+        assert row.shift == Shift.am
+        assert row.pinned is False
+        assert row.ack_expected == [fx.housekeeper_a.id]
+        mentions = db.scalars(
+            select(LogEntryMention)
+            .where(LogEntryMention.log_entry_id == entry_id)
+            .order_by(LogEntryMention.position)
+        ).all()
+        assert [m.type for m in mentions] == [MentionTargetType.department, MentionTargetType.user]
+        photo = db.scalar(select(LogEntryPhoto)
+                          .where(LogEntryPhoto.log_entry_id == entry_id))
+        assert photo.data == b"abc"
+
+
+def test_log_entry_ack_is_unique_per_user(database, fx):
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models import LogEntry, LogEntryAck
+    from app.schemas.enums import Shift
+
+    with database.session() as db:
+        entry = LogEntry(property_id=fx.property_a.id, author_user_id=fx.agent_a.id,
+                         shift=Shift.pm, body="x")
+        db.add(entry)
+        db.flush()
+        db.add(LogEntryAck(log_entry_id=entry.id, property_id=fx.property_a.id,
+                           user_id=fx.housekeeper_a.id, acknowledged_at=clock.now()))
+        db.flush()
+        db.add(LogEntryAck(log_entry_id=entry.id, property_id=fx.property_a.id,
+                           user_id=fx.housekeeper_a.id, acknowledged_at=clock.now()))
+        with pytest.raises(IntegrityError):
+            db.flush()
+        # The failed flush poisons the session; without this rollback the context
+        # manager's commit on exit raises PendingRollbackError and the test fails
+        # for a reason that has nothing to do with the constraint being tested.
+        db.rollback()

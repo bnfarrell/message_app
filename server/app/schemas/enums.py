@@ -145,3 +145,14 @@ class StaffConversationKind(StrEnum):
     dm = "dm"
     group = "group"
     all = "all"
+
+
+class Shift(StrEnum):
+    am = "am"
+    pm = "pm"
+    overnight = "overnight"
+
+
+class MentionTargetType(StrEnum):
+    user = "user"
+    department = "department"
