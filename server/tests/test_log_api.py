@@ -44,6 +44,7 @@ def test_department_mention_notifies_each_member_once_and_never_the_author(datab
             db, fx.property_a.id, fx.agent_a.id,
             _req(mentions=[MentionRef(type=MentionTargetType.department,
                                       id=fx.dept_front_desk.id),
+                           MentionRef(type=MentionTargetType.user, id=fx.agent_a.id),
                            MentionRef(type=MentionTargetType.user, id=fx.agent_a2.id)]),
         )
         db.flush()
@@ -52,6 +53,21 @@ def test_department_mention_notifies_each_member_once_and_never_the_author(datab
         recipients = [n.user_id for n in rows]
         assert fx.agent_a.id not in recipients, "author must never be notified"
         assert recipients.count(fx.agent_a2.id) == 1, "mentioned twice, notified once"
+
+
+def test_a_mentioned_user_who_must_also_ack_is_notified_once(database, fx):
+    with database.session() as db:
+        log_domain.create(
+            db, fx.property_a.id, fx.agent_a.id,
+            _req(mentions=[MentionRef(type=MentionTargetType.user, id=fx.engineer_a.id)],
+                 requires_ack=True,
+                 ack_audience=[MentionRef(type=MentionTargetType.user,
+                                          id=fx.engineer_a.id)]))
+        db.flush()
+        rows = db.scalars(select(Notification).where(
+            Notification.user_id == fx.engineer_a.id)).all()
+        assert [n.type for n in rows] == ["log.mention"], \
+            "mentioned AND expected must yield exactly one notification, the mention"
 
 
 def test_ack_expected_snapshots_active_department_members_excluding_author(database, fx):
@@ -89,6 +105,8 @@ def test_disabled_users_are_excluded_from_the_snapshot(database, fx):
         )
         db.flush()
         assert fx.engineer_a.id not in entry.ack_expected
+        assert fx.supervisor_a.id in entry.ack_expected, \
+            "the remaining active member must still be expected"
 
 
 def test_an_empty_resolved_audience_downgrades_requires_ack(database, fx):
