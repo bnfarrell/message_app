@@ -290,6 +290,10 @@ def update_group(db: Session, property_id: str, conversation_id: str, actor_user
 def add_participants(db: Session, property_id: str, conversation_id: str, actor_user_id: str,
                      data: AddParticipantsRequest) -> StaffConversation:
     conv = get_for_participant(db, property_id, conversation_id, actor_user_id)
+    if conv.kind == StaffConversationKind.all:
+        # Membership in #ALL is automatic (every property member is implicitly a participant),
+        # so adding participants here is a no-op rather than an error.
+        return conv
     _assert_group(conv)
     for uid in data.user_ids:
         _assert_member(db, property_id, uid)

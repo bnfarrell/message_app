@@ -171,6 +171,20 @@ def test_all_channel_rejects_rename_and_remove(app, fx, client, database, login)
     ).status_code == 400
 
 
+def test_all_channel_add_participants_is_noop(app, fx, client, database, login):
+    base = f"/api/p/{fx.property_a.id}/staff-conversations"
+    admin = login("admin@hvh.test")
+    all_channel = next(r for r in admin.get(base).get_json() if r["kind"] == "all")
+    before_ids = {p["userId"] for p in all_channel["participants"]}
+    assert fx.housekeeper_a.id not in before_ids  # hasn't opened Messages yet, so not auto-joined
+
+    res = admin.post(f"{base}/{all_channel['id']}/participants",
+                     json={"userIds": [fx.housekeeper_a.id]})
+    assert res.status_code == 200
+    after_ids = {p["userId"] for p in res.get_json()["participants"]}
+    assert after_ids == before_ids  # no-op: membership in #ALL is automatic, not manually added
+
+
 def test_dm_rejects_rename_and_participant_changes(app, fx, client, database, login):
     base = f"/api/p/{fx.property_a.id}/staff-conversations"
     agent = login("agent@hvh.test")
