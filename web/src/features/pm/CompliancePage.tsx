@@ -98,7 +98,9 @@ export function CompliancePage() {
           </div>
         </div>
       </header>
-      {isPending ? (
+      {!from || !to ? (
+        <EmptyState title="Pick a start and end date" hint="Both ends of the range are needed to load compliance." />
+      ) : isPending ? (
         <div className="flex justify-center py-8">
           <Spinner />
         </div>

@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Route, Routes } from 'react-router-dom'
 import type { ComplianceOut } from '../../api/types'
@@ -16,6 +17,8 @@ const REPORT: ComplianceOut = {
       runs: null, inspectionPassRate: 95.2 },
     { id: 't-2', name: 'Boiler inspection', mode: 'scheduled', unitKind: null, cycles: [],
       runs: { due: 2, passed: 1, failed: 0, overdue: 1 }, inspectionPassRate: 100 },
+    { id: 't-3', name: 'Fire Extinguisher Check', mode: 'scheduled', unitKind: null, cycles: [],
+      runs: { due: 5, passed: 5, failed: 0, overdue: 0 }, inspectionPassRate: null },
   ],
 }
 
@@ -49,10 +52,26 @@ describe('CompliancePage', () => {
     expect(screen.getByText('1 overdue')).toBeInTheDocument()
   })
 
+  it('renders an em dash when a template has no inspection pass rate', async () => {
+    mount()
+    expect(await screen.findByText('Fire Extinguisher Check')).toBeInTheDocument()
+    expect(screen.getByText('Inspection pass rate —')).toBeInTheDocument()
+  })
+
   it('asks the server for the chosen window', async () => {
     mount()
     await screen.findByText('Guest Room Quarterly')
     const url = String(vi.mocked(fetch).mock.calls[0]![0])
     expect(url).toMatch(/pm\/compliance\?from=\d{4}-01-01&to=\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('prompts for a date instead of spinning forever when a field is cleared', async () => {
+    mount()
+    await screen.findByText('Guest Room Quarterly')
+
+    await userEvent.clear(screen.getByLabelText('From'))
+
+    expect(await screen.findByText('Pick a start and end date')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 })
