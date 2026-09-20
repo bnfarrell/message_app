@@ -72,4 +72,22 @@ describe('InspectionPage', () => {
     await userEvent.click(await screen.findByRole('tab', { name: 'Guest Rooms' }))
     expect(await screen.findByText('No guest rooms PMs are pending for inspection')).toBeInTheDocument()
   })
+
+  it('marks a failed count as failed rather than leaving it looking like it is still loading', async () => {
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('status=inspected')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { code: 'SERVER_ERROR', message: 'boom' } }), {
+            status: 500,
+          }),
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify(AVAILABLE), { status: 200 }))
+    })
+    mount()
+    expect(await screen.findByRole('tab', { name: 'Available for Inspection 1' })).toBeInTheDocument()
+    expect(await screen.findByTitle('Could not load this count')).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Inspected …' })).not.toBeInTheDocument()
+  })
 })

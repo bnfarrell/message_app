@@ -60,7 +60,12 @@ export function InspectionPage() {
     setParams(merged)
   }
 
-  const subTab = (key: 'available' | 'inspected', label: string, count: number | undefined) => (
+  const subTab = (
+    key: 'available' | 'inspected',
+    label: string,
+    count: number | undefined,
+    error: unknown,
+  ) => (
     <button
       type="button"
       role="tab"
@@ -72,7 +77,9 @@ export function InspectionPage() {
       )}
     >
       {label}
-      <span className="font-mono text-xs opacity-85">{count ?? '…'}</span>
+      <span className="font-mono text-xs opacity-85">
+        {error ? <span title="Could not load this count">!</span> : count ?? '…'}
+      </span>
     </button>
   )
 
@@ -86,8 +93,8 @@ export function InspectionPage() {
       <KindTabs allowAll value={kind} onChange={(next) => set({ kind: next === 'all' ? null : next })} />
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
         <div role="tablist" className="flex gap-1.5">
-          {subTab('available', 'Available for Inspection', available.data?.length)}
-          {subTab('inspected', 'Inspected', inspected.data?.length)}
+          {subTab('available', 'Available for Inspection', available.data?.length, available.error)}
+          {subTab('inspected', 'Inspected', inspected.data?.length, inspected.error)}
         </div>
         <label className="ml-auto flex items-center gap-2 text-xs font-semibold text-text3">
           Sort
