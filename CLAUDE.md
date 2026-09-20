@@ -62,6 +62,36 @@ Also run `alembic downgrade <prev>` and re-upgrade. `docker-entrypoint.sh` runs
 whole service down at startup, not just the new feature — and a `downgrade()` that does not
 truly reverse leaves no way back.
 
+### Running the whole app on Postgres locally
+
+You do not have to wait for the tests to move off SQLite. Point `DATABASE_URL` at the container
+and the normal dev entrypoint works unchanged — it migrates, seeds if the database is empty, and
+starts the server. Verified working end to end:
+
+```
+# one-off: start Postgres 18, the same major version production runs
+docker run -d --name relay-pg18 -e POSTGRES_PASSWORD=relaydev -e POSTGRES_USER=relay \
+  -e POSTGRES_DB=relay_dev -p 55432:5432 postgres:18
+
+# then, instead of start.bat:
+DATABASE_URL="postgresql://relay:relaydev@localhost:55432/relay_dev" \
+  .venv/Scripts/python.exe server/dev_start.py     # API on :5200
+cd web && npm run dev                              # client on :5173
+```
+
+`dev_start.py` seeds with `reset=False` and only when the database is empty, so a second run
+never seeds on top of the first. Do this whenever you touch SQL, a migration, or anything
+timezone-shaped — it is the only way to catch a portability bug before production does.
+
+**`reset=True` refuses on any non-SQLite URL**, by design: it deletes database *files*, which is
+meaningless for Postgres and catastrophic if it were not refused. To reseed Postgres, drop and
+recreate the database yourself, then run with `reset=False`.
+
+Tests still use SQLite. That is a deliberate, temporary split — running them on Postgres is its
+own piece of work, because `conftest.py` gives each test a fresh database by copying a SQLite
+*file*, which has no Postgres equivalent (the options are `CREATE DATABASE ... TEMPLATE` or a
+per-test transaction rollback).
+
 ### Generated files — never hand-edit
 
 `web/src/api/schema.json` and `web/src/api/types.generated.ts` are generated from the Pydantic
@@ -90,6 +120,73 @@ new things unguarded.
 - `server/data/app.db` is tracked in git **deliberately** — it is fixture data (see `.gitignore`).
   Do not commit incidental dev churn to it; do commit it when seed data genuinely changes.
 - API models subclass `CamelModel`: camelCase on the wire, snake_case in Python.
+
+---
+
+## Deploying to Railway
+
+**Pushing to `main` on GitHub is the deploy.** Railway builds from
+`bnfarrell/message_app` @ `main` and deploys automatically. There is nothing else to run.
+
+| | |
+|---|---|
+| Project | `message_app` — `67835e9b-cf1e-41d9-a93d-43479374b33a` |
+| Service | `message_app` — `faee1ebb-1efd-4808-8841-81470e68d237` |
+| Environment | `production` — `19fefefd-e396-4382-b0fe-0391de694fe3` |
+| Live URL | https://messageapp-production-361b.up.railway.app |
+| Database | separate `Postgres` service, PostgreSQL 18, private network only |
+
+Single replica, deliberately: presence, the WebSocket connection registry and the job worker all
+live in process memory, so a second replica would split presence and double-process the queue.
+
+### Verifying a deploy — build success is not enough
+
+`docker-entrypoint.sh` runs `alembic upgrade head` **before** gunicorn. Confirm that line actually
+appears, in this order, or the schema did not change:
+
+```
+==> alembic upgrade head
+Starting Container
+==> gunicorn on :$PORT
+```
+
+Then `curl https://messageapp-production-361b.up.railway.app/api/health` → `{"status":"ok"}`.
+
+### If a push does not deploy
+
+The failure mode seen in practice: **the deployment trigger goes missing**. The service still
+shows a GitHub source, so the dashboard looks correct, but nothing listens for pushes.
+
+```
+railway api 'query { project(id: "67835e9b-cf1e-41d9-a93d-43479374b33a") { deploymentTriggers { edges { node { branch repository } } } } }'
+```
+
+Empty `edges` = broken; reconnect GitHub in the dashboard (Service → Settings → Source).
+
+**"Redeploy" will not help and is misleading.** It reuses the existing *build artifact* and never
+fetches code, so it re-runs the same old commit however many times you click it. A healthy
+auto-deploy appears in the deployment list with reason **`deploy`** and the new commit hash;
+reason **`redeploy`** on a stale hash is the symptom of this bug.
+
+Ignore `githubRepos` returning "Not Authorized" from the CLI — that is a token-scope limit, not a
+broken connection, and it says nothing either way.
+
+### Reaching the production database
+
+It is on Railway's private network with no public proxy, so seed and inspect it from inside the
+container rather than exposing it:
+
+```
+railway ssh --service message_app --environment production 'python -c "..."'
+```
+
+Needs an SSH key registered once (`ssh-keygen -t ed25519`, then `railway ssh keys add`) and
+`ssh-keyscan ssh.railway.com >> ~/.ssh/known_hosts`.
+
+**Production is not a scratch database.** It holds a real property, real staff and real guests.
+Never run the seeder against it: the seed creates a property with code `HVH`, which is unique and
+already taken, so it fails partway through. To add fixture rows, write a targeted, idempotent
+script that references the *existing* property and users.
 
 ---
 
