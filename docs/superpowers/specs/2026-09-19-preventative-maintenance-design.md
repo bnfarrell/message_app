@@ -240,15 +240,16 @@ A newly-created template gets its first cycle on the next tick, or immediately o
 
 **Phase B — RRULE.** For each active scheduled template:
 
-1. `window_end = clock.now()`. If `last_fired_at` is set, the window is
-   `(last_fired_at, window_end]` — exclusive on the left so the occurrence that ended the last
-   window is not emitted twice. If it is null, the window is `[dtstart, window_end]` with
-   `dtstart` = `rrule_dtstart` at 00:00 property-local converted to UTC — inclusive on the left so
-   an occurrence falling exactly on the start date fires.
-2. Expand `rrulestr(rrule, dtstart=dtstart)` over that window. `dateutil`'s `between()` is
-   exclusive at both ends by default, so the implementation passes `inc=True` and filters the
-   left edge itself. Bounding by the window is what stops a template with a 2020 `dtstart` from
-   emitting five years of work orders.
+1. `last_fired_at` is stamped `clock.now()` when a scheduled template is created, and again
+   whenever its mode, rrule or start date changes — a changed schedule restarts from now and
+   never backfills. The expansion window is therefore always `(last_fired_at, window_end]`,
+   `window_end = clock.now()` — exclusive on the left so the occurrence that ended the last
+   window is not emitted twice.
+2. Expand `rrulestr(rrule, dtstart=dtstart)` over that window, where `dtstart` = `rrule_dtstart`
+   at 00:00 property-local converted to UTC — the RRULE's anchor, not the window bound.
+   `dateutil`'s `between()` is exclusive at both ends by default, so the implementation passes
+   `inc=True` and filters the left edge itself. Bounding by the window is what stops a template
+   with a 2020 `dtstart` from emitting five years of work orders.
 3. For each occurrence × each unit in `pm_template_unit`: create
    `WorkOrder(type=pm, priority=normal, title=f"{template.name} — {unit.name}",
    location_type=<from unit.kind>, location_ref=unit.code, department_id=template.department_id,
@@ -362,8 +363,9 @@ Returns, for the requested `kind`:
 `template` and `cycle` are null when the kind has no active sweep template or no open cycle yet;
 the page renders an empty state naming which. `daysLeft` is `ends_on - today_local`, floored at 0.
 `counts.completed` counts `passed` runs. `sort` accepts `code` (default), `floor`,
-`days_since_last_pm` (units never passed sort first). Remaining is a `NOT EXISTS` subquery; last
-passed is a correlated max — both engine-portable.
+`days_since_last_pm` (units never passed sort first). Remaining, current runs and last-passed are
+computed in one pass from three set queries per property (active units, runs in the open cycle,
+passed runs); nothing is queried per row.
 
 ### 5.4 CSV import
 
@@ -371,9 +373,10 @@ Header row required: `code,kind,name,floor,room_type,external_id`. `floor`, `roo
 `external_id` may be blank. `kind` must be a `PmUnitKind` value. Rows upsert by
 `(property_id, code)`; an existing `manual` row is updated (its `source` becomes `csv`).
 
-Every row is validated before any is written. Any error → nothing committed, response
-`{created: 0, updated: 0, errors: [{line, field, message}]}` with status 422. Success →
-`{created, updated, errors: []}`. The file is capped at 1 MB and 5,000 rows.
+Every row is validated before any is written. Any error → nothing committed, a `422` with code
+`IMPORT_REJECTED` and the report — `{created: 0, updated: 0, errors: [{line, field, message}]}` —
+as `error.details`, not a bare payload. Success → `{created, updated, errors: []}`. The file is
+capped at 1 MB and 5,000 rows.
 
 ### 5.5 `GET /compliance`
 
@@ -388,9 +391,10 @@ For the window, per template:
 }]}
 ```
 
-`onTimePct = passed / total`. A scheduled run is `overdue` when `due_at < now` and status is
-`pending` or `in_progress`. `inspectionPassRate = passed / (passed + failed)` across inspected runs
-in the window.
+`onTimePct` and `inspectionPassRate` are percentages (0–100, one decimal): `onTimePct =
+round(100 * passed / total, 1)`. A scheduled run is `overdue` when `due_at < now` and status is
+`pending` or `in_progress`. `inspectionPassRate = round(100 * passed / (passed + failed), 1)`
+across inspected runs in the window.
 
 ---
 
@@ -422,12 +426,14 @@ Feature folder `web/src/features/pm/`, hooks in `web/src/api/hooks/pm.ts`, types
 
 - *Preventative Maintenance* → `/app/pm`, needs `view_pm`, matches `/app/pm` (so runs and the
   compliance tab light it).
-- *PM Inspection* → `/app/pm/inspection`, needs `inspect_pm`.
+- *PM Inspection* → `/app/inspection`, needs `inspect_pm`. It lives at `/app/inspection`, a
+  sibling of `/app/pm` rather than under it, so the Preventative Maintenance rail entry — which
+  matches the `/app/pm` prefix — does not light on it.
 
 `ADMIN_SECTIONS` gains *Maintainable units* (`/app/admin/units`) and *PM templates*
 (`/app/admin/pm-templates`).
 
-`/app/pm/inspection`, `/app/pm/compliance` and `/app/pm/runs/:id` are declared as siblings of
+`/app/inspection`, `/app/pm/compliance` and `/app/pm/runs/:id` are declared as siblings of
 `/app/pm` in `routes.tsx`, not nested under it, so `SweepPage`'s `?kind=` state never leaks into
 them.
 
@@ -478,7 +484,7 @@ that reveals a required note field.
 Runs in `pending` (scheduled) show a single **Start PM** button in place of the checklist until
 `POST /start` succeeds.
 
-### 7.4 `/app/pm/inspection` — `InspectionPage`
+### 7.4 `/app/inspection` — `InspectionPage`
 
 Kind tabs; *Available for Inspection (n)* / *Inspected (n)* sub-tabs; sort select. Rows: unit,
 completed by / at, days since last PM, and for the Inspected tab the result and inspector. A row
