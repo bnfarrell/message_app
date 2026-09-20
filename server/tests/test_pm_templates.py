@@ -100,6 +100,19 @@ def test_patch_soft_deletes_removed_items_and_keeps_answers_valid(app, fx, login
         assert sorted(r.active for r in rows) == [False, False, False, True, True]
 
 
+def test_patch_rejects_duplicate_item_ids(app, fx, login):
+    admin = login("admin@hvh.test")
+    t = admin.post(_base(fx), json=_sweep_body()).get_json()
+    keep = t["items"][0]
+    res = admin.patch(f"{_base(fx)}/{t['id']}", json={"items": [
+        {"id": keep["id"], "label": "First edit", "itemType": "checkbox"},
+        {"id": keep["id"], "label": "Second edit", "itemType": "checkbox"},
+    ]})
+    assert res.status_code == 400
+    assert res.get_json()["error"]["details"] == {"items": "duplicate_item"}
+    assert admin.get(_base(fx)).get_json()[0]["items"][0]["label"] == keep["label"]
+
+
 def test_item_type_is_immutable_and_bounds_only_on_numbers(app, fx, login):
     admin = login("admin@hvh.test")
     t = admin.post(_base(fx), json=_sweep_body()).get_json()

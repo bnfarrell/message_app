@@ -132,6 +132,12 @@ def _sync_items(db: Session, template: PmTemplate, items: list[TemplateItemIn]) 
     answers already recorded against it would mean something else."""
     existing = {i.id: i for i in db.scalars(select(PmTemplateItem).where(
         PmTemplateItem.template_id == template.id)).all()}
+    seen_ids: set[str] = set()
+    for data in items:
+        if data.id:
+            if data.id in seen_ids:
+                raise ValidationFailed("Duplicate item id", details={"items": "duplicate_item"})
+            seen_ids.add(data.id)
     keep: set[str] = set()
     for position, data in enumerate(items):
         if data.item_type != PmItemType.number and (
