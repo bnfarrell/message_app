@@ -4,6 +4,7 @@ import { ADMIN_SECTIONS } from '../../components/navModel'
 import { AssetsAdmin } from './AssetsAdmin'
 import { CategoriesAdmin } from './CategoriesAdmin'
 import { DepartmentsAdmin } from './DepartmentsAdmin'
+import { PmTemplatesAdmin } from './PmTemplatesAdmin'
 import { PropertySettingsAdmin } from './PropertySettingsAdmin'
 import { QuickRepliesAdmin } from './QuickRepliesAdmin'
 import { UnitsAdmin } from './UnitsAdmin'
@@ -60,6 +61,7 @@ export function AdminPage() {
         <Route path="categories" element={<CategoriesAdmin />} />
         <Route path="property" element={<PropertySettingsAdmin />} />
         <Route path="units" element={<UnitsAdmin />} />
+        <Route path="pm-templates" element={<PmTemplatesAdmin />} />
       </Routes>
     </div>
   )
