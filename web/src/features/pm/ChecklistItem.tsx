@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AnswerPatch, RunAnswerOut, RunPhotoOut, TemplateItemOut } from '../../api/types'
 import { Input } from '../../components/ui'
 import { cn } from '../../lib/cn'
@@ -29,11 +29,20 @@ export function ChecklistItem({
   const required = item.required ? <span className="text-dangerText"> *</span> : null
 
   // Text and number are edited locally and saved on blur, so a slow connection does not
-  // fight the keyboard. The saved value wins whenever the server answers.
+  // fight the keyboard. The saved value wins whenever the server answers — but only while
+  // the field isn't focused: a PATCH from an earlier blur can resolve after the user has
+  // already refocused and started a fresh edit, and that fresh edit must not be clobbered
+  // by the stale response. The blur handler reconciles once focus actually leaves.
+  const textRef = useRef<HTMLInputElement>(null)
+  const numberRef = useRef<HTMLInputElement>(null)
   const [text, setText] = useState(answer?.textValue ?? '')
   const [number, setNumber] = useState(answer?.numberValue === null || answer?.numberValue === undefined ? '' : String(answer.numberValue))
-  useEffect(() => setText(answer?.textValue ?? ''), [answer?.textValue])
   useEffect(() => {
+    if (document.activeElement === textRef.current) return
+    setText(answer?.textValue ?? '')
+  }, [answer?.textValue])
+  useEffect(() => {
+    if (document.activeElement === numberRef.current) return
     setNumber(answer?.numberValue === null || answer?.numberValue === undefined ? '' : String(answer.numberValue))
   }, [answer?.numberValue])
 
@@ -69,6 +78,7 @@ export function ChecklistItem({
           <label className={LABEL} htmlFor={inputId}>{item.label}{required}</label>
           <div className="mt-1 flex items-center gap-2">
             <Input
+              ref={numberRef}
               id={inputId}
               type="number"
               inputMode="decimal"
@@ -77,7 +87,10 @@ export function ChecklistItem({
               value={number}
               disabled={readOnly}
               onChange={(event) => setNumber(event.target.value)}
-              onBlur={() => onSave({ numberValue: number === '' ? null : Number(number) })}
+              onBlur={() => {
+                const next = number === '' ? null : Number(number)
+                if ((answer?.numberValue ?? null) !== next) onSave({ numberValue: next })
+              }}
             />
             {item.unit ? <span className="text-sm text-text3">{item.unit}</span> : null}
           </div>
@@ -95,6 +108,7 @@ export function ChecklistItem({
         <div>
           <label className={LABEL} htmlFor={inputId}>{item.label}{required}</label>
           <Input
+            ref={textRef}
             id={inputId}
             className="mt-1"
             value={text}

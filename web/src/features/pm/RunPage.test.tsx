@@ -105,6 +105,48 @@ describe('RunPage', () => {
     expect(screen.getByText(/2 required items still need an answer/)).toBeInTheDocument()
   })
 
+  it('does not let a slow PATCH response clobber a fresh edit made after the blur that triggered it', async () => {
+    let resolvePatch: ((response: Response) => void) | undefined
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/pm/runs/') && init?.method === 'PATCH') {
+        return new Promise<Response>((resolve) => {
+          resolvePatch = resolve
+        })
+      }
+      if (url.includes('/pm/runs/')) return json(RUN)
+      return json([])
+    })
+    mount()
+    const field = await screen.findByRole('spinbutton', { name: /Tap hot-water temperature/ })
+
+    // Blur field A with "122" — the PATCH fires but never resolves yet.
+    await userEvent.type(field, '122')
+    await userEvent.tab()
+    await waitFor(() => expect(patchCalls()).toHaveLength(1))
+
+    // Before the response comes back, the user refocuses the same field and types "150",
+    // without blurring again — nothing has saved this value yet.
+    await userEvent.click(field)
+    await userEvent.clear(field)
+    await userEvent.type(field, '150')
+    expect(field).toHaveValue(150)
+
+    // The stale "122" PATCH now resolves and lands in the cache.
+    const flagged: RunOut = {
+      ...RUN,
+      answers: (RUN.answers ?? []).map((a) =>
+        a.id === 'a-temp' ? { ...a, numberValue: 122, outOfRange: true, answeredAt: '2026-09-10T12:05:00Z' } : a),
+      missingRequired: ['i-hvac', 'i-fan'],
+    }
+    resolvePatch!(new Response(JSON.stringify(flagged), { status: 200 }))
+
+    // Wait for the cache update to actually land (the warning only renders off `answer`,
+    // not off the field's local state), then confirm the focused field kept "150".
+    expect(await screen.findByText(/Outside 100–120/)).toBeInTheDocument()
+    expect(field).toHaveValue(150)
+  })
+
   it('enables Complete once nothing is missing and posts it', async () => {
     const ready = { ...RUN, missingRequired: [] }
     serve(ready, { ...ready, status: 'completed' })
