@@ -1,0 +1,596 @@
+# Review package: d557733^..d557733
+
+## Commits
+d557733 feat(web): assemble the hotel log page
+
+## Files changed
+ web/src/components/AppShell.test.tsx       |   2 +-
+ web/src/components/CommandPalette.test.tsx |   1 +
+ web/src/components/NavIcon.tsx             |   3 +-
+ web/src/components/navModel.test.ts        |  10 +-
+ web/src/components/navModel.ts             |   1 +
+ web/src/features/log/LogPage.test.tsx      | 129 ++++++++++++++++++++++++
+ web/src/features/log/LogPage.tsx           | 154 +++++++++++++++++++++++++++++
+ web/src/lib/time.test.ts                   |  22 ++++-
+ web/src/lib/time.ts                        |   9 ++
+ web/src/routes.tsx                         |   2 +
+ 10 files changed, 329 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/web/src/components/AppShell.test.tsx b/web/src/components/AppShell.test.tsx
+index 62ba6e9..fe5f529 100644
+--- a/web/src/components/AppShell.test.tsx
++++ b/web/src/components/AppShell.test.tsx
+@@ -184,21 +184,21 @@ describe('AppShell', () => {
+     expect(await screen.findByText('Overview')).toBeInTheDocument()
+     expect(screen.queryByText('Insights')).not.toBeInTheDocument()
+     expect(screen.queryByText('Admin', { selector: 'p' })).not.toBeInTheDocument()
+   })
+ 
+   it('keeps only the capability-free items when a role can do nothing at all', () => {
+     // Asserted on the model rather than mimed through a role: no role in the product holds
+     // zero capabilities, and this is what guarantees the rail never renders a bare heading.
+     const groups = visibleNavGroups(() => false)
+     expect(groups.map((g) => g.heading)).toEqual(['Overview'])
+-    expect(groups[0]!.items.map((i) => i.label)).toEqual(['Alerts', 'Messages'])
++    expect(groups[0]!.items.map((i) => i.label)).toEqual(['Alerts', 'Messages', 'Log'])
+   })
+ 
+   it('keeps the property lockup as plain text, not a dead button, for one membership', async () => {
+     mount({ role: 'agent' })
+     expect(await screen.findByText('Harbourview Hotel')).toBeInTheDocument()
+     expect(screen.queryByRole('button', { name: /switch property/i })).not.toBeInTheDocument()
+   })
+ 
+   it('carries the property switcher on the lockup, not at the foot of the rail', async () => {
+     mount({ role: 'agent', withSecondProperty: true })
+diff --git a/web/src/components/CommandPalette.test.tsx b/web/src/components/CommandPalette.test.tsx
+index 2ad72e8..55c20fc 100644
+--- a/web/src/components/CommandPalette.test.tsx
++++ b/web/src/components/CommandPalette.test.tsx
+@@ -97,20 +97,21 @@ describe('CommandPalette', () => {
+ 
+   it('offers an agent only what an agent can reach, and no admin sections at all', async () => {
+     const user = userEvent.setup()
+     mount({ role: 'agent' })
+     await user.click(await screen.findByRole('button', { name: /jump to a screen/i }))
+     expect(optionNames()).toEqual([
+       'Inbox',
+       'Board',
+       'Alerts',
+       'Messages',
++      'Log',
+       'Switch to light theme',
+       'Sign out',
+     ])
+   })
+ 
+   it('lists the admin sub-sections to a role with manage_admin', async () => {
+     const user = userEvent.setup()
+     mount({ role: 'admin' })
+     await user.click(await screen.findByRole('button', { name: /jump to a screen/i }))
+     expect(optionNames()).toContain('Quick replies')
+diff --git a/web/src/components/NavIcon.tsx b/web/src/components/NavIcon.tsx
+index c0cb98c..2218e4c 100644
+--- a/web/src/components/NavIcon.tsx
++++ b/web/src/components/NavIcon.tsx
+@@ -1,18 +1,19 @@
+ import { cn } from '../lib/cn'
+ 
+ export type IconName =
+-  | 'inbox' | 'board' | 'analytics' | 'alerts' | 'admin' | 'theme' | 'signout' | 'search'
++  | 'inbox' | 'board' | 'analytics' | 'alerts' | 'admin' | 'theme' | 'signout' | 'search' | 'log'
+ 
+ const PATHS: Record<IconName, string> = {
+   inbox: 'M3 12h5l2 3h4l2-3h5M3 12l2.5-7h13L21 12v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7Z',
+   board: 'M4 4h5v16H4zM10 4h5v11h-5zM16 4h4v7h-4z',
++  log: 'M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm3 0v18M12 8h4M12 12h4',
+   analytics: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+   alerts: 'M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6M10.5 20a2 2 0 0 0 3 0',
+   admin: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7.5 7.5 0 0 0-2-1.2L14.6 3H9.4L9 5.7a7.5 7.5 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5a7.4 7.4 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-1a7.5 7.5 0 0 0 2 1.2l.4 2.7h5.2l.4-2.7a7.5 7.5 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.06-.4.1-.8.1-1.2Z',
+   theme: 'M12 3v2M12 19v2M5 12H3M21 12h-2M6.3 6.3 4.9 4.9M19.1 19.1l-1.4-1.4M6.3 17.7 4.9 19.1M19.1 4.9l-1.4 1.4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
+   signout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
+   search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm5.5-1.5L21 21',
+ }
+ 
+ export function NavIcon({ name, className }: { name: IconName; className?: string }) {
+   return (
+diff --git a/web/src/components/navModel.test.ts b/web/src/components/navModel.test.ts
+index c62129f..71ff3a9 100644
+--- a/web/src/components/navModel.test.ts
++++ b/web/src/components/navModel.test.ts
+@@ -1,12 +1,12 @@
+ import { describe, expect, it } from 'vitest'
+-import { NAV_GROUPS, isNavItemActive } from './navModel'
++import { NAV_GROUPS, isNavItemActive, visibleNavGroups } from './navModel'
+ 
+ const item = (label: string) =>
+   NAV_GROUPS.flatMap((group) => group.items).find((i) => i.label === label)!
+ 
+ describe('isNavItemActive', () => {
+   it('lights a section entry on every screen inside it, not only on its own target', () => {
+     const admin = item('Admin')
+     expect(admin.to).toBe('/app/admin/users')
+     expect(isNavItemActive(admin, '/app/admin/users')).toBe(true)
+     expect(isNavItemActive(admin, '/app/admin/departments')).toBe(true)
+@@ -20,10 +20,18 @@ describe('isNavItemActive', () => {
+   })
+ 
+   it('falls back to `to` for an entry with no `match`', () => {
+     const inbox = item('Inbox')
+     expect(inbox.match).toBeUndefined()
+     expect(isNavItemActive(inbox, '/app/inbox')).toBe(true)
+     expect(isNavItemActive(inbox, '/app/inbox/c-1')).toBe(true)
+     expect(isNavItemActive(inbox, '/app/board')).toBe(false)
+   })
+ })
++
++describe('visibleNavGroups', () => {
++  it('shows the Log entry to every staff role', () => {
++    const groups = visibleNavGroups(() => false) // no capabilities at all
++    const items = groups.flatMap((g) => g.items)
++    expect(items.find((i) => i.to === '/app/log')).toBeTruthy()
++  })
++})
+diff --git a/web/src/components/navModel.ts b/web/src/components/navModel.ts
+index 9e445e3..2518c3b 100644
+--- a/web/src/components/navModel.ts
++++ b/web/src/components/navModel.ts
+@@ -26,20 +26,21 @@ export const NAV_GROUPS: NavGroup[] = [
+     items: [
+       // Corporate has view_all_conversations + add_note on the server (permissions.py) with no
+       // @require_capability gate on the list endpoint, so it genuinely can read (and note) every
+       // conversation — the Inbox stays visible, read-only.
+       { label: 'Inbox', to: '/app/inbox', icon: 'inbox', needs: ['reply', 'view_all_conversations'] },
+       // A work order opens at /app/work-orders/:id, a sibling of the board rather than a child
+       // of it — the same shape as the Admin defect, so it is listed here too.
+       { label: 'Board', to: '/app/board', icon: 'board', needs: ['create_work_order', 'close_work_order'], match: ['/app/board', '/app/work-orders'] },
+       { label: 'Alerts', to: '/app/notifications', icon: 'alerts', needs: [] },
+       { label: 'Messages', to: '/app/messages', icon: 'inbox', needs: [] },
++      { label: 'Log', to: '/app/log', icon: 'log', needs: [] },
+     ],
+   },
+   {
+     heading: 'Insights',
+     items: [
+       { label: 'Analytics', to: '/app/analytics', icon: 'analytics', needs: ['view_property_analytics'] },
+     ],
+   },
+   {
+     // Ruling D62: one entry, not the six admin screens. Admin.dc.html carries its own 220px
+diff --git a/web/src/features/log/LogPage.test.tsx b/web/src/features/log/LogPage.test.tsx
+new file mode 100644
+index 0000000..44ee9a8
+--- /dev/null
++++ b/web/src/features/log/LogPage.test.tsx
+@@ -0,0 +1,129 @@
++import { screen, waitFor } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import type { DepartmentOut, LogEntryOut, LogFeedOut } from '../../api/types'
++import { SessionProvider } from '../../auth/SessionContext'
++import { aDepartment } from '../../test/factories'
++import { renderWithProviders, sessionFixture } from '../../test/harness'
++import { LogPage } from './LogPage'
++
++const DEPARTMENTS: DepartmentOut[] = [aDepartment()]
++
++const BASE: LogEntryOut = {
++  id: 'log-1',
++  authorUserId: 'u-eli',
++  authorName: 'Eli Vance',
++  body: 'Checked the boiler room.',
++  createdAt: new Date().toISOString(),
++  pinned: false,
++  requiresAck: false,
++  ackExpectedCount: 0,
++  ackedByMe: false,
++  canAck: false,
++  shift: 'am',
++}
++
++function jsonResponse(body: unknown) {
++  return Promise.resolve(
++    new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }),
++  )
++}
++
++function serve(feed: LogFeedOut = { entries: [], pinned: [] }) {
++  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
++    const url = String(input)
++    if (url.includes('mentionables')) return jsonResponse([])
++    if (url.includes('/departments')) return jsonResponse(DEPARTMENTS)
++    if (url.includes('log-entries')) return jsonResponse(feed)
++    return jsonResponse([])
++  })
++}
++
++function mount(feed?: LogFeedOut) {
++  serve(feed)
++  return renderWithProviders(
++    <SessionProvider>
++      <LogPage />
++    </SessionProvider>,
++    { session: sessionFixture({ role: 'agent' }) },
++  )
++}
++
++// Excludes the mentionables fetch, which also contains the substring "log-entries".
++function feedCalls() {
++  return vi
++    .mocked(fetch)
++    .mock.calls.filter(([input]) => String(input).includes('log-entries') && !String(input).includes('mentionables'))
++}
++
++describe('LogPage', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('renders a tab strip whose only tab is Posts, and it is selected', async () => {
++    mount()
++    await waitFor(() => expect(screen.getByRole('tablist')).toBeInTheDocument())
++    const tabs = screen.getAllByRole('tab')
++    expect(tabs).toHaveLength(1)
++    expect(tabs[0]).toHaveTextContent('Posts')
++    expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
++  })
++
++  it("groups entries under day headings, reading Today · 2 posts for two entries created today", async () => {
++    mount({
++      entries: [
++        { ...BASE, id: 'log-1' },
++        { ...BASE, id: 'log-2' },
++      ],
++      pinned: [],
++    })
++    expect(await screen.findByText('Today · 2 posts')).toBeInTheDocument()
++  })
++
++  it('renders the pinned block above the day groups, labelled Pinned, when pinned is non-empty', async () => {
++    mount({
++      entries: [{ ...BASE, id: 'log-1' }],
++      pinned: [{ ...BASE, id: 'log-pin', body: 'Pinned notice' }],
++    })
++    expect(await screen.findByText('Pinned')).toBeInTheDocument()
++    expect(screen.getByText('Pinned notice')).toBeInTheDocument()
++  })
++
++  it('omits the pinned block entirely when pinned is empty', async () => {
++    mount({ entries: [{ ...BASE, id: 'log-1' }], pinned: [] })
++    await screen.findByText('Today · 1 post')
++    expect(screen.queryByText('Pinned')).not.toBeInTheDocument()
++  })
++
++  it('issues a request with shift=overnight when the shift filter changes', async () => {
++    mount()
++    await waitFor(() => expect(feedCalls().length).toBeGreaterThan(0))
++
++    await userEvent.selectOptions(screen.getByLabelText('Shift'), 'overnight')
++
++    await waitFor(() =>
++      expect(feedCalls().some(([input]) => String(input).includes('shift=overnight'))).toBe(true),
++    )
++  })
++
++  it('issues a request with mentioningMe=true when the Mentioning me toggle is checked', async () => {
++    mount()
++    await waitFor(() => expect(feedCalls().length).toBeGreaterThan(0))
++
++    await userEvent.click(screen.getByLabelText('Mentioning me'))
++
++    await waitFor(() =>
++      expect(feedCalls().some(([input]) => String(input).includes('mentioningMe=true'))).toBe(true),
++    )
++  })
++
++  it('renders an empty state, not a bare page, for an empty feed', async () => {
++    mount({ entries: [], pinned: [] })
++    expect(await screen.findByText(/no log entries/i)).toBeInTheDocument()
++    expect(screen.queryByText(/·/)).not.toBeInTheDocument()
++  })
++})
+diff --git a/web/src/features/log/LogPage.tsx b/web/src/features/log/LogPage.tsx
+new file mode 100644
+index 0000000..efbb05b
+--- /dev/null
++++ b/web/src/features/log/LogPage.tsx
+@@ -0,0 +1,154 @@
++import { useState } from 'react'
++import { useLogFeed } from '../../api/hooks/log'
++import { useDepartments } from '../../api/hooks/users'
++import type { LogEntryOut } from '../../api/types'
++import { EmptyState, Spinner } from '../../components/ui'
++import { dayKey } from '../../lib/time'
++import { LogComposer } from './LogComposer'
++import { LogEntryCard } from './LogEntryCard'
++
++const SELECT =
++  'h-9 rounded border border-border3 bg-surface2 px-2 text-sm text-text focus:border-accent focus:outline-none'
++const HEADING = 'text-xs font-bold uppercase tracking-widest text-text3'
++
++const SHIFTS = [
++  { value: 'am', label: 'AM' },
++  { value: 'pm', label: 'PM' },
++  { value: 'overnight', label: 'Overnight' },
++]
++
++/** Consecutive runs of the viewer's local day (spec §7 departure — see time.ts's dayKey).
++ *  Entries arrive newest-first from the server and are never re-sorted here, so a run
++ *  only breaks where the day actually changes. */
++function groupByDay(entries: LogEntryOut[]): { key: string; entries: LogEntryOut[] }[] {
++  const groups: { key: string; entries: LogEntryOut[] }[] = []
++  for (const entry of entries) {
++    const key = dayKey(entry.createdAt)
++    const current = groups[groups.length - 1]
++    if (current?.key === key) {
++      current.entries.push(entry)
++    } else {
++      groups.push({ key, entries: [entry] })
++    }
++  }
++  return groups
++}
++
++function dayHeading(key: string): string {
++  if (key === dayKey(new Date().toISOString())) return 'Today'
++  const [year, month, day] = key.split('-').map(Number)
++  return new Date(year!, month! - 1, day!).toLocaleDateString([], {
++    weekday: 'long',
++    month: 'long',
++    day: 'numeric',
++  })
++}
++
++export function LogPage() {
++  const [shift, setShift] = useState('')
++  const [departmentId, setDepartmentId] = useState('')
++  const [mentioningMe, setMentioningMe] = useState(false)
++  const { data: departments } = useDepartments()
++  const { data, isPending, error } = useLogFeed({
++    shift: shift || undefined,
++    departmentId: departmentId || undefined,
++    mentioningMe,
++  })
++
++  const pinned = data?.pinned ?? []
++  const groups = groupByDay(data?.entries ?? [])
++
++  return (
++    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
++      <header className="border-b border-border px-4 py-3">
++        <h1 className="text-base font-bold">Log</h1>
++      </header>
++
++      <LogComposer />
++
++      <div className="flex flex-wrap items-end gap-3 border-b border-border px-4 py-3">
++        <div>
++          <label className={HEADING} htmlFor="log-filter-shift">Shift</label>
++          <select
++            id="log-filter-shift"
++            className={SELECT}
++            value={shift}
++            onChange={(event) => setShift(event.target.value)}
++          >
++            <option value="">All shifts</option>
++            {SHIFTS.map((s) => (
++              <option key={s.value} value={s.value}>{s.label}</option>
++            ))}
++          </select>
++        </div>
++
++        <div>
++          <label className={HEADING} htmlFor="log-filter-department">Department</label>
++          <select
++            id="log-filter-department"
++            className={SELECT}
++            value={departmentId}
++            onChange={(event) => setDepartmentId(event.target.value)}
++          >
++            <option value="">All departments</option>
++            {(departments ?? []).map((d) => (
++              <option key={d.id} value={d.id}>{d.name}</option>
++            ))}
++          </select>
++        </div>
++
++        <label className="flex h-9 items-center gap-2 text-xs font-semibold text-text3">
++          <input
++            type="checkbox"
++            checked={mentioningMe}
++            onChange={(event) => setMentioningMe(event.target.checked)}
++          />
++          Mentioning me
++        </label>
++      </div>
++
++      <div role="tablist" className="flex gap-1.5 border-b border-border px-4">
++        <button
++          type="button"
++          role="tab"
++          aria-selected={true}
++          className="inline-flex h-11 items-center px-3.5 text-[13.5px] font-semibold text-text md:h-9"
++        >
++          Posts
++        </button>
++      </div>
++
++      {isPending ? (
++        <div className="flex justify-center py-8">
++          <Spinner />
++        </div>
++      ) : error ? (
++        <EmptyState title="Could not load the log" hint={error.message} />
++      ) : pinned.length === 0 && groups.length === 0 ? (
++        <EmptyState title="No log entries yet" hint="Posts will show up here once someone adds one." />
++      ) : (
++        <div className="flex flex-col gap-4 p-4">
++          {pinned.length > 0 ? (
++            <section className="flex flex-col gap-2">
++              <h2 className={HEADING}>Pinned</h2>
++              {pinned.map((entry) => (
++                <LogEntryCard key={entry.id} entry={entry} />
++              ))}
++            </section>
++          ) : null}
++
++          {groups.map((group) => (
++            <section key={group.key} className="flex flex-col gap-2">
++              <h2 className={HEADING}>
++                {dayHeading(group.key)} · {group.entries.length} post{group.entries.length === 1 ? '' : 's'}
++              </h2>
++              {group.entries.map((entry) => (
++                <LogEntryCard key={entry.id} entry={entry} />
++              ))}
++            </section>
++          ))}
++        </div>
++      )}
++    </div>
++  )
++}
+diff --git a/web/src/lib/time.test.ts b/web/src/lib/time.test.ts
+index 0bd86c4..ba69edf 100644
+--- a/web/src/lib/time.test.ts
++++ b/web/src/lib/time.test.ts
+@@ -1,12 +1,12 @@
+ import { describe, expect, it } from 'vitest'
+-import { formatCountdown, formatDuration, relativeTime } from './time'
++import { dayKey, formatCountdown, formatDuration, relativeTime } from './time'
+ 
+ describe('formatCountdown', () => {
+   it('formats remaining time as mm:ss', () => {
+     expect(formatCountdown(4 * 60_000 + 12_000)).toBe('04:12')
+     expect(formatCountdown(11 * 60_000 + 40_000)).toBe('11:40')
+   })
+ 
+   it('uses a real minus sign when overdue, matching the mockup', () => {
+     expect(formatCountdown(-(4 * 60_000 + 12_000))).toBe('−' + '04:12')
+   })
+@@ -35,20 +35,40 @@ describe('relativeTime', () => {
+   it('shows hours and minutes under a day', () => {
+     expect(relativeTime('2026-09-10T17:50:00Z', now)).toBe('1h 10m')
+     expect(relativeTime('2026-09-10T17:00:00Z', now)).toBe('2h')
+   })
+ 
+   it('shows whole days beyond that', () => {
+     expect(relativeTime('2026-09-08T19:00:00Z', now)).toBe('2d')
+   })
+ })
+ 
++describe('dayKey', () => {
++  it('returns the viewer local calendar day as YYYY-MM-DD', () => {
++    // Built from local Date components, not an ISO string, so this is independent of
++    // whatever timezone the test runner happens to be in.
++    expect(dayKey(new Date(2026, 8, 10, 9, 15).toISOString())).toBe('2026-09-10')
++  })
++
++  it('keys two timestamps on the same local day the same, regardless of time of day', () => {
++    const morning = new Date(2026, 8, 10, 0, 1).toISOString()
++    const night = new Date(2026, 8, 10, 23, 59).toISOString()
++    expect(dayKey(morning)).toBe(dayKey(night))
++  })
++
++  it('keys timestamps on either side of local midnight differently', () => {
++    const before = new Date(2026, 8, 10, 23, 59).toISOString()
++    const after = new Date(2026, 8, 11, 0, 1).toISOString()
++    expect(dayKey(before)).not.toBe(dayKey(after))
++  })
++})
++
+ describe('formatDuration', () => {
+   it('formats sub-minute values with seconds', () => {
+     expect(formatDuration(160)).toBe('2m 40s')
+     expect(formatDuration(45)).toBe('45s')
+   })
+ 
+   it('drops seconds once past an hour', () => {
+     expect(formatDuration(4440)).toBe('1h 14m')
+   })
+ 
+diff --git a/web/src/lib/time.ts b/web/src/lib/time.ts
+index 770b70d..87b28f9 100644
+--- a/web/src/lib/time.ts
++++ b/web/src/lib/time.ts
+@@ -18,20 +18,29 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
+   const minutes = Math.floor(seconds / 60)
+   if (minutes < 60) return `${minutes}m`
+   const hours = Math.floor(minutes / 60)
+   if (hours < 24) {
+     const rest = minutes % 60
+     return rest ? `${hours}h ${rest}m` : `${hours}h`
+   }
+   return `${Math.floor(hours / 24)}d`
+ }
+ 
++/** The viewer's local calendar day, as `YYYY-MM-DD` — for grouping the log feed only.
++ *  Every clock in this app already renders in the viewer's zone (see `formatClock`
++ *  below), and the property timezone is not plumbed into any display component, so this
++ *  reads local Date fields rather than the property's. */
++export function dayKey(iso: string): string {
++  const d = new Date(iso)
++  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
++}
++
+ export function formatClock(iso: string): string {
+   return new Date(iso).toLocaleTimeString([], {
+     hour: '2-digit',
+     minute: '2-digit',
+     hour12: false,
+   })
+ }
+ 
+ export function formatDuration(seconds: number): string {
+   if (seconds < 60) return `${Math.round(seconds)}s`
+diff --git a/web/src/routes.tsx b/web/src/routes.tsx
+index 8ae8b3d..63cad06 100644
+--- a/web/src/routes.tsx
++++ b/web/src/routes.tsx
+@@ -5,20 +5,21 @@ import { RequireAuth } from './auth/RequireAuth'
+ import { landingPath } from './auth/capabilities'
+ import { AppLayout } from './AppLayout'
+ import { Spinner } from './components/ui'
+ import { LoginPage } from './features/login/LoginPage'
+ import { InboxPage } from './features/inbox/InboxPage'
+ import { BoardPage } from './features/board/BoardPage'
+ import { WorkOrderDetailPage } from './features/board/WorkOrderDetailPage'
+ import { AnalyticsPage } from './features/analytics/AnalyticsPage'
+ import { NotificationsPage } from './features/notifications/NotificationsPage'
+ import { MessagesPage } from './features/messages/MessagesPage'
++import { LogPage } from './features/log/LogPage'
+ import { AdminPage } from './features/admin/AdminPage'
+ 
+ function LandingRedirect() {
+   const { role } = useSession()
+   return <Navigate to={landingPath(role)} replace />
+ }
+ 
+ function RequireCapability({
+   capability,
+   children,
+@@ -51,20 +52,21 @@ export function AppRoutes() {
+             path="analytics"
+             element={
+               <RequireCapability capability="view_property_analytics">
+                 <AnalyticsPage />
+               </RequireCapability>
+             }
+           />
+           <Route path="notifications" element={<NotificationsPage />} />
+           <Route path="messages" element={<MessagesPage />} />
+           <Route path="messages/:id" element={<MessagesPage />} />
++          <Route path="log" element={<LogPage />} />
+           <Route
+             path="admin/*"
+             element={
+               <RequireCapability capability="manage_admin">
+                 <AdminPage />
+               </RequireCapability>
+             }
+           />
+         </Route>
+       </Route>

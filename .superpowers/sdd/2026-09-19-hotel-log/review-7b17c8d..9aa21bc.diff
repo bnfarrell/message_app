@@ -1,0 +1,149 @@
+# Review package: 7b17c8d..9aa21bc
+
+## Commits
+9aa21bc feat: add view_log, post_log and pin_log_entry capabilities
+
+## Files changed
+ server/app/auth/permissions.py    |  3 +++
+ server/tests/test_auth.py         | 16 ++++++++++++++++
+ web/src/auth/capabilities.test.ts | 20 ++++++++++++++++++++
+ web/src/auth/capabilities.ts      |  6 ++++++
+ 4 files changed, 45 insertions(+)
+
+## Diff
+diff --git a/server/app/auth/permissions.py b/server/app/auth/permissions.py
+index 0badbf5..e093d0a 100644
+--- a/server/app/auth/permissions.py
++++ b/server/app/auth/permissions.py
+@@ -9,15 +9,18 @@ CAPABILITIES: dict[str, set[Role]] = {
+     "reply": {Role.agent, Role.dept_staff, Role.supervisor, Role.manager, Role.admin},
+     "assign": {Role.agent, Role.dept_staff, Role.supervisor, Role.manager, Role.admin},
+     "add_note": STAFF,
+     "archive": {Role.agent, Role.supervisor, Role.manager, Role.admin},
+     "create_work_order": {Role.agent, Role.dept_staff, Role.supervisor, Role.manager, Role.admin},
+     "close_work_order": {Role.dept_staff, Role.supervisor, Role.manager, Role.admin},
+     "view_property_analytics": {Role.supervisor, Role.manager, Role.admin, Role.corporate},
+     "view_own_stats": {Role.agent, Role.dept_staff},
+     "manage_admin": {Role.admin, Role.corporate},
+     "export": {Role.manager, Role.admin, Role.corporate},
++    "view_log": STAFF,
++    "post_log": STAFF,
++    "pin_log_entry": {Role.supervisor, Role.manager, Role.admin},
+ }
+ 
+ 
+ def has_capability(role: Role, capability: str) -> bool:
+     return role in CAPABILITIES.get(capability, set())
+diff --git a/server/tests/test_auth.py b/server/tests/test_auth.py
+index 0f3d0d1..183eea6 100644
+--- a/server/tests/test_auth.py
++++ b/server/tests/test_auth.py
+@@ -105,10 +105,26 @@ def test_production_refuses_to_boot_with_the_placeholder_session_secret(template
+     from app import create_app
+     from app.config import INSECURE_SESSION_SECRETS, Config
+ 
+     for secret in INSECURE_SESSION_SECRETS:
+         p = tmp_path / f"boot-{abs(hash(secret))}.db"
+         shutil.copy(template_db_path, p)
+         cfg = Config(DATABASE_URL=f"sqlite:///{p.as_posix()}", TESTING=True, ENV="production",
+                      SESSION_SECRET=secret)
+         with pytest.raises(RuntimeError, match="SESSION_SECRET"):
+             create_app(cfg)
++
++
++def test_log_capabilities_match_the_spec():
++    from app.auth.permissions import has_capability
++    from app.schemas.enums import Role
++
++    for role in Role:
++        assert has_capability(role, "view_log"), role
++        assert has_capability(role, "post_log"), role
++    assert not has_capability(Role.agent, "pin_log_entry")
++    assert not has_capability(Role.dept_staff, "pin_log_entry")
++    assert not has_capability(Role.corporate, "pin_log_entry")
++    for role in (Role.supervisor, Role.manager, Role.admin):
++        # admin must be able to pin: test_isolation.py asserts an admin is never 403 on a
++        # route of their own property, and the pin routes carry @require_capability.
++        assert has_capability(role, "pin_log_entry"), role
+diff --git a/web/src/auth/capabilities.test.ts b/web/src/auth/capabilities.test.ts
+index ef09d5a..93fbbc2 100644
+--- a/web/src/auth/capabilities.test.ts
++++ b/web/src/auth/capabilities.test.ts
+@@ -40,10 +40,30 @@ describe('hasCapability', () => {
+ describe('landingPath', () => {
+   it('sends each role where §5.2 says', () => {
+     expect(landingPath('agent')).toBe('/app/inbox')
+     expect(landingPath('dept_staff')).toBe('/app/board?mine=1')
+     expect(landingPath('supervisor')).toBe('/app/board?mine=1')
+     expect(landingPath('manager')).toBe('/app/analytics')
+     expect(landingPath('admin')).toBe('/app/analytics')
+     expect(landingPath('corporate')).toBe('/app/analytics')
+   })
+ })
++
++describe('log capabilities', () => {
++  const roles: Role[] = ['agent', 'dept_staff', 'supervisor', 'manager', 'admin', 'corporate']
++
++  it('lets every staff role read and post', () => {
++    for (const role of roles) {
++      expect(hasCapability(role, 'view_log')).toBe(true)
++      expect(hasCapability(role, 'post_log')).toBe(true)
++    }
++  })
++
++  it('restricts pinning to supervisor and above', () => {
++    expect(hasCapability('agent', 'pin_log_entry')).toBe(false)
++    expect(hasCapability('dept_staff', 'pin_log_entry')).toBe(false)
++    expect(hasCapability('corporate', 'pin_log_entry')).toBe(false)
++    expect(hasCapability('supervisor', 'pin_log_entry')).toBe(true)
++    expect(hasCapability('manager', 'pin_log_entry')).toBe(true)
++    expect(hasCapability('admin', 'pin_log_entry')).toBe(true)
++  })
++})
+diff --git a/web/src/auth/capabilities.ts b/web/src/auth/capabilities.ts
+index 07a5b58..2912ffe 100644
+--- a/web/src/auth/capabilities.ts
++++ b/web/src/auth/capabilities.ts
+@@ -5,36 +5,42 @@ export type Capability =
+   | 'reply'
+   | 'assign'
+   | 'add_note'
+   | 'archive'
+   | 'create_work_order'
+   | 'close_work_order'
+   | 'view_property_analytics'
+   | 'view_own_stats'
+   | 'manage_admin'
+   | 'export'
++  | 'view_log'
++  | 'post_log'
++  | 'pin_log_entry'
+ 
+ const STAFF: Role[] = ['agent', 'dept_staff', 'supervisor', 'manager', 'admin', 'corporate']
+ 
+ /** Mirrors server/app/auth/permissions.py CAPABILITIES. Keep the two in step. */
+ const CAPABILITIES: Record<Capability, Role[]> = {
+   view_all_conversations: ['agent', 'supervisor', 'manager', 'admin', 'corporate'],
+   reply: ['agent', 'dept_staff', 'supervisor', 'manager', 'admin'],
+   assign: ['agent', 'dept_staff', 'supervisor', 'manager', 'admin'],
+   add_note: STAFF,
+   archive: ['agent', 'supervisor', 'manager', 'admin'],
+   create_work_order: ['agent', 'dept_staff', 'supervisor', 'manager', 'admin'],
+   close_work_order: ['dept_staff', 'supervisor', 'manager', 'admin'],
+   view_property_analytics: ['supervisor', 'manager', 'admin', 'corporate'],
+   view_own_stats: ['agent', 'dept_staff'],
+   manage_admin: ['admin', 'corporate'],
+   export: ['manager', 'admin', 'corporate'],
++  view_log: STAFF,
++  post_log: STAFF,
++  pin_log_entry: ['supervisor', 'manager', 'admin'],
+ }
+ 
+ export function hasCapability(role: Role, capability: Capability): boolean {
+   return CAPABILITIES[capability].includes(role)
+ }
+ 
+ /** §5.2: /app redirects here. */
+ export function landingPath(role: Role): string {
+   switch (role) {
+     case 'agent':

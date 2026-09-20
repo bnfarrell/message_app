@@ -1,0 +1,182 @@
+# Review package: 46c6600^..46c6600
+
+## Commits
+46c6600 fix(server): harden hotel log photo route
+
+## Files changed
+ server/app/api/log.py        | 27 +++++++++++++++++++++++++--
+ server/tests/test_log_api.py | 25 +++++++++++++++++++++++++
+ 2 files changed, 50 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/server/app/api/log.py b/server/app/api/log.py
+index a307374..10c066f 100644
+--- a/server/app/api/log.py
++++ b/server/app/api/log.py
+@@ -2,20 +2,37 @@ from flask import Blueprint, Response, g, request
+ 
+ from app.api._util import db_session, ok, parse_body, parse_query
+ from app.auth.decorators import require_auth, require_capability, require_property
+ from app.domain import log
+ from app.domain.work_orders import MAX_PHOTO_BYTES, sniff_image_type
+ from app.errors import ValidationFailed
+ from app.schemas.log import CreateLogEntryRequest, LogFeedQuery
+ 
+ bp = Blueprint("log", __name__, url_prefix="/api/p/<property_id>/log-entries")
+ 
++# Defined per-api-module by existing convention — app/api/staff_messages.py:47 and
++# app/api/work_orders.py:22 each carry their own copy rather than sharing one.
++MULTIPART_OVERHEAD_BYTES = 4096
++
++
++def _reject_oversized_request() -> None:
++    """Refuse before Werkzeug buffers the whole multipart body into memory.
++
++    No MAX_CONTENT_LENGTH is configured app-wide, so without this an arbitrarily large
++    upload is fully parsed before the truncated read below ever runs. Mirrors
++    app/api/staff_messages.py:54.
++    """
++    if (request.content_length or 0) > MAX_PHOTO_BYTES + MULTIPART_OVERHEAD_BYTES:
++        raise ValidationFailed(
++            f"A photo must be {MAX_PHOTO_BYTES // (1024 * 1024)} MB or smaller",
++            details={"photo": "file_too_large"})
++
+ 
+ def _photo_from_request() -> tuple[bytes, str] | None:
+     upload = request.files.get("photo")
+     if upload is None:
+         return None
+     body = upload.read(MAX_PHOTO_BYTES + 1)
+     if len(body) > MAX_PHOTO_BYTES:
+         raise ValidationFailed(
+             f"A photo must be {MAX_PHOTO_BYTES // (1024 * 1024)} MB or smaller",
+             details={"photo": "file_too_large"})
+@@ -34,20 +51,23 @@ def list_entries(property_id: str):
+     query = parse_query(LogFeedQuery)
+     with db_session() as db:
+         return ok(log.feed(db, g.property_id, g.user.id, query))
+ 
+ 
+ @bp.post("")
+ @require_auth
+ @require_property
+ @require_capability("post_log")
+ def create_entry(property_id: str):
++    # Must run BEFORE parse_body: reading the form is what makes Werkzeug buffer the
++    # whole multipart body, so a check afterwards is a check after the damage.
++    _reject_oversized_request()
+     data = parse_body(CreateLogEntryRequest)
+     photo = _photo_from_request()
+     with db_session() as db:
+         entry = log.create(db, g.property_id, g.user.id, data, photo=photo)
+         return ok(log.get_out(db, g.property_id, g.user.id, entry.id), 201)
+ 
+ 
+ @bp.get("/mentionables")
+ @require_auth
+ @require_property
+@@ -96,12 +116,15 @@ def unpin_entry(property_id: str, entry_id: str):
+         return ok(log.get_out(db, g.property_id, g.user.id, entry_id))
+ 
+ 
+ @bp.get("/<entry_id>/photo")
+ @require_auth
+ @require_property
+ @require_capability("view_log")
+ def get_entry_photo(property_id: str, entry_id: str):
+     with db_session() as db:
+         body, content_type = log.get_photo(db, g.property_id, entry_id)
+-    return Response(body, mimetype=content_type,
+-                    headers={"Cache-Control": "private, max-age=86400"})
++    return Response(body, mimetype=content_type, headers={
++        "Content-Disposition": "inline",
++        "X-Content-Type-Options": "nosniff",
++        "Cache-Control": "private, max-age=86400",
++    })
+diff --git a/server/tests/test_log_api.py b/server/tests/test_log_api.py
+index 23f4af4..2a64fbe 100644
+--- a/server/tests/test_log_api.py
++++ b/server/tests/test_log_api.py
+@@ -1,16 +1,18 @@
+ """Hotel log (spec §3, §4, §6). Domain-level here; route-level assertions arrive in Task 8."""
+ import pytest
+ from sqlalchemy import select
+ 
+ from app import clock
++from app.api.log import MULTIPART_OVERHEAD_BYTES
+ from app.domain import log as log_domain
++from app.domain.work_orders import MAX_PHOTO_BYTES
+ from app.errors import ValidationFailed
+ from app.models import Department, LogEntryMention, Notification, UserAccount
+ from app.schemas.enums import MentionTargetType, Shift, UserStatus
+ from app.schemas.log import CreateLogEntryRequest, MentionRef
+ 
+ 
+ def _req(**kw):
+     kw.setdefault("body", "Handover note.")
+     return CreateLogEntryRequest(**kw)
+ 
+@@ -391,40 +393,63 @@ def test_photo_round_trips(app, fx, login):
+     agent = login("agent@hvh.test")
+     res = agent.post(base, data={"body": "with photo",
+                                  "photo": (io.BytesIO(png), "x.png", "image/png")},
+                      content_type="multipart/form-data")
+     assert res.status_code == 201, res.get_json()
+     url = res.get_json()["photoUrl"]
+     assert url
+     got = agent.get(url)
+     assert got.status_code == 200
+     assert got.data == png
++    assert got.headers["X-Content-Type-Options"] == "nosniff"
++    assert got.headers["Content-Disposition"] == "inline"
++    assert got.headers["Cache-Control"] == "private, max-age=86400"
+ 
+ 
+ def test_a_non_image_upload_is_rejected(app, fx, login):
+     import io
+ 
+     base = f"/api/p/{fx.property_a.id}/log-entries"
+     agent = login("agent@hvh.test")
+     # A real GIF: an image, but deliberately not an accepted one. Proves the check
+     # is a signature allow-list rather than "does this look like any image at all".
+     gif = b"GIF89a" + b"\x00" * 40
+     res = agent.post(base, data={"body": "bad", "photo": (io.BytesIO(gif), "x.png", "image/png")},
+                      content_type="multipart/form-data")
+     # ValidationFailed is 400 in app/errors.py, NOT 422 — 422 is ConsentError only.
+     # Assert the code and details too, matching test_work_order_photos.py's convention.
+     assert res.status_code == 400, res.get_json()
+     body = res.get_json()["error"]
+     assert body["code"] == "VALIDATION_FAILED"
+     assert body["details"] == {"photo": "unsupported_image_type"}
+ 
+ 
++def test_an_oversized_body_is_refused_before_it_is_parsed(app, fx, login):
++    """The Content-Length guard in front of parse_body, mirroring
++    test_work_order_photos.py's test of the same name.
++
++    Sends no `photo` part, only an oversized `junk` field, so this exercises the
++    Content-Length check specifically rather than the byte check inside
++    _photo_from_request. Without the guard, request.form is still never read cleanly:
++    Werkzeug's own max_form_memory_size (500 KB per non-file field) rejects the huge
++    `junk` value first, as a bare 413 with none of this API's error shape — proven by
++    sabotaging the guard below. The guard's job is to produce this endpoint's own 400/
++    VALIDATION_FAILED/file_too_large response before either limit is hit.
++    """
++    base = f"/api/p/{fx.property_a.id}/log-entries"
++    agent = login("agent@hvh.test")
++    res = agent.post(base, data={"junk": "x" * (MAX_PHOTO_BYTES + MULTIPART_OVERHEAD_BYTES + 1)},
++                     content_type="multipart/form-data")
++    assert res.status_code == 400, res.get_json()
++    assert res.get_json()["error"]["details"] == {"photo": "file_too_large"}
++
++
+ def test_mentionables_lists_people_and_departments(app, fx, login):
+     agent = login("agent@hvh.test")
+     rows = agent.get(f"/api/p/{fx.property_a.id}/log-entries/mentionables").get_json()
+     kinds = {r["type"] for r in rows}
+     assert kinds == {"user", "department"}
+     assert fx.dept_housekeeping.id in [r["id"] for r in rows if r["type"] == "department"]
+ 
+ 
+ def test_no_route_can_change_an_entry_body(app, fx, login):
+     """Spec §4.4 — immutability is a property of the route table, so assert on the map."""

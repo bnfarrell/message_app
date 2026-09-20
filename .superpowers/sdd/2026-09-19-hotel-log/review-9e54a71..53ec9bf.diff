@@ -1,0 +1,209 @@
+# Review package: 53ec9bf^..53ec9bf
+
+## Commits
+53ec9bf fix(web,server): review fixes for hotel log data layer
+
+## Files changed
+ server/app/api/_util.py        |  7 ++++-
+ server/tests/test_log_api.py   | 13 +++++++++
+ web/src/api/hooks/log.test.tsx | 64 ++++++++++++++++++++++++++++++++++++++++++
+ web/src/api/hooks/log.ts       |  2 ++
+ web/src/api/types.ts           |  2 +-
+ 5 files changed, 86 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/server/app/api/_util.py b/server/app/api/_util.py
+index 93f4562..665edb5 100644
+--- a/server/app/api/_util.py
++++ b/server/app/api/_util.py
+@@ -20,22 +20,27 @@ def db_session() -> Iterator[Session]:
+ 
+ def parse_body[M: BaseModel](model: type[M]) -> M:
+     data = request.get_json(silent=True)
+     if data is None:
+         data = request.form.to_dict() if request.form else {}
+     try:
+         return model.model_validate(data)
+     except ValidationError as e:
+         # include_input=False: `input` echoes the admin's raw typing straight back into the
+         # error body, and nothing reads it — web/src/api/fieldErrors.ts says so in its own comment.
++        # include_context=False: when a validator raises a plain exception (e.g.
++        # CreateLogEntryRequest's json.loads on a malformed multipart field), pydantic's `ctx`
++        # carries that exception object itself, which jsonify() cannot serialize — turning a
++        # 400 into a 500. Nothing reads `ctx` either.
+         raise ValidationFailed("Invalid request body",
+-                               details=e.errors(include_url=False, include_input=False)) from e
++                               details=e.errors(include_url=False, include_input=False,
++                                                 include_context=False)) from e
+ 
+ 
+ def parse_query[M: BaseModel](model: type[M]) -> M:
+     try:
+         return model.model_validate(request.args.to_dict())
+     except ValidationError as e:
+         raise ValidationFailed("Invalid query",
+                                details=e.errors(include_url=False, include_input=False)) from e
+ 
+ 
+diff --git a/server/tests/test_log_api.py b/server/tests/test_log_api.py
+index 21af210..54fde82 100644
+--- a/server/tests/test_log_api.py
++++ b/server/tests/test_log_api.py
+@@ -461,20 +461,33 @@ def test_a_multipart_photo_post_still_persists_a_mention(app, fx, login):
+                                  "mentions": mentions,
+                                  "photo": (io.BytesIO(png), "x.png", "image/png")},
+                      content_type="multipart/form-data")
+     assert res.status_code == 201, res.get_json()
+     body = res.get_json()
+     assert body["mentions"] == [
+         {"type": "user", "id": fx.engineer_a.id, "displayName": "Eli Engineer"},
+     ]
+ 
+ 
++def test_malformed_json_in_a_multipart_mentions_field_is_a_clean_400(app, fx, login):
++    """The before-validator's `json.loads` on a multipart `mentions` string can itself raise
++    on bad input. That must surface as this endpoint's own 400/VALIDATION_FAILED, not an
++    unhandled 500, when json.JSONDecodeError escapes uncaught.
++    """
++    base = f"/api/p/{fx.property_a.id}/log-entries"
++    agent = login("agent@hvh.test")
++    res = agent.post(base, data={"body": "bad mentions", "mentions": "not-json{"},
++                     content_type="multipart/form-data")
++    assert res.status_code == 400, res.get_json()
++    assert res.get_json()["error"]["code"] == "VALIDATION_FAILED"
++
++
+ def test_mentionables_lists_people_and_departments(app, fx, login):
+     agent = login("agent@hvh.test")
+     rows = agent.get(f"/api/p/{fx.property_a.id}/log-entries/mentionables").get_json()
+     kinds = {r["type"] for r in rows}
+     assert kinds == {"user", "department"}
+     assert fx.dept_housekeeping.id in [r["id"] for r in rows if r["type"] == "department"]
+ 
+ 
+ def test_no_route_can_change_an_entry_body(app, fx, login):
+     """Spec §4.4 — immutability is a property of the route table, so assert on the map."""
+diff --git a/web/src/api/hooks/log.test.tsx b/web/src/api/hooks/log.test.tsx
+new file mode 100644
+index 0000000..98eb0dd
+--- /dev/null
++++ b/web/src/api/hooks/log.test.tsx
+@@ -0,0 +1,64 @@
++import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
++import { act, renderHook, waitFor } from '@testing-library/react'
++import type { ReactNode } from 'react'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { SessionProvider } from '../../auth/SessionContext'
++import { sessionFixture, testQueryClient } from '../../test/harness'
++import { qk } from '../queryKeys'
++import { useCreateLogEntry } from './log'
++
++function serve(status = 201, body: unknown = { id: 'e-1' }) {
++  vi.mocked(fetch).mockImplementation(() =>
++    Promise.resolve(
++      new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }),
++    ),
++  )
++}
++
++function wrapper(client: QueryClient) {
++  return function Wrapper({ children }: { children: ReactNode }) {
++    return (
++      <QueryClientProvider client={client}>
++        <SessionProvider>{children}</SessionProvider>
++      </QueryClientProvider>
++    )
++  }
++}
++
++describe('useCreateLogEntry', () => {
++  beforeEach(() => {
++    vi.stubGlobal('fetch', vi.fn())
++    serve()
++  })
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('carries linkedWorkOrderId and linkedConversationId over multipart when a photo is attached', async () => {
++    const client = testQueryClient()
++    client.setQueryData(qk.session, sessionFixture({ role: 'agent' }))
++    const { result } = renderHook(() => useCreateLogEntry(), { wrapper: wrapper(client) })
++
++    const photo = new File(['bytes'], 'x.png', { type: 'image/png' })
++    act(() => {
++      result.current.mutate({
++        body: 'note',
++        mentions: [],
++        ackAudience: [],
++        requiresAck: false,
++        linkedWorkOrderId: 'wo-1',
++        linkedConversationId: 'conv-1',
++        photo,
++      })
++    })
++
++    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
++    const [, init] = vi.mocked(fetch).mock.calls[0]!
++    const form = init!.body as FormData
++    // The bug this guards against: the multipart branch forwarded body/departmentId/mentions/
++    // requiresAck/ackAudience/photo but silently dropped both link ids, unlike the JSON branch
++    // which sends the whole object.
++    expect(form.get('linkedWorkOrderId')).toBe('wo-1')
++    expect(form.get('linkedConversationId')).toBe('conv-1')
++  })
++})
+diff --git a/web/src/api/hooks/log.ts b/web/src/api/hooks/log.ts
+index dc53596..43d6c77 100644
+--- a/web/src/api/hooks/log.ts
++++ b/web/src/api/hooks/log.ts
+@@ -65,20 +65,22 @@ export function useCreateLogEntry() {
+         })
+       }
+       // Multipart: the server reads scalars from request.form and the file from request.files,
+       // so arrays go over as JSON strings. Matches SendStaffMessageRequest's handling.
+       const form = new FormData()
+       form.set('body', rest.body)
+       if (rest.departmentId) form.set('departmentId', rest.departmentId)
+       if (rest.mentions?.length) form.set('mentions', JSON.stringify(rest.mentions))
+       if (rest.requiresAck) form.set('requiresAck', 'true')
+       if (rest.ackAudience?.length) form.set('ackAudience', JSON.stringify(rest.ackAudience))
++      if (rest.linkedWorkOrderId) form.set('linkedWorkOrderId', rest.linkedWorkOrderId)
++      if (rest.linkedConversationId) form.set('linkedConversationId', rest.linkedConversationId)
+       form.set('photo', photo)
+       return api<LogEntryOut>(propertyPath(propertyId, 'log-entries'), {
+         method: 'POST',
+         body: form,
+       })
+     },
+     onSuccess: () => {
+       void client.invalidateQueries({ queryKey: qk.logFeedAll(propertyId) })
+     },
+   })
+diff --git a/web/src/api/types.ts b/web/src/api/types.ts
+index 6d6a9d8..9da7ea9 100644
+--- a/web/src/api/types.ts
++++ b/web/src/api/types.ts
+@@ -4,21 +4,21 @@
+  * (`RelayAPI`), which is an artefact of the export, not a model.
+  */
+ export type {
+   AddParticipantsRequest, AgentStats, AssetIn, AssetOut, AssetPatch, AssetType, AuthorType,
+   CategoryIn, CategoryOut, CategoryPatch, Channel, ConversationDetail,
+   ConversationPatch, ConversationStatus, ConversationSummary,
+   CreateLogEntryRequest, CreateNoteRequest, CreateStaffConversationRequest, CreateStaffRequest, CreateWorkOrder, DayBucket,
+   DeliveryStatus, DepartmentBucket, DepartmentIn, DepartmentOut,
+   DepartmentPatch, DepartmentType, Direction, DraftPromptOut,
+   DraftPromptStatus, GroupPatch, GuestDetail, GuestOut, GuestThread, GuestThreadMessage,
+-  HourBucket, ListQuery, LocationType, LoginRequest, LogEntryOut, LogFeedOut, LogMentionableOut, MembershipOut,
++  HourBucket, ListQuery, LocationType, LogEntryOut, LogFeedOut, LogMentionableOut, LoginRequest, MembershipOut,
+   MessageOut, NoteOut, NotificationOut, Overview, PreviewRequest, Priority,
+   PropertySettingsOut, PropertySettingsPatch, QuickReplyIn, QuickReplyOut,
+   QuickReplyPatch, RenderRequest, RenderedQuickReply, ResponseBucket, Role,
+   SendMessageRequest, SendStaffMessageRequest, SessionOut, SimEvent, SimGuest, SmsConsentStatus,
+   StaffConversationDetail, StaffConversationKind, StaffConversationOut, StaffDirectoryEntryOut,
+   StaffMessageOut, StaffParticipantOut, StaffPatch, StaffUserOut, StayOut, StayStatus, UnreadCount, UserOut,
+   WorkOrderBrief, WorkOrderDetail, WorkOrderEventOut, WorkOrderEventType,
+   WorkOrderListQuery, WorkOrderOut, WorkOrderPatch, WorkOrderPhotoKind,
+   WorkOrderPhotoOut, WorkOrderPrefill, WorkOrderStatus, WorkOrderType,
+ } from './types.generated'

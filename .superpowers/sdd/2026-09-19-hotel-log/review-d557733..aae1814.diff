@@ -1,0 +1,428 @@
+# Review package: d557733..aae1814
+
+## Commits
+aae1814 fix(server): render mention tokens to display names in log notifications
+99e7e89 feat(server): seed hotel log entries for development
+1029f66 chore: keep images/ out of the repository
+
+## Files changed
+ .gitignore                   |  5 ++++
+ server/app/domain/log.py     | 20 ++++++++++++--
+ server/seed/seed.py          | 62 +++++++++++++++++++++++++++++++++++++++++++-
+ server/tests/test_log_api.py | 36 +++++++++++++++++++++++++
+ server/tests/test_seed.py    |  6 +++++
+ 5 files changed, 126 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/.gitignore b/.gitignore
+index 3849e6f..7928c52 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -13,10 +13,15 @@ node_modules/
+ # Build and tool caches, regenerated on every run.
+ __pycache__/
+ *.pyc
+ *.egg-info/
+ .pytest_cache/
+ .ruff_cache/
+ .playwright-mcp/
+ 
+ # Real secrets. .env.example is committed; .env is not.
+ .env
++
++# Local reference material, kept out of the repo by explicit instruction. images/
++# holds competitor screenshots (Kipsu exceed FCX) used to derive the hotel log and
++# later features — useful on disk, not something to redistribute in the repository.
++images/
+diff --git a/server/app/domain/log.py b/server/app/domain/log.py
+index cb6528e..6cb0727 100644
+--- a/server/app/domain/log.py
++++ b/server/app/domain/log.py
+@@ -1,12 +1,13 @@
+ from __future__ import annotations
+ 
++import re
+ from datetime import UTC, date, datetime, time, timedelta
+ from zoneinfo import ZoneInfo
+ 
+ from sqlalchemy import and_, or_, select, tuple_
+ from sqlalchemy.orm import Session
+ 
+ from app import clock
+ from app.domain import audit, notifications
+ from app.domain.users import active_members_of_department
+ from app.errors import Forbidden, NotFound, ValidationFailed
+@@ -33,20 +34,35 @@ from app.schemas.log import (
+     LogFeedQuery,
+     LogMentionableOut,
+     LogMentionOut,
+     LogPersonOut,
+     MentionRef,
+ )
+ 
+ # Spec §3.3. Overridable per property via settings["shift_boundaries"].
+ DEFAULT_SHIFT_BOUNDARIES = {"am": "07:00", "pm": "15:00", "overnight": "23:00"}
+ 
++# Mirrors the frontend's `TOKEN_RE` (web/src/features/log/MentionInput.tsx) — including the
++# 36-char UUID id group. The two must agree and nothing enforces that but this comment.
++_MENTION_TOKEN = re.compile(r"@\[([^\]]+)\]\((?:user|department):[0-9a-f-]{36}\)")
++
++
++def _plain_text(body: str) -> str:
++    """Body with mention tokens reduced to their display names.
++
++    Notification bodies are read as prose, so `@[Hana Keeper](user:3f2a…)` has to
++    collapse to `@Hana Keeper`. The stored body keeps the tokens — the web client
++    renders them from the ids (spec §6.1) — so this is a presentation concern of
++    the notification, not a change to what is persisted.
++    """
++    return _MENTION_TOKEN.sub(r"@\1", body)
++
+ 
+ def _boundary(raw: dict, key: str) -> time:
+     value = raw.get(key) or DEFAULT_SHIFT_BOUNDARIES[key]
+     hour, _, minute = value.partition(":")
+     return time(int(hour), int(minute))
+ 
+ 
+ def shift_for(prop: Property, at: datetime) -> Shift:
+     """Which shift `at` falls in, on the property's own clock.
+ 
+@@ -151,27 +167,27 @@ def create(db: Session, property_id: str, author_user_id: str,
+                              content_type=content_type, byte_size=len(body_bytes),
+                              data=body_bytes))
+     db.flush()
+ 
+     author = db.get(UserAccount, author_user_id)
+     mentioned = [uid for uid in resolve_audience(db, property_id, data.mentions)
+                  if uid != author_user_id]
+     notifications.notify_users(
+         db, property_id, mentioned, "log.mention",
+         f"{author.first_name} mentioned you in the hotel log",
+-        body=entry.body[:140], entity_type="log_entry", entity_id=entry.id)
++        body=_plain_text(entry.body)[:140], entity_type="log_entry", entity_id=entry.id)
+     # Somebody asked to acknowledge who was not also mentioned still needs telling.
+     notifications.notify_users(
+         db, property_id, [uid for uid in expected if uid not in set(mentioned)],
+         "log.ack_requested",
+         f"{author.first_name} needs you to acknowledge a log entry",
+-        body=entry.body[:140], entity_type="log_entry", entity_id=entry.id)
++        body=_plain_text(entry.body)[:140], entity_type="log_entry", entity_id=entry.id)
+ 
+     audit.record(db, property_id, author_user_id, "log_entry.created", "log_entry", entry.id,
+                  after={"shift": entry.shift.value, "requires_ack": entry.requires_ack})
+     queue_event(db, property_id, "log.entry.created", {"id": entry.id})
+     return entry
+ 
+ 
+ def photo_url(property_id: str, entry_id: str) -> str:
+     return f"/api/p/{property_id}/log-entries/{entry_id}/photo"
+ 
+diff --git a/server/seed/seed.py b/server/seed/seed.py
+index aff9bf9..1f8cae2 100644
+--- a/server/seed/seed.py
++++ b/server/seed/seed.py
+@@ -6,57 +6,62 @@ numbers, timing, etc.) — all driven from `random.Random(42)`, so two runs prod
+ `DigitalAsset.short_code`: those come from `app.domain.assets.new_short_code`, which uses
+ `secrets.choice`, not this module's seeded RNG, because a short code is the public, guest-facing
+ `/a/<code>` URL sent over SMS — making it predictable to satisfy a determinism goal would be a real
+ security regression. Short codes differ between seed runs; everything else does not.
+ """
+ from __future__ import annotations
+ 
+ import random
+ from collections import defaultdict
+ from dataclasses import dataclass
+-from datetime import UTC, datetime, timedelta
++from datetime import UTC, datetime, time, timedelta
+ from pathlib import Path
++from zoneinfo import ZoneInfo
+ 
+ from sqlalchemy import func, select
+ 
+ from app import clock
+ from app.auth.passwords import hash_password
+ from app.db import Database, run_migrations
+ from app.domain import staff_messages
+ from app.domain.assets import new_short_code
++from app.domain.log import shift_for
+ from app.models import (
+     Conversation,
+     Department,
+     DigitalAsset,
+     DraftPrompt,
+     Guest,
+     InternalNote,
++    LogEntry,
++    LogEntryMention,
+     Message,
+     Property,
+     PropertyMembership,
+     QuickReply,
+     ResolutionCategory,
+     Stay,
+     UserAccount,
+     WorkOrder,
+     WorkOrderEvent,
+ )
+ from app.queue import jobs
+ from app.schemas.enums import (
+     AssetType,
+     AuthorType,
+     Channel,
+     ConversationStatus,
+     DeliveryStatus,
+     DepartmentType,
+     Direction,
+     DraftPromptStatus,
++    MentionTargetType,
+     Priority,
+     Role,
+     SmsConsentStatus,
+     StayStatus,
+     WorkOrderEventType,
+     WorkOrderStatus,
+     WorkOrderType,
+ )
+ from seed import data
+ 
+@@ -65,20 +70,21 @@ PASSWORD = "Password123!"
+ 
+ @dataclass
+ class SeedSummary:
+     properties: int
+     users: int
+     guests: int
+     stays: int
+     conversations: int
+     messages: int
+     work_orders: int
++    log_entries: int
+ 
+ 
+ def _phone(rng: random.Random, used: set[str]) -> str:
+     while True:
+         p = f"+1555{rng.randint(1000000, 9999999)}"
+         if p not in used and not p.endswith("0000"):
+             used.add(p)
+             return p
+ 
+ 
+@@ -272,20 +278,73 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
+         # screen isn't empty on first login (design.md §11.2 — seed data should produce
+         # realistic density, not an empty state).
+         all_channel = staff_messages.get_or_create_all_conversation(db, hvh.id)
+         for key in ("ava", "marcus", "jordan", "hana", "rosa", "eli", "noah", "hk_sup", "sam",
+                    "morgan", "alex", "casey"):
+             staff_messages.ensure_participant(db, all_channel.id, staff[key].id)
+         staff_messages.send_message(db, hvh.id, all_channel.id, staff["alex"].id,
+                                     body="Welcome to Relay Messages — this channel reaches "
+                                         "every member of the team.")
+ 
++        # ---- hotel log: three entries for property A shaped to exercise the feature (spec
++        # §3) rather than to look tidy — an am shift-handover, a pinned pm announcement, and
++        # an overnight entry with an unacknowledged Housekeeping audience so the outstanding
++        # list is real on first load. Dated yesterday so the shift classification (which
++        # depends only on local time-of-day, spec §3.3) never lands in the future regardless
++        # of when this seed happens to run.
++        yesterday = today - timedelta(days=1)
++        hvh_tz = ZoneInfo(hvh.timezone)
++
++        def local_at(day, hour, minute=0):
++            return datetime.combine(day, time(hour, minute), tzinfo=hvh_tz).astimezone(UTC)
++
++        am_at = local_at(yesterday, 7, 30)
++        am_entry = LogEntry(
++            property_id=hvh.id, author_user_id=staff["ava"].id,
++            department_id=depts["front_desk"].id, shift=shift_for(hvh, am_at),
++            body=("AM CHECKLIST\nName: Ava Agent\n"
++                  f"Date: {yesterday.month}/{yesterday.day}/{yesterday.year}\n"
++                  "Shift Time: 7AM-3PM\n\n"
++                  "Arrivals expected: 12\nArrivals actual: 11\n"
++                  "Departures actual: 9\nDepartures left: 1\nOccupancy: 70.8%\n"
++                  "Notes: 412 AC repaired overnight, confirmed cool this morning. 516 "
++                  "requested late checkout to 1pm, approved.\n\n"
++                  f"@[Housekeeping](department:{depts['housekeeping'].id}) please turn the 9 "
++                  "departure rooms by noon — two are same-day sells."),
++            created_at=am_at)
++        db.add(am_entry)
++        db.flush()
++        db.add(LogEntryMention(log_entry_id=am_entry.id, property_id=hvh.id,
++                               type=MentionTargetType.department,
++                               target_id=depts["housekeeping"].id, position=0))
++
++        pm_at = local_at(yesterday, 15, 30)
++        db.add(LogEntry(
++            property_id=hvh.id, author_user_id=staff["sam"].id,
++            shift=shift_for(hvh, pm_at),
++            body=("Corporate site visit tomorrow at 10am. Please have the lobby display area "
++                  "cleared tonight and brief your teams before you leave."),
++            pinned=True, pinned_by_user_id=staff["sam"].id, pinned_at=pm_at,
++            created_at=pm_at))
++
++        overnight_at = local_at(yesterday, 2, 0)
++        db.add(LogEntry(
++            property_id=hvh.id, author_user_id=staff["marcus"].id,
++            department_id=depts["housekeeping"].id, shift=shift_for(hvh, overnight_at),
++            body=("Guest in 219 reported a leak under the bathroom sink around 1:45am. "
++                  "Engineering shut off the supply line; towels are down and the floor is wet. "
++                  "Needs a full clean and dry-out before the room can be resold."),
++            requires_ack=True,
++            ack_expected=[staff["hana"].id, staff["rosa"].id, staff["hk_sup"].id],
++            created_at=overnight_at))
++        db.flush()
++
+         # ---- content
+         for shortcut, title, body, dept in data.QUICK_REPLIES:
+             db.add(QuickReply(property_id=hvh.id, shortcut=shortcut, title=title, body=body,
+                               department_id=depts[dept].id if dept else None,
+                               usage_count=rng.randint(0, 220)))
+         db.add(QuickReply(property_id=hvh.id, shortcut="/oldshuttle", title="Old shuttle",
+                           body="Retired.", active=False))
+         for name, typ, url, cat in data.ASSETS:
+             db.add(DigitalAsset(property_id=hvh.id, name=name, type=AssetType(typ), url=url,
+                                 category=cat, short_code=new_short_code(db),
+@@ -578,20 +637,21 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
+         # (found in review — SeedSummary.messages reported 53 while the actual row count was 52).
+         # Querying the real rows after all mutations means no future rewire can desync this again.
+         summary = SeedSummary(
+             properties=db.scalar(select(func.count()).select_from(Property)),
+             users=db.scalar(select(func.count()).select_from(UserAccount)),
+             guests=db.scalar(select(func.count()).select_from(Guest)),
+             stays=db.scalar(select(func.count()).select_from(Stay)),
+             conversations=db.scalar(select(func.count()).select_from(Conversation)),
+             messages=db.scalar(select(func.count()).select_from(Message)),
+             work_orders=db.scalar(select(func.count()).select_from(WorkOrder)),
++            log_entries=db.scalar(select(func.count()).select_from(LogEntry)),
+         )
+     database.engine.dispose()
+     return summary
+ 
+ 
+ if __name__ == "__main__":
+     import os
+ 
+     from dotenv import load_dotenv
+ 
+diff --git a/server/tests/test_log_api.py b/server/tests/test_log_api.py
+index 54fde82..ebb29f0 100644
+--- a/server/tests/test_log_api.py
++++ b/server/tests/test_log_api.py
+@@ -65,20 +65,56 @@ def test_a_mentioned_user_who_must_also_ack_is_notified_once(database, fx):
+                  requires_ack=True,
+                  ack_audience=[MentionRef(type=MentionTargetType.user,
+                                           id=fx.engineer_a.id)]))
+         db.flush()
+         rows = db.scalars(select(Notification).where(
+             Notification.user_id == fx.engineer_a.id)).all()
+         assert [n.type for n in rows] == ["log.mention"], \
+             "mentioned AND expected must yield exactly one notification, the mention"
+ 
+ 
++def test_mention_notification_body_shows_a_name_not_raw_token_markup(database, fx):
++    with database.session() as db:
++        log_domain.create(
++            db, fx.property_a.id, fx.agent_a.id,
++            _req(body=f"Please check 327 @[Eli Engineer](user:{fx.engineer_a.id}) today.",
++                 mentions=[MentionRef(type=MentionTargetType.user, id=fx.engineer_a.id)]))
++        db.flush()
++        notif = db.scalar(select(Notification).where(
++            Notification.user_id == fx.engineer_a.id, Notification.type == "log.mention"))
++        assert notif is not None
++        assert "@Eli Engineer" in notif.body
++        assert "](user:" not in notif.body
++
++
++def test_mention_token_is_never_split_by_truncation(database, fx):
++    """Truncating entry.body[:140] before substituting the mention token could slice the
++    token in half and leave a mangled `@[Hana Kee` fragment. Substitution must happen
++    first, so the notification body always carries an intact display name."""
++    token = f"@[Hana Keeper](user:{fx.housekeeper_a.id})"
++    # The token starts well before char 140 and ends well after it, so a naive
++    # slice-then-substitute would cut straight through the middle of the token.
++    body = "A" * 120 + token + " and confirm with the front desk before the shift ends."
++    assert 120 < 140 < 120 + len(token)
++    with database.session() as db:
++        log_domain.create(
++            db, fx.property_a.id, fx.agent_a.id,
++            _req(body=body,
++                 mentions=[MentionRef(type=MentionTargetType.user, id=fx.housekeeper_a.id)]))
++        db.flush()
++        notif = db.scalar(select(Notification).where(
++            Notification.user_id == fx.housekeeper_a.id, Notification.type == "log.mention"))
++        assert notif is not None
++        assert "@Hana Keeper" in notif.body
++        assert "[" not in notif.body and "](user:" not in notif.body
++
++
+ def test_ack_expected_snapshots_active_department_members_excluding_author(database, fx):
+     from app.models import PropertyMembership
+ 
+     with database.session() as db:
+         # A second active housekeeper, so the assertion below is about a real denominator
+         # and not vacuously true of an always-empty list.
+         other = db.scalar(select(PropertyMembership).where(
+             PropertyMembership.user_id == fx.agent_a2.id,
+             PropertyMembership.property_id == fx.property_a.id))
+         other.department_id = fx.dept_housekeeping.id
+diff --git a/server/tests/test_seed.py b/server/tests/test_seed.py
+index 3a9c5e0..744acd1 100644
+--- a/server/tests/test_seed.py
++++ b/server/tests/test_seed.py
+@@ -2,20 +2,21 @@ from collections import defaultdict
+ 
+ import pytest
+ from sqlalchemy import func, select
+ 
+ from app.db import Database
+ from app.models import (
+     Conversation,
+     DigitalAsset,
+     DraftPrompt,
+     Guest,
++    LogEntry,
+     Message,
+     Property,
+     PropertyMembership,
+     QuickReply,
+     ResolutionCategory,
+     Stay,
+     UserAccount,
+     WorkOrder,
+ )
+ from app.schemas.enums import (
+@@ -59,29 +60,34 @@ def test_seed_matches_spec_counts(tmp_path):
+                      WorkOrder.status.in_([WorkOrderStatus.open, WorkOrderStatus.assigned,
+                                            WorkOrderStatus.in_progress,
+                                            WorkOrderStatus.blocked,
+                                            WorkOrderStatus.complete])) == 15
+         assert count(WorkOrder, WorkOrder.source_conversation_id.isnot(None)) >= 6
+         assert count(QuickReply, QuickReply.property_id == hvh.id) >= 15
+         assert count(DigitalAsset, DigitalAsset.property_id == hvh.id) == 8
+         assert count(ResolutionCategory, ResolutionCategory.property_id == hvh.id) >= 10
+         assert count(Message, Message.delivery_status == DeliveryStatus.failed) >= 1
+         assert db.scalar(select(UserAccount).where(UserAccount.email == "ava@hvh.test")) is not None
++        assert count(LogEntry, LogEntry.property_id == hvh.id) == 3
++        assert count(LogEntry, LogEntry.property_id == hvh.id, LogEntry.pinned.is_(True)) == 1
++        assert count(LogEntry, LogEntry.property_id == hvh.id,
++                     LogEntry.requires_ack.is_(True)) == 1
+         # SeedSummary must match real rows, not an in-memory counter that a rewire can desync
+         # (the showcase conversation's messages are deleted and re-added after being counted).
+         assert summary.properties == count(Property)
+         assert summary.users == count(UserAccount)
+         assert summary.guests == count(Guest)
+         assert summary.stays == count(Stay)
+         assert summary.conversations == count(Conversation)
+         assert summary.messages == count(Message)
+         assert summary.work_orders == count(WorkOrder)
++        assert summary.log_entries == count(LogEntry)
+     db_.engine.dispose()
+     assert summary.conversations == 35
+     assert summary.guests == 110 and summary.stays == 113
+ 
+     # Deterministic: running again yields identical guest phone numbers.
+     url2 = f"sqlite:///{(tmp_path / 'seed2.db').as_posix()}"
+     run(url2, reset=True)
+     a, b = Database(url), Database(url2)
+     with a.session() as da, b.session() as dbb:
+         pa = sorted(da.scalars(select(Guest.phone_e164)).all())

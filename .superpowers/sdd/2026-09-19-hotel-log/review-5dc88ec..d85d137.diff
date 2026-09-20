@@ -1,0 +1,185 @@
+# Review package: d85d137^..d85d137
+
+## Commits
+d85d137 feat(server): acknowledge and pin hotel log entries
+
+## Files changed
+ server/app/domain/log.py     | 37 ++++++++++++++++++++-
+ server/tests/test_log_api.py | 76 ++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 112 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/server/app/domain/log.py b/server/app/domain/log.py
+index e0cabc4..303e42c 100644
+--- a/server/app/domain/log.py
++++ b/server/app/domain/log.py
+@@ -2,21 +2,21 @@ from __future__ import annotations
+ 
+ from datetime import UTC, date, datetime, time, timedelta
+ from zoneinfo import ZoneInfo
+ 
+ from sqlalchemy import and_, or_, select, tuple_
+ from sqlalchemy.orm import Session
+ 
+ from app import clock
+ from app.domain import audit, notifications
+ from app.domain.users import active_members_of_department
+-from app.errors import NotFound, ValidationFailed
++from app.errors import Forbidden, NotFound, ValidationFailed
+ from app.models import (
+     Conversation,
+     Department,
+     LogEntry,
+     LogEntryAck,
+     LogEntryMention,
+     LogEntryPhoto,
+     Property,
+     PropertyMembership,
+     UserAccount,
+@@ -304,20 +304,55 @@ def get(db: Session, property_id: str, entry_id: str) -> LogEntry:
+     entry = db.get(LogEntry, entry_id)
+     if entry is None or entry.property_id != property_id:
+         raise NotFound("Log entry not found")
+     return entry
+ 
+ 
+ def get_out(db: Session, property_id: str, viewer_user_id: str, entry_id: str) -> LogEntryOut:
+     return _to_out(db, [get(db, property_id, entry_id)], viewer_user_id)[0]
+ 
+ 
++def acknowledge(db: Session, property_id: str, user_id: str, entry_id: str) -> LogEntry:
++    entry = get(db, property_id, entry_id)
++    if user_id not in (entry.ack_expected or []):
++        # An acknowledgement from somebody who was never asked is noise in the audit
++        # trail, so it is refused rather than silently recorded (spec §5).
++        raise Forbidden("You were not asked to acknowledge this entry")
++    existing = db.scalar(select(LogEntryAck).where(
++        LogEntryAck.log_entry_id == entry.id, LogEntryAck.user_id == user_id))
++    if existing is not None:
++        return entry
++    db.add(LogEntryAck(log_entry_id=entry.id, property_id=property_id, user_id=user_id,
++                       acknowledged_at=clock.now()))
++    db.flush()
++    audit.record(db, property_id, user_id, "log_entry.acknowledged", "log_entry", entry.id)
++    queue_event(db, property_id, "log.entry.updated", {"id": entry.id})
++    return entry
++
++
++def set_pinned(db: Session, property_id: str, user_id: str, entry_id: str,
++               pinned: bool) -> LogEntry:
++    entry = get(db, property_id, entry_id)
++    if entry.pinned == pinned:
++        return entry
++    before = {"pinned": entry.pinned}
++    entry.pinned = pinned
++    entry.pinned_by_user_id = user_id if pinned else None
++    entry.pinned_at = clock.now() if pinned else None
++    db.flush()
++    audit.record(db, property_id, user_id, "log_entry.pinned" if pinned else
++                 "log_entry.unpinned", "log_entry", entry.id,
++                 before=before, after={"pinned": pinned})
++    queue_event(db, property_id, "log.entry.updated", {"id": entry.id})
++    return entry
++
++
+ def _day_bound(db: Session, property_id: str, iso_date: str, exclusive_end: bool) -> datetime:
+     """`from`/`to` are dates on the property's clock, not UTC (spec §4.2)."""
+     prop = db.get(Property, property_id)
+     try:
+         day = date.fromisoformat(iso_date)
+     except ValueError as e:
+         raise ValidationFailed("Dates must be ISO (YYYY-MM-DD)") from e
+     if exclusive_end:
+         day = day + timedelta(days=1)
+     tz = ZoneInfo(prop.timezone)
+diff --git a/server/tests/test_log_api.py b/server/tests/test_log_api.py
+index 3a1796d..ab05759 100644
+--- a/server/tests/test_log_api.py
++++ b/server/tests/test_log_api.py
+@@ -247,10 +247,86 @@ def test_entry_out_reports_ack_progress_for_the_viewer(database, fx):
+                  ack_audience=[MentionRef(type=MentionTargetType.user,
+                                           id=fx.engineer_a.id)]))
+         db.flush()
+         seen_by_engineer = log_domain.get_out(db, fx.property_a.id, fx.engineer_a.id, entry.id)
+         assert seen_by_engineer.ack_expected_count == 1
+         assert seen_by_engineer.can_ack is True
+         assert seen_by_engineer.acked_by_me is False
+         assert [p.user_id for p in seen_by_engineer.outstanding] == [fx.engineer_a.id]
+         seen_by_author = log_domain.get_out(db, fx.property_a.id, fx.agent_a.id, entry.id)
+         assert seen_by_author.can_ack is False
++
++
++def test_acknowledging_twice_is_idempotent(database, fx):
++    from app.models import LogEntryAck
++
++    with database.session() as db:
++        entry = log_domain.create(
++            db, fx.property_a.id, fx.agent_a.id,
++            _req(requires_ack=True,
++                 ack_audience=[MentionRef(type=MentionTargetType.user,
++                                          id=fx.engineer_a.id)]))
++        db.flush()
++        log_domain.acknowledge(db, fx.property_a.id, fx.engineer_a.id, entry.id)
++        log_domain.acknowledge(db, fx.property_a.id, fx.engineer_a.id, entry.id)
++        db.flush()
++        rows = db.scalars(select(LogEntryAck)
++                          .where(LogEntryAck.log_entry_id == entry.id)).all()
++        assert len(rows) == 1
++        after = log_domain.get_out(db, fx.property_a.id, fx.engineer_a.id, entry.id)
++        assert after.can_ack is False
++        assert after.acked_by_me is True
++
++
++def test_a_user_outside_the_audience_cannot_acknowledge(database, fx):
++    from app.errors import Forbidden
++
++    with database.session() as db:
++        entry = log_domain.create(
++            db, fx.property_a.id, fx.agent_a.id,
++            _req(requires_ack=True,
++                 ack_audience=[MentionRef(type=MentionTargetType.user,
++                                          id=fx.engineer_a.id)]))
++        db.flush()
++        with pytest.raises(Forbidden):
++            log_domain.acknowledge(db, fx.property_a.id, fx.housekeeper_a.id, entry.id)
++
++
++def test_joining_the_department_later_does_not_change_the_denominator(database, fx):
++    from app.errors import Forbidden
++    from app.models import PropertyMembership
++
++    with database.session() as db:
++        entry = log_domain.create(
++            db, fx.property_a.id, fx.agent_a.id,
++            _req(requires_ack=True,
++                 ack_audience=[MentionRef(type=MentionTargetType.department,
++                                          id=fx.dept_engineering.id)]))
++        db.flush()
++        before = len(entry.ack_expected)
++        membership = db.scalar(select(PropertyMembership).where(
++            PropertyMembership.user_id == fx.agent_a2.id,
++            PropertyMembership.property_id == fx.property_a.id))
++        membership.department_id = fx.dept_engineering.id
++        db.flush()
++        refreshed = log_domain.get_out(db, fx.property_a.id, fx.agent_a.id, entry.id)
++        assert refreshed.ack_expected_count == before
++        with pytest.raises(Forbidden):
++            log_domain.acknowledge(db, fx.property_a.id, fx.agent_a2.id, entry.id)
++
++
++def test_pin_and_unpin_move_the_entry_in_and_out_of_the_pinned_block(database, fx):
++    from app.schemas.log import LogFeedQuery
++
++    with database.session() as db:
++        entry = log_domain.create(db, fx.property_a.id, fx.agent_a.id, _req(body="pin me"))
++        db.flush()
++        log_domain.set_pinned(db, fx.property_a.id, fx.supervisor_a.id, entry.id, True)
++        db.flush()
++        page = log_domain.feed(db, fx.property_a.id, fx.agent_a.id, LogFeedQuery())
++        assert [e.body for e in page.pinned] == ["pin me"]
++        # Still in the chronological feed too — the client renders both (spec §4.2).
++        assert [e.body for e in page.entries] == ["pin me"]
++        log_domain.set_pinned(db, fx.property_a.id, fx.supervisor_a.id, entry.id, False)
++        db.flush()
++        page2 = log_domain.feed(db, fx.property_a.id, fx.agent_a.id, LogFeedQuery())
++        assert page2.pinned == []

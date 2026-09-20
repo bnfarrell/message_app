@@ -1,0 +1,454 @@
+# Review package: 067eac3..aafdd7e
+
+## Commits
+aafdd7e feat(server): hotel log tables, enums and migration 0006
+
+## Files changed
+ server/alembic/versions/0006_hotel_log.py | 166 ++++++++++++++++++++++++++++++
+ server/app/models/__init__.py             |   4 +-
+ server/app/models/log.py                  | 103 ++++++++++++++++++
+ server/app/schemas/enums.py               |  11 ++
+ server/tests/test_models.py               |  73 ++++++++++++-
+ 5 files changed, 355 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/server/alembic/versions/0006_hotel_log.py b/server/alembic/versions/0006_hotel_log.py
+new file mode 100644
+index 0000000..8e75a92
+--- /dev/null
++++ b/server/alembic/versions/0006_hotel_log.py
+@@ -0,0 +1,166 @@
++"""hotel log: log_entry, log_entry_mention, log_entry_photo, log_entry_ack
++
++Phase 2 §6.8 (docs/superpowers/specs/2026-09-19-hotel-log-design.md).
++
++Revision ID: 0006
++Revises: 0005
++Create Date: 2026-09-19
++
++"""
++
++import sqlalchemy as sa
++
++import app.db
++from alembic import op
++
++revision = "0006"
++down_revision = "0005"
++branch_labels = None
++depends_on = None
++
++
++def upgrade() -> None:
++    op.create_table(
++        "log_entry",
++        sa.Column("property_id", sa.String(length=36), nullable=False),
++        sa.Column("author_user_id", sa.String(length=36), nullable=False),
++        sa.Column("department_id", sa.String(length=36), nullable=True),
++        sa.Column(
++            "shift",
++            sa.Enum("am", "pm", "overnight", name="ck_enum_shift",
++                    native_enum=False, create_constraint=True, length=32),
++            nullable=False,
++        ),
++        sa.Column("body", sa.Text(), nullable=False),
++        sa.Column("pinned", sa.Boolean(), nullable=False),
++        sa.Column("pinned_by_user_id", sa.String(length=36), nullable=True),
++        sa.Column("pinned_at", app.db.UTCDateTime(), nullable=True),
++        sa.Column("requires_ack", sa.Boolean(), nullable=False),
++        sa.Column("ack_expected", sa.JSON(), nullable=False),
++        sa.Column("linked_work_order_id", sa.String(length=36), nullable=True),
++        sa.Column("linked_conversation_id", sa.String(length=36), nullable=True),
++        sa.Column("id", sa.String(length=36), nullable=False),
++        sa.Column("created_at", app.db.UTCDateTime(), nullable=False),
++        sa.Column("updated_at", app.db.UTCDateTime(), nullable=False),
++        sa.ForeignKeyConstraint(["property_id"], ["property.id"]),
++        sa.ForeignKeyConstraint(["author_user_id"], ["user_account.id"]),
++        sa.ForeignKeyConstraint(["department_id"], ["department.id"]),
++        sa.ForeignKeyConstraint(["pinned_by_user_id"], ["user_account.id"]),
++        sa.ForeignKeyConstraint(["linked_work_order_id"], ["work_order.id"]),
++        sa.ForeignKeyConstraint(["linked_conversation_id"], ["conversation.id"]),
++        sa.PrimaryKeyConstraint("id"),
++    )
++    with op.batch_alter_table("log_entry", schema=None) as batch_op:
++        batch_op.create_index(
++            batch_op.f("ix_log_entry_property_id"), ["property_id"], unique=False
++        )
++        batch_op.create_index(
++            "ix_log_entry_property_created", ["property_id", "created_at"], unique=False
++        )
++        batch_op.create_index(
++            "ix_log_entry_property_pinned", ["property_id", "pinned"], unique=False
++        )
++
++    op.create_table(
++        "log_entry_mention",
++        sa.Column("log_entry_id", sa.String(length=36), nullable=False),
++        sa.Column("property_id", sa.String(length=36), nullable=False),
++        sa.Column(
++            "type",
++            sa.Enum("user", "department", name="ck_enum_mentiontargettype",
++                    native_enum=False, create_constraint=True, length=32),
++            nullable=False,
++        ),
++        sa.Column("target_id", sa.String(length=36), nullable=False),
++        sa.Column("position", sa.Integer(), nullable=False),
++        sa.Column("id", sa.String(length=36), nullable=False),
++        sa.Column("created_at", app.db.UTCDateTime(), nullable=False),
++        sa.Column("updated_at", app.db.UTCDateTime(), nullable=False),
++        sa.ForeignKeyConstraint(["log_entry_id"], ["log_entry.id"]),
++        sa.ForeignKeyConstraint(["property_id"], ["property.id"]),
++        sa.PrimaryKeyConstraint("id"),
++        sa.UniqueConstraint("log_entry_id", "type", "target_id",
++                            name="uq_log_mention_entry_target"),
++    )
++    with op.batch_alter_table("log_entry_mention", schema=None) as batch_op:
++        batch_op.create_index(
++            batch_op.f("ix_log_entry_mention_log_entry_id"), ["log_entry_id"], unique=False
++        )
++        batch_op.create_index(
++            batch_op.f("ix_log_entry_mention_property_id"), ["property_id"], unique=False
++        )
++        batch_op.create_index(
++            "ix_log_mention_property_target", ["property_id", "type", "target_id"], unique=False
++        )
++
++    op.create_table(
++        "log_entry_photo",
++        sa.Column("log_entry_id", sa.String(length=36), nullable=False),
++        sa.Column("property_id", sa.String(length=36), nullable=False),
++        sa.Column("uploaded_by_user_id", sa.String(length=36), nullable=True),
++        sa.Column("content_type", sa.String(length=40), nullable=False),
++        sa.Column("byte_size", sa.Integer(), nullable=False),
++        sa.Column("data", sa.LargeBinary(), nullable=False),
++        sa.Column("id", sa.String(length=36), nullable=False),
++        sa.Column("created_at", app.db.UTCDateTime(), nullable=False),
++        sa.Column("updated_at", app.db.UTCDateTime(), nullable=False),
++        sa.ForeignKeyConstraint(["log_entry_id"], ["log_entry.id"]),
++        sa.ForeignKeyConstraint(["property_id"], ["property.id"]),
++        sa.ForeignKeyConstraint(["uploaded_by_user_id"], ["user_account.id"]),
++        sa.PrimaryKeyConstraint("id"),
++    )
++    with op.batch_alter_table("log_entry_photo", schema=None) as batch_op:
++        batch_op.create_index(
++            batch_op.f("ix_log_entry_photo_log_entry_id"), ["log_entry_id"], unique=False
++        )
++        batch_op.create_index(
++            batch_op.f("ix_log_entry_photo_property_id"), ["property_id"], unique=False
++        )
++
++    op.create_table(
++        "log_entry_ack",
++        sa.Column("log_entry_id", sa.String(length=36), nullable=False),
++        sa.Column("property_id", sa.String(length=36), nullable=False),
++        sa.Column("user_id", sa.String(length=36), nullable=False),
++        sa.Column("acknowledged_at", app.db.UTCDateTime(), nullable=False),
++        sa.Column("id", sa.String(length=36), nullable=False),
++        sa.Column("created_at", app.db.UTCDateTime(), nullable=False),
++        sa.Column("updated_at", app.db.UTCDateTime(), nullable=False),
++        sa.ForeignKeyConstraint(["log_entry_id"], ["log_entry.id"]),
++        sa.ForeignKeyConstraint(["property_id"], ["property.id"]),
++        sa.ForeignKeyConstraint(["user_id"], ["user_account.id"]),
++        sa.PrimaryKeyConstraint("id"),
++        sa.UniqueConstraint("log_entry_id", "user_id", name="uq_log_ack_entry_user"),
++    )
++    with op.batch_alter_table("log_entry_ack", schema=None) as batch_op:
++        batch_op.create_index(
++            batch_op.f("ix_log_entry_ack_log_entry_id"), ["log_entry_id"], unique=False
++        )
++        batch_op.create_index(
++            batch_op.f("ix_log_entry_ack_property_id"), ["property_id"], unique=False
++        )
++
++
++def downgrade() -> None:
++    with op.batch_alter_table("log_entry_ack", schema=None) as batch_op:
++        batch_op.drop_index(batch_op.f("ix_log_entry_ack_property_id"))
++        batch_op.drop_index(batch_op.f("ix_log_entry_ack_log_entry_id"))
++
++    op.drop_table("log_entry_ack")
++    with op.batch_alter_table("log_entry_photo", schema=None) as batch_op:
++        batch_op.drop_index(batch_op.f("ix_log_entry_photo_property_id"))
++        batch_op.drop_index(batch_op.f("ix_log_entry_photo_log_entry_id"))
++
++    op.drop_table("log_entry_photo")
++    with op.batch_alter_table("log_entry_mention", schema=None) as batch_op:
++        batch_op.drop_index("ix_log_mention_property_target")
++        batch_op.drop_index(batch_op.f("ix_log_entry_mention_property_id"))
++        batch_op.drop_index(batch_op.f("ix_log_entry_mention_log_entry_id"))
++
++    op.drop_table("log_entry_mention")
++    with op.batch_alter_table("log_entry", schema=None) as batch_op:
++        batch_op.drop_index("ix_log_entry_property_pinned")
++        batch_op.drop_index("ix_log_entry_property_created")
++        batch_op.drop_index(batch_op.f("ix_log_entry_property_id"))
++
++    op.drop_table("log_entry")
+diff --git a/server/app/models/__init__.py b/server/app/models/__init__.py
+index f5f0fc8..ad6f4ba 100644
+--- a/server/app/models/__init__.py
++++ b/server/app/models/__init__.py
+@@ -1,20 +1,22 @@
+ from app.models.content import DigitalAsset, QuickReply
+ from app.models.conversations import Conversation, InternalNote, Message, ResolutionCategory
+ from app.models.core import Department, Property, PropertyMembership, UserAccount
+ from app.models.guests import Guest, Stay
+ from app.models.infra import AuditLog, Job, Notification, PmsEvent, UserSession
++from app.models.log import LogEntry, LogEntryAck, LogEntryMention, LogEntryPhoto
+ from app.models.staff_messages import StaffConversation, StaffConversationParticipant, StaffMessage
+ from app.models.work_orders import (
+     DraftPrompt,
+     WorkOrder,
+     WorkOrderEvent,
+     WorkOrderPhoto,
+ )
+ 
+ __all__ = [
+     "AuditLog", "Conversation", "Department", "DigitalAsset", "DraftPrompt", "Guest",
+-    "InternalNote", "Job", "Message", "Notification", "PmsEvent", "Property",
++    "InternalNote", "Job", "LogEntry", "LogEntryAck", "LogEntryMention", "LogEntryPhoto",
++    "Message", "Notification", "PmsEvent", "Property",
+     "PropertyMembership", "QuickReply", "ResolutionCategory", "StaffConversation",
+     "StaffConversationParticipant", "StaffMessage", "Stay", "UserAccount", "UserSession",
+     "WorkOrder", "WorkOrderEvent", "WorkOrderPhoto",
+ ]
+diff --git a/server/app/models/log.py b/server/app/models/log.py
+new file mode 100644
+index 0000000..5c9caef
+--- /dev/null
++++ b/server/app/models/log.py
+@@ -0,0 +1,103 @@
++from __future__ import annotations
++
++from datetime import datetime
++
++from sqlalchemy import (
++    JSON,
++    Boolean,
++    ForeignKey,
++    Index,
++    Integer,
++    LargeBinary,
++    String,
++    Text,
++    UniqueConstraint,
++)
++from sqlalchemy.orm import Mapped, mapped_column
++
++from app.db import Base, UTCDateTime
++from app.models.core import TimestampMixin, enum_type
++from app.schemas.enums import MentionTargetType, Shift
++
++
++class LogEntry(TimestampMixin, Base):
++    """One hotel-log post: the shift-handover record (spec §3).
++
++    Deliberately immutable after creation apart from `pinned` and its acks — an
++    acknowledgement means nothing if the text it acknowledged can change afterwards, so no
++    route updates `body` (spec §4.4).
++    """
++
++    __tablename__ = "log_entry"
++    __table_args__ = (
++        Index("ix_log_entry_property_created", "property_id", "created_at"),
++        Index("ix_log_entry_property_pinned", "property_id", "pinned"),
++    )
++    property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
++    author_user_id: Mapped[str] = mapped_column(ForeignKey("user_account.id"), nullable=False)
++    department_id: Mapped[str | None] = mapped_column(ForeignKey("department.id"))
++    shift: Mapped[Shift] = mapped_column(enum_type(Shift), nullable=False)
++    body: Mapped[str] = mapped_column(Text, nullable=False)
++    pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
++    pinned_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("user_account.id"))
++    pinned_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
++    requires_ack: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
++    # A frozen snapshot of resolved user ids, not a live department query: a supervisor's
++    # "7 of 9" must not change when somebody joins the department tomorrow (spec §3.2).
++    ack_expected: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
++    linked_work_order_id: Mapped[str | None] = mapped_column(ForeignKey("work_order.id"))
++    linked_conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversation.id"))
++
++
++class LogEntryMention(TimestampMixin, Base):
++    """A table rather than the `mentions uuid[]` column of design.md §5.4, because the
++    `mentioning_me` filter would otherwise need `json_each` on SQLite and
++    `jsonb_array_elements` on PostgreSQL — and §10.1 commits to swapping engines by changing
++    DATABASE_URL alone. `position` preserves the author's insertion order for rendering.
++    """
++
++    __tablename__ = "log_entry_mention"
++    __table_args__ = (
++        UniqueConstraint("log_entry_id", "type", "target_id", name="uq_log_mention_entry_target"),
++        Index("ix_log_mention_property_target", "property_id", "type", "target_id"),
++    )
++    log_entry_id: Mapped[str] = mapped_column(
++        ForeignKey("log_entry.id"), nullable=False, index=True
++    )
++    property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
++    type: Mapped[MentionTargetType] = mapped_column(
++        enum_type(MentionTargetType), nullable=False
++    )
++    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
++    position: Mapped[int] = mapped_column(Integer, nullable=False)
++
++
++class LogEntryPhoto(TimestampMixin, Base):
++    """Bytes in the table for the same reason as work_order_photo
++    (app/models/work_orders.py:67): the deployment target's filesystem is ephemeral, so a
++    disk-backed photo vanishes on redeploy. `data` is deferred so the feed query never drags
++    blobs along with the metadata.
++    """
++
++    __tablename__ = "log_entry_photo"
++    log_entry_id: Mapped[str] = mapped_column(
++        ForeignKey("log_entry.id"), nullable=False, index=True
++    )
++    property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
++    uploaded_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("user_account.id"))
++    content_type: Mapped[str] = mapped_column(String(40), nullable=False)
++    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
++    data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
++
++
++class LogEntryAck(TimestampMixin, Base):
++    __tablename__ = "log_entry_ack"
++    __table_args__ = (
++        UniqueConstraint("log_entry_id", "user_id", name="uq_log_ack_entry_user"),
++    )
++    log_entry_id: Mapped[str] = mapped_column(
++        ForeignKey("log_entry.id"), nullable=False, index=True
++    )
++    property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
++    user_id: Mapped[str] = mapped_column(ForeignKey("user_account.id"), nullable=False)
++    acknowledged_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+diff --git a/server/app/schemas/enums.py b/server/app/schemas/enums.py
+index a97de5f..0e8f3d8 100644
+--- a/server/app/schemas/enums.py
++++ b/server/app/schemas/enums.py
+@@ -138,10 +138,21 @@ class JobStatus(StrEnum):
+     running = "running"
+     done = "done"
+     failed = "failed"
+     dead = "dead"
+ 
+ 
+ class StaffConversationKind(StrEnum):
+     dm = "dm"
+     group = "group"
+     all = "all"
++
++
++class Shift(StrEnum):
++    am = "am"
++    pm = "pm"
++    overnight = "overnight"
++
++
++class MentionTargetType(StrEnum):
++    user = "user"
++    department = "department"
+diff --git a/server/tests/test_models.py b/server/tests/test_models.py
+index 46074fb..d12931e 100644
+--- a/server/tests/test_models.py
++++ b/server/tests/test_models.py
+@@ -1,17 +1,18 @@
+ from datetime import UTC, datetime
+ from enum import StrEnum
+ 
+ import pytest
+-from sqlalchemy import Column, MetaData, String, Table, inspect, text
++from sqlalchemy import Column, MetaData, String, Table, inspect, select, text
+ from sqlalchemy.exc import StatementError
+ 
++from app import clock
+ from app.db import Database, run_migrations
+ from app.models import Conversation, Guest, Property
+ from app.models.core import enum_type
+ from app.schemas.enums import ConversationStatus, SmsConsentStatus
+ 
+ EXPECTED_TABLES = {
+     "property", "user_account", "property_membership", "department", "guest", "stay",
+     "conversation", "message", "internal_note", "resolution_category", "work_order",
+     "work_order_event", "work_order_photo", "draft_prompt", "quick_reply", "digital_asset",
+     "user_session",
+@@ -128,10 +129,80 @@ def test_staff_conversation_round_trip(database, fx):
+         db.flush()
+         db.add(StaffConversationParticipant(conversation_id=conv.id, user_id=fx.agent_a.id))
+         db.add(StaffConversationParticipant(conversation_id=conv.id, user_id=fx.engineer_a.id))
+         db.add(StaffMessage(conversation_id=conv.id, property_id=fx.property_a.id,
+                             author_user_id=fx.agent_a.id, body="hi"))
+         conv_id = conv.id
+ 
+     with database.session() as db:
+         loaded = db.get(StaffConversation, conv_id)
+         assert loaded.kind == StaffConversationKind.dm
++
++
++def test_log_entry_round_trips_with_mentions_photo_and_ack(database, fx):
++    from app.models import LogEntry, LogEntryAck, LogEntryMention, LogEntryPhoto
++    from app.schemas.enums import MentionTargetType, Shift
++
++    with database.session() as db:
++        entry = LogEntry(
++            property_id=fx.property_a.id,
++            author_user_id=fx.agent_a.id,
++            department_id=fx.dept_housekeeping.id,
++            shift=Shift.am,
++            body="327 fridge does not work but room is clean.",
++            requires_ack=True,
++            ack_expected=[fx.housekeeper_a.id],
++        )
++        db.add(entry)
++        db.flush()
++        db.add(LogEntryMention(log_entry_id=entry.id, property_id=fx.property_a.id,
++                               type=MentionTargetType.department,
++                               target_id=fx.dept_housekeeping.id, position=0))
++        db.add(LogEntryMention(log_entry_id=entry.id, property_id=fx.property_a.id,
++                               type=MentionTargetType.user,
++                               target_id=fx.engineer_a.id, position=1))
++        db.add(LogEntryPhoto(log_entry_id=entry.id, property_id=fx.property_a.id,
++                             uploaded_by_user_id=fx.agent_a.id,
++                             content_type="image/png", byte_size=3, data=b"abc"))
++        db.add(LogEntryAck(log_entry_id=entry.id, property_id=fx.property_a.id,
++                           user_id=fx.housekeeper_a.id, acknowledged_at=clock.now()))
++        db.flush()
++        entry_id = entry.id
++
++    with database.session() as db:
++        row = db.get(LogEntry, entry_id)
++        assert row.shift == Shift.am
++        assert row.pinned is False
++        assert row.ack_expected == [fx.housekeeper_a.id]
++        mentions = db.scalars(
++            select(LogEntryMention)
++            .where(LogEntryMention.log_entry_id == entry_id)
++            .order_by(LogEntryMention.position)
++        ).all()
++        assert [m.type for m in mentions] == [MentionTargetType.department, MentionTargetType.user]
++        photo = db.scalar(select(LogEntryPhoto)
++                          .where(LogEntryPhoto.log_entry_id == entry_id))
++        assert photo.data == b"abc"
++
++
++def test_log_entry_ack_is_unique_per_user(database, fx):
++    from sqlalchemy.exc import IntegrityError
++
++    from app.models import LogEntry, LogEntryAck
++    from app.schemas.enums import Shift
++
++    with database.session() as db:
++        entry = LogEntry(property_id=fx.property_a.id, author_user_id=fx.agent_a.id,
++                         shift=Shift.pm, body="x")
++        db.add(entry)
++        db.flush()
++        db.add(LogEntryAck(log_entry_id=entry.id, property_id=fx.property_a.id,
++                           user_id=fx.housekeeper_a.id, acknowledged_at=clock.now()))
++        db.flush()
++        db.add(LogEntryAck(log_entry_id=entry.id, property_id=fx.property_a.id,
++                           user_id=fx.housekeeper_a.id, acknowledged_at=clock.now()))
++        with pytest.raises(IntegrityError):
++            db.flush()
++        # The failed flush poisons the session; without this rollback the context
++        # manager's commit on exit raises PendingRollbackError and the test fails
++        # for a reason that has nothing to do with the constraint being tested.
++        db.rollback()

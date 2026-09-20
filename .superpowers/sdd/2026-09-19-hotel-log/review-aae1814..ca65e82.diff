@@ -1,0 +1,164 @@
+# Review package: aae1814..ca65e82
+
+## Commits
+ca65e82 fix(web,server): correct log-entry conversation link and harden validation error paths
+
+## Files changed
+ server/app/api/_util.py                    |  4 +++-
+ server/app/errors.py                       |  6 +++---
+ server/tests/test_models.py                |  1 +
+ web/src/features/log/LogEntryCard.test.tsx | 20 ++++++++++++++++++++
+ web/src/features/log/LogEntryCard.tsx      |  2 +-
+ 5 files changed, 28 insertions(+), 5 deletions(-)
+
+## Diff
+diff --git a/server/app/api/_util.py b/server/app/api/_util.py
+index 665edb5..a7f39b4 100644
+--- a/server/app/api/_util.py
++++ b/server/app/api/_util.py
+@@ -33,22 +33,24 @@ def parse_body[M: BaseModel](model: type[M]) -> M:
+         # 400 into a 500. Nothing reads `ctx` either.
+         raise ValidationFailed("Invalid request body",
+                                details=e.errors(include_url=False, include_input=False,
+                                                  include_context=False)) from e
+ 
+ 
+ def parse_query[M: BaseModel](model: type[M]) -> M:
+     try:
+         return model.model_validate(request.args.to_dict())
+     except ValidationError as e:
++        # include_context=False: see parse_body's comment above.
+         raise ValidationFailed("Invalid query",
+-                               details=e.errors(include_url=False, include_input=False)) from e
++                               details=e.errors(include_url=False, include_input=False,
++                                                 include_context=False)) from e
+ 
+ 
+ def serialize(obj: Any) -> Any:
+     if isinstance(obj, BaseModel):
+         return obj.model_dump(mode="json", by_alias=True)
+     if isinstance(obj, list):
+         return [serialize(o) for o in obj]
+     if isinstance(obj, dict):
+         return {k: serialize(v) for k, v in obj.items()}
+     return obj
+diff --git a/server/app/errors.py b/server/app/errors.py
+index 894ee90..358e99a 100644
+--- a/server/app/errors.py
++++ b/server/app/errors.py
+@@ -77,19 +77,19 @@ class RateLimited(AppError):
+     code = "RATE_LIMITED"
+ 
+ 
+ def register_error_handlers(app: Flask) -> None:
+     @app.errorhandler(AppError)
+     def _app_error(e: AppError):
+         return jsonify(e.to_body()), e.status
+ 
+     @app.errorhandler(ValidationError)
+     def _pydantic_error(e: ValidationError):
+-        # Same two arguments as _util.parse_body: no pydantic.dev URL, and no echo of the
+-        # caller's raw input, which nothing reads.
+-        details = e.errors(include_url=False, include_input=False)
++        # Same arguments as _util.parse_body: no pydantic.dev URL, no echo of the caller's
++        # raw input, and include_context=False per parse_body's comment above.
++        details = e.errors(include_url=False, include_input=False, include_context=False)
+         return jsonify(ValidationFailed("Invalid request", details=details).to_body()), 400
+ 
+     @app.errorhandler(HTTPException)
+     def _http_error(e: HTTPException):
+         code = (e.name or "error").upper().replace(" ", "_")
+         return jsonify({"error": {"code": code, "message": e.description}}), e.code or 500
+diff --git a/server/tests/test_models.py b/server/tests/test_models.py
+index d12931e..be495f5 100644
+--- a/server/tests/test_models.py
++++ b/server/tests/test_models.py
+@@ -11,20 +11,21 @@ from app.models import Conversation, Guest, Property
+ from app.models.core import enum_type
+ from app.schemas.enums import ConversationStatus, SmsConsentStatus
+ 
+ EXPECTED_TABLES = {
+     "property", "user_account", "property_membership", "department", "guest", "stay",
+     "conversation", "message", "internal_note", "resolution_category", "work_order",
+     "work_order_event", "work_order_photo", "draft_prompt", "quick_reply", "digital_asset",
+     "user_session",
+     "job", "notification", "audit_log", "pms_event", "alembic_version",
+     "staff_conversation", "staff_conversation_participant", "staff_message",
++    "log_entry", "log_entry_mention", "log_entry_photo", "log_entry_ack",
+ }
+ 
+ 
+ @pytest.fixture()
+ def db_url(tmp_path):
+     return f"sqlite:///{(tmp_path / 't.db').as_posix()}"
+ 
+ 
+ def test_migration_creates_all_tables(db_url):
+     run_migrations(db_url)
+diff --git a/web/src/features/log/LogEntryCard.test.tsx b/web/src/features/log/LogEntryCard.test.tsx
+index 387c57c..8cddbc3 100644
+--- a/web/src/features/log/LogEntryCard.test.tsx
++++ b/web/src/features/log/LogEntryCard.test.tsx
+@@ -108,17 +108,37 @@ describe('LogEntryCard', () => {
+   })
+ 
+   it('shows Unpin and DELETEs when the entry is already pinned', async () => {
+     mount({ ...BASE, pinned: true }, 'manager')
+     const button = screen.getByRole('button', { name: 'Unpin' })
+     await userEvent.click(button)
+     expect(pinCalls()).toHaveLength(1)
+     expect(pinCalls()[0]?.[1]?.method).toBe('DELETE')
+   })
+ 
++  it('renders the work order and conversation links with correct hrefs, and omits them when unset', () => {
++    const WORK_ORDER_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
++    const CONVERSATION_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
++    mount({ ...BASE, linkedWorkOrderId: WORK_ORDER_ID, linkedConversationId: CONVERSATION_ID })
++    expect(screen.getByRole('link', { name: 'View work order' })).toHaveAttribute(
++      'href',
++      `/app/work-orders/${WORK_ORDER_ID}`,
++    )
++    expect(screen.getByRole('link', { name: 'View conversation' })).toHaveAttribute(
++      'href',
++      `/app/inbox/${CONVERSATION_ID}`,
++    )
++  })
++
++  it('renders neither link when linkedWorkOrderId and linkedConversationId are null', () => {
++    mount({ ...BASE, linkedWorkOrderId: null, linkedConversationId: null })
++    expect(screen.queryByRole('link', { name: 'View work order' })).not.toBeInTheDocument()
++    expect(screen.queryByRole('link', { name: 'View conversation' })).not.toBeInTheDocument()
++  })
++
+   it('renders a mention whose display name contains HTML as literal text', () => {
+     const token = tokenFor({ type: 'user', id: ANA_ID, displayName: '<b>x</b>' })
+     mount({ ...BASE, body: `Hello ${token}` })
+     expect(screen.getByText('<b>x</b>')).toBeInTheDocument()
+     expect(document.querySelector('b')).toBeNull()
+   })
+ })
+diff --git a/web/src/features/log/LogEntryCard.tsx b/web/src/features/log/LogEntryCard.tsx
+index 8318033..16f4d69 100644
+--- a/web/src/features/log/LogEntryCard.tsx
++++ b/web/src/features/log/LogEntryCard.tsx
+@@ -60,19 +60,19 @@ export function LogEntryCard({ entry }: { entry: LogEntryOut }): JSX.Element {
+       {entry.photoUrl ? (
+         <img src={entry.photoUrl} alt="Attached" className="max-h-60 rounded" />
+       ) : null}
+ 
+       {entry.linkedWorkOrderId ? (
+         <Link to={`/app/work-orders/${entry.linkedWorkOrderId}`} className="text-xs font-semibold text-accent">
+           View work order
+         </Link>
+       ) : null}
+       {entry.linkedConversationId ? (
+-        <Link to={`/app/messages/${entry.linkedConversationId}`} className="text-xs font-semibold text-accent">
++        <Link to={`/app/inbox/${entry.linkedConversationId}`} className="text-xs font-semibold text-accent">
+           View conversation
+         </Link>
+       ) : null}
+ 
+       <AckBar entry={entry} />
+     </article>
+   )
+ }

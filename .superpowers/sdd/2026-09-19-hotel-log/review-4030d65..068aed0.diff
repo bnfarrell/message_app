@@ -1,0 +1,37 @@
+# Review package: 4030d65..068aed0
+
+## Commits
+
+## Files changed
+ CLAUDE.md | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+## Diff
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 980c3d6..b1f57d0 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -36,22 +36,21 @@ The venv is Python 3.12, matching `Dockerfile` (`python:3.12-slim`) and ruff's
+ Dev and the test suite still run SQLite, so **SQLite passing is not evidence that code works.**
+ 
+ - Write engine-portable SQL only. No `json_each`, no SQLite-only pragmas or functions.
+   If you need to filter inside a JSON array, model it as a table instead — that is exactly why
+   `log_entry_mention` is a table rather than the `mentions uuid[]` column `docs/design.md` §5.4
+   specifies.
+ - Enums go through `enum_type()` in `app/models/core.py` (`native_enum=False`), which produces a
+   VARCHAR + CHECK constraint that behaves the same on both engines.
+ - `app/config.py:normalise_database_url` rewrites a provider-style `postgresql://` to
+   `postgresql+psycopg://`, because a bare URL resolves to psycopg2, which is not installed.
+-- Datetimes: `UTCDateTime` stores **naive UTC** and returns **aware UTC**. It raises
+-  `ValueError` on a naive input — get the time from `app.clock.now()`, which tests freeze.
++- Datetimes are stored **naive UTC** (`UTCDateTime` binds any aware datetime to naive UTC).
+   Convert through the property's own timezone for anything user-facing; never compare a local
+   wall-clock value straight against a column.
+ 
+ Verify a migration against real Postgres before merging — SQLite will not catch a portability bug:
+ 
+ ```
+ docker run -d --name relay-pg18 -e POSTGRES_PASSWORD=relaydev -e POSTGRES_USER=relay \
+   -e POSTGRES_DB=relay_test -p 55432:5432 postgres:18
+ cd server && DATABASE_URL="postgresql://relay:relaydev@localhost:55432/relay_test" \
+   ../.venv/Scripts/python.exe -m alembic upgrade head

@@ -1,0 +1,108 @@
+# Review package: a341f44^..a341f44
+
+## Commits
+a341f44 fix(web): stop MentionInput desyncing the caret from a stale query
+
+## Files changed
+ web/src/features/log/MentionInput.test.tsx | 15 +++++++++++++++
+ web/src/features/log/MentionInput.tsx      | 14 +++++++++++---
+ 2 files changed, 26 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/web/src/features/log/MentionInput.test.tsx b/web/src/features/log/MentionInput.test.tsx
+index 1f9a577..d9ce163 100644
+--- a/web/src/features/log/MentionInput.test.tsx
++++ b/web/src/features/log/MentionInput.test.tsx
+@@ -32,20 +32,35 @@ describe('MentionInput', () => {
+     const [, mentions] = onChange.mock.calls.at(-1)!
+     expect(mentions).toEqual([{ type: 'department', id: 'd1' }])
+   })
+ 
+   it('closes the menu when no option matches', async () => {
+     render(<MentionInput value="" mentions={[]} options={OPTIONS} onChange={vi.fn()} />)
+     await userEvent.type(screen.getByRole('textbox'), '@zzzz')
+     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+   })
+ 
++  it('replaces the whole query even after the caret has moved off the end of it', async () => {
++    const onChange = vi.fn()
++    render(<MentionInput value="" mentions={[]} options={OPTIONS} onChange={onChange} />)
++    const textbox = screen.getByRole('textbox')
++    await userEvent.type(textbox, '@Ana')
++    // Move the caret back inside the query without changing the text — the listbox
++    // stays open (still filtered on "Ana") but the recorded query range is now stale.
++    await userEvent.keyboard('{ArrowLeft}{ArrowLeft}')
++    await userEvent.click(screen.getByRole('option', { name: /^Ana Marquez/ }))
++    const [body] = onChange.mock.calls.at(-1)!
++    // The whole "@Ana" query must be replaced — no leftover "na" tail from the part of
++    // the query that sat after the (now-stale) live caret position.
++    expect(body).toBe(tokenFor(OPTIONS[0]!))
++  })
++
+   it('moves the active option with the arrow keys and picks it with Enter', async () => {
+     const onChange = vi.fn()
+     render(<MentionInput value="" mentions={[]} options={OPTIONS} onChange={onChange} />)
+     await userEvent.type(screen.getByRole('textbox'), '@Ana')
+     const [first, second] = screen.getAllByRole('option')
+     // Freshly opened: the first option is active, not the second.
+     expect(first).toHaveAttribute('aria-selected', 'true')
+     expect(second).toHaveAttribute('aria-selected', 'false')
+ 
+     await userEvent.keyboard('{ArrowDown}')
+diff --git a/web/src/features/log/MentionInput.tsx b/web/src/features/log/MentionInput.tsx
+index b9c5c6b..67936a0 100644
+--- a/web/src/features/log/MentionInput.tsx
++++ b/web/src/features/log/MentionInput.tsx
+@@ -1,17 +1,20 @@
+ import { useEffect, useRef, useState } from 'react'
+ import type { LogMentionableOut } from '../../api/types'
+ import { cn } from '../../lib/cn'
+ 
+ export type MentionRef = { type: 'user' | 'department'; id: string }
+ 
+-/** Matches what `tokenFor` writes. Task 12's renderer parses entry bodies with this. */
++/** Matches what `tokenFor` writes. Task 12's renderer parses entry bodies with this.
++ *  Carries the `g` flag: it's a shared instance, so calling `.test()`/`.exec()` on it
++ *  directly leaves `lastIndex` set and can silently miss matches on a later call.
++ *  Use `split()`/`matchAll()` (or a fresh copy) instead. */
+ export const TOKEN_RE = /@\[([^\]]+)\]\((user|department):([0-9a-f-]{36})\)/g
+ 
+ /** §6.1: the id is authoritative, the display name is presentation only. */
+ export function tokenFor(option: LogMentionableOut): string {
+   return `@[${option.displayName}](${option.type}:${option.id})`
+ }
+ 
+ /** Find an unterminated `@query` fragment ending at the caret, if any. */
+ function activeQuery(value: string, caret: number): { start: number; term: string } | null {
+   const upToCaret = value.slice(0, caret)
+@@ -62,23 +65,28 @@ export function MentionInput({
+     ref.current.selectionEnd = pendingCaret
+     setPendingCaret(null)
+   }, [pendingCaret, text])
+ 
+   const matches = query
+     ? options.filter((o) => o.displayName.toLowerCase().includes(query.term.toLowerCase()))
+     : []
+ 
+   function pick(option: LogMentionableOut) {
+     if (!query) return
+-    const caret = ref.current?.selectionStart ?? text.length
+     const token = tokenFor(option)
+-    const next = text.slice(0, query.start) + token + text.slice(caret)
++    // Replace using the query's own recorded extent (the "@" plus its term), not the
++    // live caret: the caret can move — ArrowLeft/Right, Home/End, a click — without
++    // ever firing `onChange`, which is the only thing that recomputes `query`. Using
++    // the live caret there would splice the token in against a stale end-of-range and
++    // leave a stray tail of the query text behind it.
++    const queryEnd = query.start + 1 + query.term.length
++    const next = text.slice(0, query.start) + token + text.slice(queryEnd)
+     const already = mentions.some((m) => m.type === option.type && m.id === option.id)
+     const nextMentions = already ? mentions : [...mentions, { type: option.type, id: option.id }]
+     setText(next)
+     setPendingCaret(query.start + token.length)
+     onChange(next, nextMentions)
+     setQuery(null)
+     setIndex(0)
+   }
+ 
+   function handleChange(next: string, caret: number) {

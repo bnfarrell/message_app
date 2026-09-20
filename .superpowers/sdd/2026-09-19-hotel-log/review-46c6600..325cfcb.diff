@@ -1,0 +1,376 @@
+# Review package: 325cfcb^..325cfcb
+
+## Commits
+325cfcb feat(web): hotel log query hooks and realtime invalidation
+
+## Files changed
+ server/app/schemas/log.py    |  18 ++++++-
+ server/tests/test_log_api.py |  25 ++++++++++
+ web/src/api/hooks/log.ts     | 113 +++++++++++++++++++++++++++++++++++++++++++
+ web/src/api/queryKeys.ts     |   6 +++
+ web/src/api/types.ts         |   4 +-
+ web/src/api/ws.test.tsx      |  17 +++++++
+ web/src/api/ws.ts            |   7 +++
+ 7 files changed, 187 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/server/app/schemas/log.py b/server/app/schemas/log.py
+index 7f3446e..f339c22 100644
+--- a/server/app/schemas/log.py
++++ b/server/app/schemas/log.py
+@@ -1,13 +1,15 @@
++import json
+ from datetime import datetime
++from typing import Any
+ 
+-from pydantic import Field
++from pydantic import Field, model_validator
+ 
+ from app.schemas.common import CamelModel
+ from app.schemas.enums import MentionTargetType, Shift
+ 
+ MAX_BODY = 4000
+ MAX_MENTIONS = 100          # a hotel-sized bound on the per-id validation SELECTs
+ FEED_PAGE_SIZE = 50
+ 
+ 
+ class MentionRef(CamelModel):
+@@ -22,20 +24,34 @@ class CreateLogEntryRequest(CamelModel):
+     like SendStaffMessageRequest."""
+ 
+     body: str = Field(min_length=1, max_length=MAX_BODY)
+     department_id: str | None = None
+     mentions: list[MentionRef] = Field(default_factory=list, max_length=MAX_MENTIONS)
+     requires_ack: bool = False
+     ack_audience: list[MentionRef] = Field(default_factory=list, max_length=MAX_MENTIONS)
+     linked_work_order_id: str | None = None
+     linked_conversation_id: str | None = None
+ 
++    @model_validator(mode="before")
++    @classmethod
++    def _parse_multipart_lists(cls, data: Any) -> Any:
++        """`parse_body` falls back to `request.form.to_dict()` for multipart requests, which
++        yields strings for every field. A JSON body already gives these as lists, so only
++        the string case (the multipart path) needs decoding."""
++        if not isinstance(data, dict):
++            return data
++        for field in ("mentions", "ackAudience"):
++            value = data.get(field)
++            if isinstance(value, str):
++                data[field] = json.loads(value)
++        return data
++
+ 
+ class LogFeedQuery(CamelModel):
+     shift: Shift | None = None
+     department_id: str | None = None
+     from_: str | None = Field(default=None, alias="from")
+     to: str | None = None
+     mentioning_me: bool = False
+     cursor: str | None = None
+ 
+ 
+diff --git a/server/tests/test_log_api.py b/server/tests/test_log_api.py
+index 2a64fbe..21af210 100644
+--- a/server/tests/test_log_api.py
++++ b/server/tests/test_log_api.py
+@@ -436,20 +436,45 @@ def test_an_oversized_body_is_refused_before_it_is_parsed(app, fx, login):
+     VALIDATION_FAILED/file_too_large response before either limit is hit.
+     """
+     base = f"/api/p/{fx.property_a.id}/log-entries"
+     agent = login("agent@hvh.test")
+     res = agent.post(base, data={"junk": "x" * (MAX_PHOTO_BYTES + MULTIPART_OVERHEAD_BYTES + 1)},
+                      content_type="multipart/form-data")
+     assert res.status_code == 400, res.get_json()
+     assert res.get_json()["error"]["details"] == {"photo": "file_too_large"}
+ 
+ 
++def test_a_multipart_photo_post_still_persists_a_mention(app, fx, login):
++    """`request.form.to_dict()` yields strings for every field, so `mentions` arrives as a
++    JSON-encoded string rather than a list when the composer attaches a photo. Without
++    CreateLogEntryRequest's before-validator parsing that string, this combination fails
++    validation and the mention is silently dropped.
++    """
++    import io
++    import json
++
++    png = b"\x89PNG\r\n\x1a\n" + b"\x00IHDR-not-a-real-png-but-the-signature-is"
++
++    base = f"/api/p/{fx.property_a.id}/log-entries"
++    agent = login("agent@hvh.test")
++    mentions = json.dumps([{"type": "user", "id": fx.engineer_a.id}])
++    res = agent.post(base, data={"body": "with photo and a mention",
++                                 "mentions": mentions,
++                                 "photo": (io.BytesIO(png), "x.png", "image/png")},
++                     content_type="multipart/form-data")
++    assert res.status_code == 201, res.get_json()
++    body = res.get_json()
++    assert body["mentions"] == [
++        {"type": "user", "id": fx.engineer_a.id, "displayName": "Eli Engineer"},
++    ]
++
++
+ def test_mentionables_lists_people_and_departments(app, fx, login):
+     agent = login("agent@hvh.test")
+     rows = agent.get(f"/api/p/{fx.property_a.id}/log-entries/mentionables").get_json()
+     kinds = {r["type"] for r in rows}
+     assert kinds == {"user", "department"}
+     assert fx.dept_housekeeping.id in [r["id"] for r in rows if r["type"] == "department"]
+ 
+ 
+ def test_no_route_can_change_an_entry_body(app, fx, login):
+     """Spec §4.4 — immutability is a property of the route table, so assert on the map."""
+diff --git a/web/src/api/hooks/log.ts b/web/src/api/hooks/log.ts
+new file mode 100644
+index 0000000..dc53596
+--- /dev/null
++++ b/web/src/api/hooks/log.ts
+@@ -0,0 +1,113 @@
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
++import { useSession } from '../../auth/SessionContext'
++import { ApiError, api, propertyPath } from '../client'
++import { qk } from '../queryKeys'
++import type {
++  CreateLogEntryRequest,
++  LogEntryOut,
++  LogFeedOut,
++  LogMentionableOut,
++} from '../types'
++
++export type LogFeedParams = {
++  shift?: string | null
++  departmentId?: string | null
++  mentioningMe?: boolean
++}
++
++function toQuery(params: LogFeedParams): string {
++  const search = new URLSearchParams()
++  if (params.shift) search.set('shift', params.shift)
++  if (params.departmentId) search.set('departmentId', params.departmentId)
++  if (params.mentioningMe) search.set('mentioningMe', 'true')
++  const qs = search.toString()
++  return qs ? `?${qs}` : ''
++}
++
++export function useLogFeed(params: LogFeedParams = {}) {
++  const { propertyId } = useSession()
++  return useQuery<LogFeedOut, ApiError>({
++    queryKey: qk.logFeed(propertyId, {
++      shift: params.shift ?? null,
++      departmentId: params.departmentId ?? null,
++      mentioningMe: params.mentioningMe ?? false,
++    }),
++    queryFn: () => api<LogFeedOut>(propertyPath(propertyId, `log-entries${toQuery(params)}`)),
++  })
++}
++
++export function useLogEntry(id: string | undefined) {
++  const { propertyId } = useSession()
++  return useQuery<LogEntryOut, ApiError>({
++    queryKey: qk.logEntry(propertyId, id ?? ''),
++    queryFn: () => api<LogEntryOut>(propertyPath(propertyId, `log-entries/${id}`)),
++    enabled: Boolean(id),
++  })
++}
++
++export function useLogMentionables() {
++  const { propertyId } = useSession()
++  return useQuery<LogMentionableOut[], ApiError>({
++    queryKey: qk.logMentionables(propertyId),
++    queryFn: () => api<LogMentionableOut[]>(propertyPath(propertyId, 'log-entries/mentionables')),
++  })
++}
++
++export function useCreateLogEntry() {
++  const { propertyId } = useSession()
++  const client = useQueryClient()
++  return useMutation<LogEntryOut, ApiError, CreateLogEntryRequest & { photo?: File }>({
++    mutationFn: ({ photo, ...rest }) => {
++      if (!photo) {
++        return api<LogEntryOut>(propertyPath(propertyId, 'log-entries'), {
++          method: 'POST',
++          json: rest,
++        })
++      }
++      // Multipart: the server reads scalars from request.form and the file from request.files,
++      // so arrays go over as JSON strings. Matches SendStaffMessageRequest's handling.
++      const form = new FormData()
++      form.set('body', rest.body)
++      if (rest.departmentId) form.set('departmentId', rest.departmentId)
++      if (rest.mentions?.length) form.set('mentions', JSON.stringify(rest.mentions))
++      if (rest.requiresAck) form.set('requiresAck', 'true')
++      if (rest.ackAudience?.length) form.set('ackAudience', JSON.stringify(rest.ackAudience))
++      form.set('photo', photo)
++      return api<LogEntryOut>(propertyPath(propertyId, 'log-entries'), {
++        method: 'POST',
++        body: form,
++      })
++    },
++    onSuccess: () => {
++      void client.invalidateQueries({ queryKey: qk.logFeedAll(propertyId) })
++    },
++  })
++}
++
++export function useAckLogEntry() {
++  const { propertyId } = useSession()
++  const client = useQueryClient()
++  return useMutation<LogEntryOut, ApiError, string>({
++    mutationFn: (id) =>
++      api<LogEntryOut>(propertyPath(propertyId, `log-entries/${id}/ack`), { method: 'POST' }),
++    onSuccess: (entry) => {
++      client.setQueryData(qk.logEntry(propertyId, entry.id), entry)
++      void client.invalidateQueries({ queryKey: qk.logFeedAll(propertyId) })
++    },
++  })
++}
++
++export function useSetLogPinned() {
++  const { propertyId } = useSession()
++  const client = useQueryClient()
++  return useMutation<LogEntryOut, ApiError, { id: string; pinned: boolean }>({
++    mutationFn: ({ id, pinned }) =>
++      api<LogEntryOut>(propertyPath(propertyId, `log-entries/${id}/pin`), {
++        method: pinned ? 'POST' : 'DELETE',
++      }),
++    onSuccess: (entry) => {
++      client.setQueryData(qk.logEntry(propertyId, entry.id), entry)
++      void client.invalidateQueries({ queryKey: qk.logFeedAll(propertyId) })
++    },
++  })
++}
+diff --git a/web/src/api/queryKeys.ts b/web/src/api/queryKeys.ts
+index 057e2ee..4497833 100644
+--- a/web/src/api/queryKeys.ts
++++ b/web/src/api/queryKeys.ts
+@@ -31,19 +31,25 @@ export const qk = {
+   notifications: (propertyId: string, unreadOnly: boolean) =>
+     ['notifications', propertyId, unreadOnly] as const,
+   notificationsAll: (propertyId: string) => ['notifications', propertyId] as const,
+   unreadCount: (propertyId: string) => ['unreadCount', propertyId] as const,
+ 
+   staffConversationsAll: (propertyId: string) => ['staffConversations', propertyId] as const,
+   staffConversation: (propertyId: string, id: string) =>
+     ['staffConversation', propertyId, id] as const,
+   staffDirectory: (propertyId: string) => ['staffDirectory', propertyId] as const,
+ 
++  logFeed: (propertyId: string, params: Record<string, string | boolean | null>) =>
++    ['logFeed', propertyId, params] as const,
++  logFeedAll: (propertyId: string) => ['logFeed', propertyId] as const,
++  logEntry: (propertyId: string, id: string) => ['logEntry', propertyId, id] as const,
++  logMentionables: (propertyId: string) => ['logMentionables', propertyId] as const,
++
+   analyticsOverview: (propertyId: string, from: string, to: string) =>
+     ['analytics', 'overview', propertyId, from, to] as const,
+   analyticsAgents: (propertyId: string, from: string, to: string) =>
+     ['analytics', 'agents', propertyId, from, to] as const,
+ 
+   simGuests: ['sim', 'guests'] as const,
+   simThread: (propertyId: string, phone: string) => ['sim', 'thread', propertyId, phone] as const,
+   simEvents: ['sim', 'events'] as const,
+ }
+diff --git a/web/src/api/types.ts b/web/src/api/types.ts
+index 7025c36..6d6a9d8 100644
+--- a/web/src/api/types.ts
++++ b/web/src/api/types.ts
+@@ -1,24 +1,24 @@
+ /**
+  * The client's type surface. Import from here, never from `types.generated.ts`:
+  * that file is overwritten by `npm run gen:types` and carries the document root
+  * (`RelayAPI`), which is an artefact of the export, not a model.
+  */
+ export type {
+   AddParticipantsRequest, AgentStats, AssetIn, AssetOut, AssetPatch, AssetType, AuthorType,
+   CategoryIn, CategoryOut, CategoryPatch, Channel, ConversationDetail,
+   ConversationPatch, ConversationStatus, ConversationSummary,
+-  CreateNoteRequest, CreateStaffConversationRequest, CreateStaffRequest, CreateWorkOrder, DayBucket,
++  CreateLogEntryRequest, CreateNoteRequest, CreateStaffConversationRequest, CreateStaffRequest, CreateWorkOrder, DayBucket,
+   DeliveryStatus, DepartmentBucket, DepartmentIn, DepartmentOut,
+   DepartmentPatch, DepartmentType, Direction, DraftPromptOut,
+   DraftPromptStatus, GroupPatch, GuestDetail, GuestOut, GuestThread, GuestThreadMessage,
+-  HourBucket, ListQuery, LocationType, LoginRequest, MembershipOut,
++  HourBucket, ListQuery, LocationType, LoginRequest, LogEntryOut, LogFeedOut, LogMentionableOut, MembershipOut,
+   MessageOut, NoteOut, NotificationOut, Overview, PreviewRequest, Priority,
+   PropertySettingsOut, PropertySettingsPatch, QuickReplyIn, QuickReplyOut,
+   QuickReplyPatch, RenderRequest, RenderedQuickReply, ResponseBucket, Role,
+   SendMessageRequest, SendStaffMessageRequest, SessionOut, SimEvent, SimGuest, SmsConsentStatus,
+   StaffConversationDetail, StaffConversationKind, StaffConversationOut, StaffDirectoryEntryOut,
+   StaffMessageOut, StaffParticipantOut, StaffPatch, StaffUserOut, StayOut, StayStatus, UnreadCount, UserOut,
+   WorkOrderBrief, WorkOrderDetail, WorkOrderEventOut, WorkOrderEventType,
+   WorkOrderListQuery, WorkOrderOut, WorkOrderPatch, WorkOrderPhotoKind,
+   WorkOrderPhotoOut, WorkOrderPrefill, WorkOrderStatus, WorkOrderType,
+ } from './types.generated'
+diff --git a/web/src/api/ws.test.tsx b/web/src/api/ws.test.tsx
+index 5453954..3047eb6 100644
+--- a/web/src/api/ws.test.tsx
++++ b/web/src/api/ws.test.tsx
+@@ -205,20 +205,37 @@ describe('invalidationsFor', () => {
+   })
+ 
+   it('ignores an event for another property', () => {
+     expect(
+       invalidationsFor(
+         { ...base, propertyId: 'prop-b', type: 'conversation.created', payload: { id: 'c-1' } },
+         'prop-a',
+       ),
+     ).toHaveLength(0)
+   })
++
++  it('invalidates the log feed on log.entry.created', () => {
++    const keys = invalidationsFor(
++      { type: 'log.entry.created', propertyId: 'p1', payload: { id: 'e1' }, at: '' },
++      'p1',
++    )
++    expect(keys).toContainEqual(['logFeed', 'p1'])
++  })
++
++  it('invalidates both feed and entry on log.entry.updated', () => {
++    const keys = invalidationsFor(
++      { type: 'log.entry.updated', propertyId: 'p1', payload: { id: 'e1' }, at: '' },
++      'p1',
++    )
++    expect(keys).toContainEqual(['logFeed', 'p1'])
++    expect(keys).toContainEqual(['logEntry', 'p1', 'e1'])
++  })
+ })
+ 
+ describe('RealtimeProvider', () => {
+   beforeEach(() => {
+     FakeSocket.instances = []
+     vi.stubGlobal('WebSocket', FakeSocket)
+     vi.useFakeTimers({ shouldAdvanceTime: true })
+   })
+   afterEach(() => {
+     vi.useRealTimers()
+diff --git a/web/src/api/ws.ts b/web/src/api/ws.ts
+index cf38359..71a6e19 100644
+--- a/web/src/api/ws.ts
++++ b/web/src/api/ws.ts
+@@ -79,20 +79,27 @@ export function invalidationsFor(event: ServerEvent, propertyId: string): readon
+       break
+     case 'staff_conversation.created':
+     case 'staff_conversation.updated':
+       keys.push([...qk.staffConversationsAll(propertyId)])
+       if (id) keys.push([...qk.staffConversation(propertyId, id)])
+       break
+     case 'staff_message.created':
+       if (conversationId) keys.push([...qk.staffConversation(propertyId, conversationId)])
+       keys.push([...qk.staffConversationsAll(propertyId)])
+       break
++    case 'log.entry.created':
++      keys.push([...qk.logFeedAll(propertyId)])
++      break
++    case 'log.entry.updated':
++      keys.push([...qk.logFeedAll(propertyId)])
++      if (id) keys.push([...qk.logEntry(propertyId, id)])
++      break
+     default:
+       break
+   }
+   return keys
+ }
+ 
+ type RealtimeValue = {
+   status: 'connecting' | 'open' | 'closed'
+   presence: Record<string, PresenceUser[]>
+   setPresence: (conversationId: string | null, state: 'viewing' | 'composing') => void
