@@ -14,6 +14,7 @@ from app.models import (
     Department,
     Guest,
     Message,
+    PmRun,
     PropertyMembership,
     Stay,
     UserAccount,
@@ -399,8 +400,9 @@ def detail(db: Session, property_id: str, work_order_id: str, *, viewer_role: Ro
             st = db.get(Stay, conv.stay_id) if conv.stay_id else None
             room = st.room_number if st else None
     base = WorkOrderOut.model_validate(wo).model_dump()
+    pm_run_id = db.scalar(select(PmRun.id).where(PmRun.work_order_id == wo.id))
     return WorkOrderDetail(**base, guest_name=guest_name, room_number=room or wo.location_ref,
-                           photos=list_photos(db, wo.id),
+                           photos=list_photos(db, wo.id), pm_run_id=pm_run_id,
                            events=[WorkOrderEventOut(
                                id=e.id, user_id=e.user_id,
                                user_name=f"{u.first_name} {u.last_name}" if u else None,

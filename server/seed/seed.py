@@ -629,7 +629,7 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
                    assignee=rng.choice(eng_staff), created=now - timedelta(days=rng.randint(1, 6)))
 
         # ---- recurring jobs
-        for job_type in ("sla.sweep", "snooze.wake", "pms.tick"):
+        for job_type in ("sla.sweep", "snooze.wake", "pms.tick", "pm.tick"):
             jobs.ensure_recurring(db, job_type)
 
         # Derive every count from the database rather than in-memory counters/lists: the showcase

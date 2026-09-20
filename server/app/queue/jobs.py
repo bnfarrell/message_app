@@ -9,7 +9,7 @@ from app import clock
 from app.models import Job
 from app.schemas.enums import JobStatus
 
-RECURRING: dict[str, int] = {"sla.sweep": 30, "snooze.wake": 60}
+RECURRING: dict[str, int] = {"sla.sweep": 30, "snooze.wake": 60, "pm.tick": 300}
 STALE_SECONDS = 60
 
 
