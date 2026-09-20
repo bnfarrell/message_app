@@ -2,12 +2,19 @@
 are appended by later tasks."""
 from flask import Blueprint, Response, g, request
 
-from app.api._util import db_session, ok, parse_body
+from app.api._util import db_session, ok, parse_body, parse_query
 from app.auth.decorators import require_auth, require_capability, require_property
-from app.domain import pm_runs, pm_templates
+from app.domain import pm_inspection, pm_runs, pm_templates
 from app.domain.work_orders import MAX_PHOTO_BYTES
 from app.errors import ValidationFailed
-from app.schemas.pm import AnswerPatch, StartRunRequest, TemplateIn, TemplatePatch
+from app.schemas.pm import (
+    AnswerPatch,
+    InspectionQuery,
+    InspectRequest,
+    StartRunRequest,
+    TemplateIn,
+    TemplatePatch,
+)
 
 bp = Blueprint("pm", __name__, url_prefix="/api/p/<property_id>/pm")
 
@@ -137,4 +144,25 @@ def get_run_photo(property_id: str, run_id: str, photo_id: str):
 def complete_run(property_id: str, run_id: str):
     with db_session() as db:
         run = pm_runs.complete(db, g.property_id, g.user.id, run_id)
+        return ok(pm_runs.to_out(db, run))
+
+
+@bp.get("/inspections")
+@require_auth
+@require_property
+@require_capability("inspect_pm")
+def list_inspections(property_id: str):
+    query = parse_query(InspectionQuery)
+    with db_session() as db:
+        return ok(pm_inspection.queue(db, g.property_id, query))
+
+
+@bp.post("/runs/<run_id>/inspect")
+@require_auth
+@require_property
+@require_capability("inspect_pm")
+def inspect_run(property_id: str, run_id: str):
+    data = parse_body(InspectRequest)
+    with db_session() as db:
+        run = pm_inspection.inspect(db, g.property_id, g.user.id, run_id, data)
         return ok(pm_runs.to_out(db, run))
