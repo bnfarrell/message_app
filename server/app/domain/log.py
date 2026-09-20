@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -39,6 +40,21 @@ from app.schemas.log import (
 
 # Spec §3.3. Overridable per property via settings["shift_boundaries"].
 DEFAULT_SHIFT_BOUNDARIES = {"am": "07:00", "pm": "15:00", "overnight": "23:00"}
+
+# Mirrors the frontend's `TOKEN_RE` (web/src/features/log/MentionInput.tsx) — including the
+# 36-char UUID id group. The two must agree and nothing enforces that but this comment.
+_MENTION_TOKEN = re.compile(r"@\[([^\]]+)\]\((?:user|department):[0-9a-f-]{36}\)")
+
+
+def _plain_text(body: str) -> str:
+    """Body with mention tokens reduced to their display names.
+
+    Notification bodies are read as prose, so `@[Hana Keeper](user:3f2a…)` has to
+    collapse to `@Hana Keeper`. The stored body keeps the tokens — the web client
+    renders them from the ids (spec §6.1) — so this is a presentation concern of
+    the notification, not a change to what is persisted.
+    """
+    return _MENTION_TOKEN.sub(r"@\1", body)
 
 
 def _boundary(raw: dict, key: str) -> time:
@@ -158,13 +174,13 @@ def create(db: Session, property_id: str, author_user_id: str,
     notifications.notify_users(
         db, property_id, mentioned, "log.mention",
         f"{author.first_name} mentioned you in the hotel log",
-        body=entry.body[:140], entity_type="log_entry", entity_id=entry.id)
+        body=_plain_text(entry.body)[:140], entity_type="log_entry", entity_id=entry.id)
     # Somebody asked to acknowledge who was not also mentioned still needs telling.
     notifications.notify_users(
         db, property_id, [uid for uid in expected if uid not in set(mentioned)],
         "log.ack_requested",
         f"{author.first_name} needs you to acknowledge a log entry",
-        body=entry.body[:140], entity_type="log_entry", entity_id=entry.id)
+        body=_plain_text(entry.body)[:140], entity_type="log_entry", entity_id=entry.id)
 
     audit.record(db, property_id, author_user_id, "log_entry.created", "log_entry", entry.id,
                  after={"shift": entry.shift.value, "requires_ack": entry.requires_ack})

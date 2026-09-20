@@ -72,6 +72,42 @@ def test_a_mentioned_user_who_must_also_ack_is_notified_once(database, fx):
             "mentioned AND expected must yield exactly one notification, the mention"
 
 
+def test_mention_notification_body_shows_a_name_not_raw_token_markup(database, fx):
+    with database.session() as db:
+        log_domain.create(
+            db, fx.property_a.id, fx.agent_a.id,
+            _req(body=f"Please check 327 @[Eli Engineer](user:{fx.engineer_a.id}) today.",
+                 mentions=[MentionRef(type=MentionTargetType.user, id=fx.engineer_a.id)]))
+        db.flush()
+        notif = db.scalar(select(Notification).where(
+            Notification.user_id == fx.engineer_a.id, Notification.type == "log.mention"))
+        assert notif is not None
+        assert "@Eli Engineer" in notif.body
+        assert "](user:" not in notif.body
+
+
+def test_mention_token_is_never_split_by_truncation(database, fx):
+    """Truncating entry.body[:140] before substituting the mention token could slice the
+    token in half and leave a mangled `@[Hana Kee` fragment. Substitution must happen
+    first, so the notification body always carries an intact display name."""
+    token = f"@[Hana Keeper](user:{fx.housekeeper_a.id})"
+    # The token starts well before char 140 and ends well after it, so a naive
+    # slice-then-substitute would cut straight through the middle of the token.
+    body = "A" * 120 + token + " and confirm with the front desk before the shift ends."
+    assert 120 < 140 < 120 + len(token)
+    with database.session() as db:
+        log_domain.create(
+            db, fx.property_a.id, fx.agent_a.id,
+            _req(body=body,
+                 mentions=[MentionRef(type=MentionTargetType.user, id=fx.housekeeper_a.id)]))
+        db.flush()
+        notif = db.scalar(select(Notification).where(
+            Notification.user_id == fx.housekeeper_a.id, Notification.type == "log.mention"))
+        assert notif is not None
+        assert "@Hana Keeper" in notif.body
+        assert "[" not in notif.body and "](user:" not in notif.body
+
+
 def test_ack_expected_snapshots_active_department_members_excluding_author(database, fx):
     from app.models import PropertyMembership
 
