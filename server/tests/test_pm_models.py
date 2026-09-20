@@ -111,7 +111,7 @@ def test_template_mode_check_constraint_rejects_a_scheduled_template_without_a_s
         db.rollback()
 
 
-def test_template_unit_and_run_answer_are_unique(database, fx):
+def test_template_unit_is_unique(database, fx):
     with database.session() as db:
         unit = MaintainableUnit(property_id=fx.property_a.id, kind=PmUnitKind.equipment,
                                 code="BOILER-1", name="Boiler 1")
@@ -125,6 +125,35 @@ def test_template_unit_and_run_answer_are_unique(database, fx):
         db.flush()
         db.add(PmTemplateUnit(template_id=template.id, unit_id=unit.id,
                               property_id=fx.property_a.id))
+        with pytest.raises(IntegrityError):
+            db.flush()
+        db.rollback()
+
+
+def test_run_answer_is_unique_per_run_and_item(database, fx):
+    with database.session() as db:
+        unit = MaintainableUnit(property_id=fx.property_a.id, kind=PmUnitKind.guest_room,
+                                code="204", name="Room 204")
+        template = PmTemplate(property_id=fx.property_a.id, name="Room Check",
+                              mode=PmTemplateMode.sweep, unit_kind=PmUnitKind.guest_room,
+                              cadence=PmCadence.monthly)
+        db.add_all([unit, template])
+        db.flush()
+        item = PmTemplateItem(template_id=template.id, property_id=fx.property_a.id,
+                              position=0, label="Test item", item_type=PmItemType.text,
+                              required=True)
+        db.add(item)
+        db.flush()
+        run = PmRun(property_id=fx.property_a.id, template_id=template.id, unit_id=unit.id,
+                    status=PmRunStatus.in_progress, started_by_user_id=fx.engineer_a.id,
+                    started_at=clock.now())
+        db.add(run)
+        db.flush()
+        db.add(PmRunAnswer(run_id=run.id, property_id=fx.property_a.id, item_id=item.id,
+                           text_value="first", answered_at=clock.now()))
+        db.flush()
+        db.add(PmRunAnswer(run_id=run.id, property_id=fx.property_a.id, item_id=item.id,
+                           text_value="second", answered_at=clock.now()))
         with pytest.raises(IntegrityError):
             db.flush()
         db.rollback()
