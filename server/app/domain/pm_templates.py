@@ -1,6 +1,7 @@
 """PM templates (spec §3.2–3.4, §4.5, §7.1)."""
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime
 
 from dateutil.rrule import rrulestr
@@ -64,12 +65,21 @@ def list_templates(db: Session, property_id: str) -> list[TemplateOut]:
     return [to_out(db, t) for t in rows]
 
 
+_TOO_FINE_FREQUENCIES = {"SECONDLY", "MINUTELY", "HOURLY"}
+
+
 def validate_rrule(rrule: str) -> None:
     try:
         rrulestr(rrule, dtstart=datetime(2026, 1, 1, tzinfo=UTC))
     except (ValueError, TypeError, KeyError) as e:
         raise ValidationFailed("Invalid recurrence rule",
                                details={"rrule": "invalid_rrule"}) from e
+    # Sub-daily frequencies pass rrulestr but mint runs faster than any tick interval could
+    # sanely process (`fire_scheduled` caps nothing per tick).
+    frequencies = {m.upper() for m in re.findall(r"FREQ=(\w+)", rrule, re.IGNORECASE)}
+    if frequencies & _TOO_FINE_FREQUENCIES:
+        raise ValidationFailed("Recurrence must be daily or coarser",
+                               details={"rrule": "frequency_too_fine"})
 
 
 def _validate_mode_fields(mode: PmTemplateMode, unit_kind: PmUnitKind | None,
@@ -167,9 +177,12 @@ def _sync_items(db: Session, template: PmTemplate, items: list[TemplateItemIn]) 
             db.add(row)
             db.flush()
         keep.add(row.id)
-    for row in existing.values():
-        if row.id not in keep:
-            row.active = False
+    retired = [row for row in existing.values() if row.id not in keep]
+    for n, row in enumerate(retired):
+        # Pushed past the live range so a retired item never shares a position with a kept one —
+        # historical runs render their answers `order_by(position)`.
+        row.active = False
+        row.position = 1000 + n
     db.flush()
 
 
@@ -227,9 +240,13 @@ def patch(db: Session, property_id: str, actor_user_id: str, template_id: str,
     before = {k: getattr(t, k) for k in changes}
     for key, value in changes.items():
         setattr(t, key, value)
-    if (merged["mode"] == PmTemplateMode.scheduled
-            and any(k in changes for k in ("mode", "rrule", "rrule_dtstart"))):
-        t.last_fired_at = clock.now()  # a changed schedule restarts from now, never backfills
+    schedule_changed = any(k in changes and changes[k] != before[k]
+                           for k in ("mode", "rrule", "rrule_dtstart"))
+    reactivated = before.get("active") is False and changes.get("active") is True
+    if merged["mode"] == PmTemplateMode.scheduled and (schedule_changed or reactivated):
+        # A changed schedule restarts from now, never backfills; a template reactivated after
+        # being dormant must do the same, or `pm.tick` expands the whole dormant window at once.
+        t.last_fired_at = clock.now()
     db.flush()
     if unit_ids is not None:
         _set_units(db, t, unit_ids)

@@ -67,6 +67,20 @@ def test_mode_fields_are_validated(app, fx, login):
         assert res.status_code == 400, body
 
 
+def test_sub_daily_rrule_frequencies_are_rejected(app, fx, login):
+    admin = login("admin@hvh.test")
+    for freq in ("SECONDLY", "MINUTELY", "HOURLY"):
+        res = admin.post(_base(fx), json={
+            "name": "Too fine", "mode": "scheduled", "rrule": f"FREQ={freq}",
+            "rruleDtstart": "2026-07-01"})
+        assert res.status_code == 400, freq
+        assert res.get_json()["error"]["details"] == {"rrule": "frequency_too_fine"}
+    res = admin.post(_base(fx), json={
+        "name": "Daily is fine", "mode": "scheduled", "rrule": "FREQ=DAILY",
+        "rruleDtstart": "2026-07-01", "items": ITEMS[:1]})
+    assert res.status_code == 201, res.get_json()
+
+
 def test_scheduled_template_targets_units_of_this_property_only(app, fx, login):
     admin = login("admin@hvh.test")
     boiler = _unit(admin, fx, "BOILER-1")
@@ -98,6 +112,23 @@ def test_patch_soft_deletes_removed_items_and_keeps_answers_valid(app, fx, login
             PmTemplateItem.template_id == t["id"])).all()
         assert len(rows) == 5, "nothing is hard-deleted"
         assert sorted(r.active for r in rows) == [False, False, False, True, True]
+
+
+def test_patch_never_leaves_two_items_sharing_a_position(app, fx, login, database):
+    admin = login("admin@hvh.test")
+    t = admin.post(_base(fx), json=_sweep_body()).get_json()
+    keep = t["items"][1]
+    res = admin.patch(f"{_base(fx)}/{t['id']}", json={"items": [
+        {"id": keep["id"], "label": keep["label"], "itemType": "number", "unit": "°F",
+         "minValue": 100, "maxValue": 120},
+        {"label": "Smoke detector tested", "itemType": "checkbox"},
+    ]})
+    assert res.status_code == 200, res.get_json()
+    with database.session() as db:
+        rows = db.scalars(select(PmTemplateItem).where(
+            PmTemplateItem.template_id == t["id"])).all()
+        positions = [r.position for r in rows]
+        assert len(positions) == len(set(positions)), "no two items share a position"
 
 
 def test_patch_rejects_duplicate_item_ids(app, fx, login):

@@ -43,12 +43,14 @@ def queue(db: Session, property_id: str, query: InspectionQuery) -> list[Inspect
     previous_all = db.scalars(select(PmRun).where(
         PmRun.property_id == property_id, PmRun.status == PmRunStatus.passed,
         PmRun.unit_id.in_([u.id for _, u, _ in rows] or [""]))
-        .order_by(PmRun.completed_at, PmRun.id)).all()
+        # DESC + NULLS LAST pinned explicitly (see pm_reports.sweep): SQLite sorts NULLs
+        # first on ASC, PostgreSQL last, so `previous[0]` must not depend on the engine.
+        .order_by(PmRun.completed_at.desc().nulls_last(), PmRun.id.desc())).all()
     out: list[InspectionRowOut] = []
     for run, unit, template in rows:
         previous = [p for p in previous_all if p.unit_id == unit.id and p.id != run.id]
-        days = ((today - pm_cycles.local_today(prop, previous[-1].completed_at)).days
-                if previous and previous[-1].completed_at else None)
+        days = ((today - pm_cycles.local_today(prop, previous[0].completed_at)).days
+                if previous and previous[0].completed_at else None)
         out.append(InspectionRowOut(
             run_id=run.id, unit_id=unit.id, unit_code=unit.code, unit_name=unit.name,
             unit_kind=unit.kind, template_name=template.name,

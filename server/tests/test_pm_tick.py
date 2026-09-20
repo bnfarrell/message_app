@@ -81,6 +81,39 @@ def test_rrule_fires_once_per_occurrence_per_unit_after_creation_never_before(
         assert tick_once(db)["fired"] == 2
 
 
+def test_reactivating_a_dormant_scheduled_template_does_not_backfill(app, fx, login, database):
+    admin = login("admin@hvh.test")
+    (boiler,) = _units(admin, fx, "BOILER-1")
+    template_id = _scheduled(admin, fx, [boiler])
+    path = _pm(fx, f"/templates/{template_id}")
+    assert admin.patch(path, json={"active": False}).status_code == 200
+    clock.freeze(datetime(2027, 3, 1, 12, 0, tzinfo=UTC))  # months of dormancy
+    with database.session() as db:
+        assert tick_once(db)["fired"] == 0, "an inactive template is skipped by the tick"
+    admin = login("admin@hvh.test")  # the earlier session token has since expired
+    res = admin.patch(path, json={"active": True})
+    assert res.status_code == 200
+    with database.session() as db:
+        assert db.get(PmTemplate, template_id).last_fired_at == clock.now()
+        assert tick_once(db)["fired"] == 0, "reactivation must not backfill the dormant months"
+
+
+def test_editing_unrelated_fields_does_not_restamp_last_fired_at(app, fx, login, database):
+    admin = login("admin@hvh.test")
+    (boiler,) = _units(admin, fx, "BOILER-1")
+    template_id = _scheduled(admin, fx, [boiler])
+    with database.session() as db:
+        original = db.get(PmTemplate, template_id).last_fired_at
+    clock.freeze(datetime(2026, 9, 10, 12, 5, tzinfo=UTC))  # a few minutes later
+    # The admin screen always resends rrule/rruleDtstart even when only the name changed.
+    res = admin.patch(_pm(fx, f"/templates/{template_id}"), json={
+        "name": "Boiler inspection (renamed)", "rrule": "FREQ=MONTHLY;INTERVAL=3",
+        "rruleDtstart": "2026-07-01"})
+    assert res.status_code == 200
+    with database.session() as db:
+        assert db.get(PmTemplate, template_id).last_fired_at == original
+
+
 def test_an_inactive_target_unit_is_skipped(app, fx, login, database):
     admin = login("admin@hvh.test")
     b1, b2 = _units(admin, fx, "BOILER-1", "BOILER-2")

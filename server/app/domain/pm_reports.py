@@ -65,8 +65,13 @@ def sweep(db: Session, property_id: str, query: SweepQuery) -> SweepOut:
                if r.status in (PmRunStatus.in_progress, PmRunStatus.completed)}
     last_passed = db.scalars(select(PmRun).where(
         PmRun.property_id == property_id, PmRun.status == PmRunStatus.passed,
-        PmRun.unit_id.in_(unit_ids or [""])).order_by(PmRun.completed_at, PmRun.id)).all()
-    latest = {r.unit_id: r for r in last_passed}  # ascending, so the last write wins
+        PmRun.unit_id.in_(unit_ids or [""]))
+        # DESC + NULLS LAST pinned explicitly: SQLite sorts NULLs first on ASC, PostgreSQL
+        # last, so a positional pick would silently disagree between engines (CLAUDE.md).
+        .order_by(PmRun.completed_at.desc().nulls_last(), PmRun.id.desc())).all()
+    latest: dict[str, PmRun] = {}
+    for r in last_passed:
+        latest.setdefault(r.unit_id, r)  # descending, so the first write per unit wins
     names = pm_runs.names_for(db, [r.started_by_user_id for r in cycle_runs]
                               + [r.started_by_user_id for r in latest.values()])
 
