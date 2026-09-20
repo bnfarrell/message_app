@@ -10,7 +10,10 @@ from app.models import (
     DraftPrompt,
     Guest,
     LogEntry,
+    MaintainableUnit,
     Message,
+    PmRun,
+    PmTemplate,
     Property,
     PropertyMembership,
     QuickReply,
@@ -22,6 +25,7 @@ from app.models import (
 from app.schemas.enums import (
     ConversationStatus,
     DeliveryStatus,
+    PmRunStatus,
     SmsConsentStatus,
     StayStatus,
     WorkOrderStatus,
@@ -60,7 +64,7 @@ def test_seed_matches_spec_counts(tmp_path):
                      WorkOrder.status.in_([WorkOrderStatus.open, WorkOrderStatus.assigned,
                                            WorkOrderStatus.in_progress,
                                            WorkOrderStatus.blocked,
-                                           WorkOrderStatus.complete])) == 15
+                                           WorkOrderStatus.complete])) == 17  # 15 + 2 boiler PMs
         assert count(WorkOrder, WorkOrder.source_conversation_id.isnot(None)) >= 6
         assert count(QuickReply, QuickReply.property_id == hvh.id) >= 15
         assert count(DigitalAsset, DigitalAsset.property_id == hvh.id) == 8
@@ -71,6 +75,16 @@ def test_seed_matches_spec_counts(tmp_path):
         assert count(LogEntry, LogEntry.property_id == hvh.id, LogEntry.pinned.is_(True)) == 1
         assert count(LogEntry, LogEntry.property_id == hvh.id,
                      LogEntry.requires_ack.is_(True)) == 1
+        # PM spec §9: 120 rooms + 10 areas + 8 equipment; 49 this quarter, 120 last, 2 boilers.
+        assert count(MaintainableUnit, MaintainableUnit.property_id == hvh.id) == 138
+        assert count(PmTemplate, PmTemplate.property_id == hvh.id) == 3
+        by_status = {s: count(PmRun, PmRun.status == s) for s in PmRunStatus}
+        assert by_status == {PmRunStatus.pending: 2, PmRunStatus.in_progress: 3,
+                             PmRunStatus.completed: 4, PmRunStatus.passed: 150,
+                             PmRunStatus.failed: 2, PmRunStatus.missed: 10}
+        assert summary.maintainable_units == 138
+        assert summary.pm_templates == 3
+        assert summary.pm_runs == count(PmRun)
         # SeedSummary must match real rows, not an in-memory counter that a rewire can desync
         # (the showcase conversation's messages are deleted and re-added after being counted).
         assert summary.properties == count(Property)

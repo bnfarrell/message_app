@@ -10,6 +10,7 @@ security regression. Short codes differ between seed runs; everything else does 
 """
 from __future__ import annotations
 
+import base64
 import random
 from collections import defaultdict
 from dataclasses import dataclass
@@ -22,7 +23,7 @@ from sqlalchemy import func, select
 from app import clock
 from app.auth.passwords import hash_password
 from app.db import Database, run_migrations
-from app.domain import staff_messages
+from app.domain import pm_cycles, staff_messages
 from app.domain.assets import new_short_code
 from app.domain.log import shift_for
 from app.models import (
@@ -34,7 +35,15 @@ from app.models import (
     InternalNote,
     LogEntry,
     LogEntryMention,
+    MaintainableUnit,
     Message,
+    PmCycle,
+    PmRun,
+    PmRunAnswer,
+    PmRunPhoto,
+    PmTemplate,
+    PmTemplateItem,
+    PmTemplateUnit,
     Property,
     PropertyMembership,
     QuickReply,
@@ -54,7 +63,15 @@ from app.schemas.enums import (
     DepartmentType,
     Direction,
     DraftPromptStatus,
+    LocationType,
     MentionTargetType,
+    PmCadence,
+    PmCycleStatus,
+    PmItemType,
+    PmRunStatus,
+    PmTemplateMode,
+    PmUnitKind,
+    PmUnitSource,
     Priority,
     Role,
     SmsConsentStatus,
@@ -64,8 +81,15 @@ from app.schemas.enums import (
     WorkOrderType,
 )
 from seed import data
+from seed.pm_units import unit_rows
 
 PASSWORD = "Password123!"
+
+# A 1×1 transparent PNG: enough for a seeded run's required photo item to hold a real image
+# the checklist page can render, without shipping picture files in the seed.
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+)
 
 
 @dataclass
@@ -78,6 +102,9 @@ class SeedSummary:
     messages: int
     work_orders: int
     log_entries: int
+    maintainable_units: int
+    pm_templates: int
+    pm_runs: int
 
 
 def _phone(rng: random.Random, used: set[str]) -> str:
@@ -628,6 +655,172 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
             add_wo(title, typ, prio, dept_type, WorkOrderStatus.verified,
                    assignee=rng.choice(eng_staff), created=now - timedelta(days=rng.randint(1, 6)))
 
+        # ---- preventative maintenance (PM spec §9): the inventory, two sweep templates, one
+        # scheduled template, and enough runs that every PM screen has something to show.
+        units: dict[str, MaintainableUnit] = {}
+        for row in unit_rows():
+            u = MaintainableUnit(property_id=hvh.id, kind=PmUnitKind(row["kind"]),
+                                 code=row["code"], name=row["name"], floor=row["floor"],
+                                 room_type=row["room_type"], external_id=row["external_id"],
+                                 source=PmUnitSource.manual)
+            db.add(u)
+            units[u.code] = u
+        db.flush()
+
+        def pm_template(name, mode, *, unit_kind=None, cadence=None, rrule=None, dtstart=None,
+                        items=(), targets=()):
+            t = PmTemplate(property_id=hvh.id, name=name, mode=mode,
+                           department_id=depts["engineering"].id, unit_kind=unit_kind,
+                           cadence=cadence, rrule=rrule, rrule_dtstart=dtstart,
+                           last_fired_at=now if mode == PmTemplateMode.scheduled else None)
+            db.add(t)
+            db.flush()
+            for position, (label, item_type, unit, lo, hi, required) in enumerate(items):
+                db.add(PmTemplateItem(template_id=t.id, property_id=hvh.id, position=position,
+                                      label=label, item_type=item_type, unit=unit,
+                                      min_value=lo, max_value=hi, required=required))
+            for code in targets:
+                db.add(PmTemplateUnit(template_id=t.id, unit_id=units[code].id,
+                                      property_id=hvh.id))
+            db.flush()
+            return t
+
+        CB, NUM, TXT, PHOTO = (PmItemType.checkbox, PmItemType.number, PmItemType.text,
+                               PmItemType.photo)
+        rooms_t = pm_template(
+            "Guest Room Quarterly", PmTemplateMode.sweep, unit_kind=PmUnitKind.guest_room,
+            cadence=PmCadence.quarterly, items=[
+                ("HVAC filter replaced", CB, None, None, None, True),
+                ("Tap hot-water temperature", NUM, "°F", 100, 120, True),
+                ("GFCI outlets tested", CB, None, None, None, True),
+                ("Caulk and grout condition", TXT, None, None, None, False),
+                ("Bathroom exhaust fan photo", PHOTO, None, None, None, True),
+                ("Smoke detector tested", CB, None, None, None, True),
+            ])
+        areas_t = pm_template(
+            "Common Areas Monthly", PmTemplateMode.sweep, unit_kind=PmUnitKind.common_area,
+            cadence=PmCadence.monthly, items=[
+                ("Lighting fully working", CB, None, None, None, True),
+                ("Floor surfaces safe and clean", CB, None, None, None, True),
+                ("Notes", TXT, None, None, None, False),
+            ])
+        local_today = pm_cycles.local_today(hvh, now)
+        q_start, q_end, q_ord = pm_cycles.window_for(PmCadence.quarterly, local_today)
+        boilers_t = pm_template(
+            "Boiler inspection", PmTemplateMode.scheduled, rrule="FREQ=MONTHLY;INTERVAL=3",
+            dtstart=q_start, targets=("BOILER-1", "BOILER-2"), items=[
+                ("Operating pressure", NUM, "psi", 10, 30, True),
+                ("Relief valve tested", CB, None, None, None, True),
+                ("Burner flame photo", PHOTO, None, None, None, True),
+                ("Notes", TXT, None, None, None, False),
+            ])
+
+        # Cycles: this quarter open, last quarter closed; this month open for common areas.
+        p_start, p_end, p_ord = pm_cycles.window_for(PmCadence.quarterly,
+                                                     q_start - timedelta(days=1))
+        current_cycle = PmCycle(property_id=hvh.id, template_id=rooms_t.id, ordinal=q_ord,
+                                starts_on=q_start, ends_on=q_end, status=PmCycleStatus.open)
+        previous_cycle = PmCycle(property_id=hvh.id, template_id=rooms_t.id, ordinal=p_ord,
+                                 starts_on=p_start, ends_on=p_end, status=PmCycleStatus.closed)
+        m_start, m_end, m_ord = pm_cycles.window_for(PmCadence.monthly, local_today)
+        db.add_all([current_cycle, previous_cycle,
+                    PmCycle(property_id=hvh.id, template_id=areas_t.id, ordinal=m_ord,
+                            starts_on=m_start, ends_on=m_end, status=PmCycleStatus.open)])
+        db.flush()
+
+        room_items = db.scalars(select(PmTemplateItem)
+                                .where(PmTemplateItem.template_id == rooms_t.id)
+                                .order_by(PmTemplateItem.position)).all()
+        sam = staff["sam"]
+
+        def seed_room_run(code, cycle, status, at, *, by=None, inspector=None, note=None):
+            """A run with plausible answers. `at` is an aware UTC start time inside the cycle."""
+            done = status in (PmRunStatus.completed, PmRunStatus.passed, PmRunStatus.failed)
+            run = PmRun(property_id=hvh.id, template_id=rooms_t.id, unit_id=units[code].id,
+                        cycle_id=cycle.id, status=status,
+                        started_by_user_id=by.id if by else None, started_at=at if by else None,
+                        completed_at=at + timedelta(minutes=35) if done else None,
+                        inspected_by_user_id=inspector.id if inspector else None,
+                        inspected_at=at + timedelta(hours=3) if inspector else None,
+                        inspection_note=note, created_at=at, updated_at=at)
+            db.add(run)
+            db.flush()
+            if status == PmRunStatus.missed:
+                return run
+            for item in room_items:
+                a = PmRunAnswer(run_id=run.id, property_id=hvh.id, item_id=item.id)
+                if done or rng.random() < 0.5:  # an in-progress run is part-way through
+                    if item.item_type == PmItemType.checkbox:
+                        a.bool_value = True
+                    elif item.item_type == PmItemType.number:
+                        a.number_value = float(rng.randint(104, 118))
+                    elif item.item_type == PmItemType.text:
+                        a.text_value = rng.choice(["Good", "Minor wear, monitored",
+                                                   "Resealed tub edge"])
+                    elif item.item_type == PmItemType.photo:
+                        db.add(PmRunPhoto(run_id=run.id, property_id=hvh.id, item_id=item.id,
+                                          uploaded_by_user_id=run.started_by_user_id,
+                                          content_type="image/png", byte_size=len(TINY_PNG),
+                                          data=TINY_PNG))
+                    a.answered_at = at + timedelta(minutes=rng.randint(1, 30))
+                db.add(a)
+            db.flush()
+            return run
+
+        def within(cycle_start, cycle_end):
+            """A start time on a random day of the window, never after `now`."""
+            last = min(cycle_end, local_today)
+            day = cycle_start + timedelta(days=rng.randint(0, max((last - cycle_start).days, 0)))
+            at = pm_cycles.local_day_start_utc(hvh, day) + timedelta(hours=rng.randint(8, 16))
+            return min(at, now - timedelta(minutes=45))
+
+        room_codes = [c for c, u in units.items() if u.kind == PmUnitKind.guest_room]
+        rng.shuffle(room_codes)
+        # This quarter: 40 passed, 3 in progress, 4 awaiting inspection, 2 failed (= 49 runs).
+        for code in room_codes[:40]:
+            seed_room_run(code, current_cycle, PmRunStatus.passed, within(q_start, q_end),
+                          by=rng.choice(eng_staff), inspector=sam)
+        for code in room_codes[40:43]:
+            seed_room_run(code, current_cycle, PmRunStatus.in_progress,
+                          now - timedelta(minutes=rng.randint(5, 40)), by=rng.choice(eng_staff))
+        for code in room_codes[43:47]:
+            seed_room_run(code, current_cycle, PmRunStatus.completed, within(q_start, q_end),
+                          by=rng.choice(eng_staff))
+        for code, note in zip(room_codes[47:49], ("Fan grille still dusty in the photo.",
+                                                  "Smoke detector ticked but not test-pressed."),
+                             strict=True):
+            seed_room_run(code, current_cycle, PmRunStatus.failed, within(q_start, q_end),
+                          by=rng.choice(eng_staff), inspector=sam, note=note)
+        # Last quarter, frozen: 110 passed, 10 missed.
+        rng.shuffle(room_codes)
+        for code in room_codes[:110]:
+            seed_room_run(code, previous_cycle, PmRunStatus.passed, within(p_start, p_end),
+                          by=rng.choice(eng_staff), inspector=sam)
+        for code in room_codes[110:]:
+            seed_room_run(code, previous_cycle, PmRunStatus.missed,
+                          pm_cycles.local_day_start_utc(hvh, p_end + timedelta(days=1)))
+
+        # The boiler schedule's occurrence at the start of this quarter: one pm work order and
+        # one pending run per boiler, exactly what pm.tick would have written. last_fired_at is
+        # `now`, so the tick will not write them again.
+        due = pm_cycles.local_day_start_utc(hvh, q_start)
+        for code in ("BOILER-1", "BOILER-2"):
+            unit = units[code]
+            wo = WorkOrder(property_id=hvh.id, title=f"Boiler inspection — {unit.name}",
+                           type=WorkOrderType.pm, priority=Priority.normal,
+                           status=WorkOrderStatus.open, location_type=LocationType.equipment,
+                           location_ref=unit.code, department_id=depts["engineering"].id,
+                           due_at=due, created_at=due, updated_at=due)
+            db.add(wo)
+            db.flush()
+            db.add(WorkOrderEvent(work_order_id=wo.id, property_id=hvh.id, user_id=None,
+                                  type=WorkOrderEventType.created, to_value="open",
+                                  created_at=due))
+            db.add(PmRun(property_id=hvh.id, template_id=boilers_t.id, unit_id=unit.id,
+                         work_order_id=wo.id, status=PmRunStatus.pending, due_at=due,
+                         created_at=due, updated_at=due))
+        db.flush()
+
         # ---- recurring jobs
         for job_type in ("sla.sweep", "snooze.wake", "pms.tick", "pm.tick"):
             jobs.ensure_recurring(db, job_type)
@@ -645,6 +838,9 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
             messages=db.scalar(select(func.count()).select_from(Message)),
             work_orders=db.scalar(select(func.count()).select_from(WorkOrder)),
             log_entries=db.scalar(select(func.count()).select_from(LogEntry)),
+            maintainable_units=db.scalar(select(func.count()).select_from(MaintainableUnit)),
+            pm_templates=db.scalar(select(func.count()).select_from(PmTemplate)),
+            pm_runs=db.scalar(select(func.count()).select_from(PmRun)),
         )
     database.engine.dispose()
     return summary
