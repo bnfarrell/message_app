@@ -93,6 +93,15 @@ export function invalidationsFor(event: ServerEvent, propertyId: string): readon
       keys.push([...qk.logFeedAll(propertyId)])
       if (id) keys.push([...qk.logEntry(propertyId, id)])
       break
+    case 'pm.run.changed':
+      keys.push([...qk.pmSweepAll(propertyId)])
+      keys.push([...qk.pmInspectionsAll(propertyId)])
+      if (id) keys.push([...qk.pmRun(propertyId, id)])
+      break
+    case 'pm.cycle.rolled':
+      keys.push([...qk.pmSweepAll(propertyId)])
+      keys.push([...qk.pmCyclesAll(propertyId)])
+      break
     default:
       break
   }

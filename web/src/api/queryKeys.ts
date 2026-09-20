@@ -44,6 +44,24 @@ export const qk = {
   logEntry: (propertyId: string, id: string) => ['logEntry', propertyId, id] as const,
   logMentionables: (propertyId: string) => ['logMentionables', propertyId] as const,
 
+  pmAll: (propertyId: string) => ['pm', propertyId] as const,
+  pmUnits: (propertyId: string, params: Record<string, string | boolean | null>) =>
+    ['pm', propertyId, 'units', params] as const,
+  pmUnitsAll: (propertyId: string) => ['pm', propertyId, 'units'] as const,
+  pmTemplates: (propertyId: string) => ['pm', propertyId, 'templates'] as const,
+  pmSweep: (propertyId: string, params: Record<string, string | null>) =>
+    ['pm', propertyId, 'sweep', params] as const,
+  pmSweepAll: (propertyId: string) => ['pm', propertyId, 'sweep'] as const,
+  pmCycles: (propertyId: string, templateId: string) =>
+    ['pm', propertyId, 'cycles', templateId] as const,
+  pmCyclesAll: (propertyId: string) => ['pm', propertyId, 'cycles'] as const,
+  pmRun: (propertyId: string, id: string) => ['pm', propertyId, 'run', id] as const,
+  pmInspections: (propertyId: string, params: Record<string, string | null>) =>
+    ['pm', propertyId, 'inspections', params] as const,
+  pmInspectionsAll: (propertyId: string) => ['pm', propertyId, 'inspections'] as const,
+  pmCompliance: (propertyId: string, from: string, to: string) =>
+    ['pm', propertyId, 'compliance', from, to] as const,
+
   analyticsOverview: (propertyId: string, from: string, to: string) =>
     ['analytics', 'overview', propertyId, from, to] as const,
   analyticsAgents: (propertyId: string, from: string, to: string) =>

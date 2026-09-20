@@ -229,6 +229,29 @@ describe('invalidationsFor', () => {
     expect(keys).toContainEqual(['logFeed', 'p1'])
     expect(keys).toContainEqual(['logEntry', 'p1', 'e1'])
   })
+
+  it('refreshes the sweep, the inspection queue and the run for pm.run.changed', () => {
+    const keys = invalidationsFor(
+      {
+        ...base,
+        type: 'pm.run.changed',
+        payload: { id: 'run-1', unitId: 'u-1', cycleId: 'cy-1', status: 'completed' },
+      },
+      'prop-a',
+    )
+    expect(keys).toContainEqual(qk.pmSweepAll('prop-a'))
+    expect(keys).toContainEqual(qk.pmInspectionsAll('prop-a'))
+    expect(keys).toContainEqual(qk.pmRun('prop-a', 'run-1'))
+  })
+
+  it('refreshes the sweep and the cycle history for pm.cycle.rolled', () => {
+    const keys = invalidationsFor(
+      { ...base, type: 'pm.cycle.rolled', payload: { templateId: 't-1' } },
+      'prop-a',
+    )
+    expect(keys).toContainEqual(qk.pmSweepAll('prop-a'))
+    expect(keys).toContainEqual(qk.pmCyclesAll('prop-a'))
+  })
 })
 
 describe('RealtimeProvider', () => {
