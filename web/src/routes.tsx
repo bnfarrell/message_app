@@ -17,6 +17,7 @@ import { AdminPage } from './features/admin/AdminPage'
 import { SweepPage } from './features/pm/SweepPage'
 import { RunPage } from './features/pm/RunPage'
 import { InspectionPage } from './features/pm/InspectionPage'
+import { CompliancePage } from './features/pm/CompliancePage'
 
 function LandingRedirect() {
   const { role } = useSession()
@@ -65,6 +66,14 @@ export function AppRoutes() {
           <Route path="log" element={<LogPage />} />
           <Route path="pm" element={<SweepPage />} />
           <Route path="pm/runs/:id" element={<RunPage />} />
+          <Route
+            path="pm/compliance"
+            element={
+              <RequireCapability capability="view_property_analytics">
+                <CompliancePage />
+              </RequireCapability>
+            }
+          />
           <Route
             path="inspection"
             element={
