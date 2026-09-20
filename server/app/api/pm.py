@@ -4,14 +4,16 @@ from flask import Blueprint, Response, g, request
 
 from app.api._util import db_session, ok, parse_body, parse_query
 from app.auth.decorators import require_auth, require_capability, require_property
-from app.domain import pm_inspection, pm_runs, pm_templates
+from app.domain import pm_inspection, pm_reports, pm_runs, pm_templates
 from app.domain.work_orders import MAX_PHOTO_BYTES
 from app.errors import ValidationFailed
+from app.schemas.common import CamelModel
 from app.schemas.pm import (
     AnswerPatch,
     InspectionQuery,
     InspectRequest,
     StartRunRequest,
+    SweepQuery,
     TemplateIn,
     TemplatePatch,
 )
@@ -166,3 +168,27 @@ def inspect_run(property_id: str, run_id: str):
     with db_session() as db:
         run = pm_inspection.inspect(db, g.property_id, g.user.id, run_id, data)
         return ok(pm_runs.to_out(db, run))
+
+
+class _CyclesQuery(CamelModel):
+    template_id: str
+
+
+@bp.get("/sweep")
+@require_auth
+@require_property
+@require_capability("view_pm")
+def sweep(property_id: str):
+    query = parse_query(SweepQuery)
+    with db_session() as db:
+        return ok(pm_reports.sweep(db, g.property_id, query))
+
+
+@bp.get("/cycles")
+@require_auth
+@require_property
+@require_capability("view_pm")
+def list_cycles(property_id: str):
+    query = parse_query(_CyclesQuery)
+    with db_session() as db:
+        return ok(pm_reports.cycles(db, g.property_id, query.template_id))
