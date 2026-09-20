@@ -67,3 +67,25 @@ describe('log capabilities', () => {
     expect(hasCapability('admin', 'pin_log_entry')).toBe(true)
   })
 })
+
+describe('pm capabilities', () => {
+  const roles: Role[] = ['agent', 'dept_staff', 'supervisor', 'manager', 'admin', 'corporate']
+
+  it('lets every staff role view PM', () => {
+    for (const role of roles) expect(hasCapability(role, 'view_pm'), role).toBe(true)
+  })
+
+  it('lets dept_staff and above perform, but not agents or corporate', () => {
+    expect(hasCapability('agent', 'perform_pm')).toBe(false)
+    expect(hasCapability('corporate', 'perform_pm')).toBe(false)
+    for (const role of ['dept_staff', 'supervisor', 'manager', 'admin'] as Role[])
+      expect(hasCapability(role, 'perform_pm'), role).toBe(true)
+  })
+
+  it('restricts inspection to supervisor and above', () => {
+    expect(hasCapability('dept_staff', 'inspect_pm')).toBe(false)
+    expect(hasCapability('corporate', 'inspect_pm')).toBe(false)
+    for (const role of ['supervisor', 'manager', 'admin'] as Role[])
+      expect(hasCapability(role, 'inspect_pm'), role).toBe(true)
+  })
+})

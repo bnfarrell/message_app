@@ -19,6 +19,11 @@ CAPABILITIES: dict[str, set[Role]] = {
     "view_log": STAFF,
     "post_log": STAFF,
     "pin_log_entry": {Role.supervisor, Role.manager, Role.admin},
+    # Preventative maintenance (PM spec §6). All three include admin: the isolation suite
+    # asserts a property's admin is never 403 on a property route.
+    "view_pm": STAFF,
+    "perform_pm": {Role.dept_staff, Role.supervisor, Role.manager, Role.admin},
+    "inspect_pm": {Role.supervisor, Role.manager, Role.admin},
 }
 
 
