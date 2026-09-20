@@ -95,6 +95,8 @@ class WorkOrderDetail(WorkOrderOut):
     photos: list[WorkOrderPhotoOut]
     guest_name: str | None = None
     room_number: str | None = None
+    # Set on a scheduled-PM work order; the detail page links to the checklist (PM spec §7.7).
+    pm_run_id: str | None = None
 
 
 class WorkOrderPrefill(CamelModel):

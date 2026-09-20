@@ -12,7 +12,9 @@ def test_export_contains_the_public_models():
                  "QuickReplyOut", "AssetOut", "CategoryOut",
                  "NotificationOut", "Overview", "AgentStats", "StaffUserOut", "DepartmentOut",
                  "SimGuest", "StaffConversationOut", "StaffMessageOut",
-                 "LogEntryOut", "LogFeedOut", "LogMentionableOut"):
+                 "LogEntryOut", "LogFeedOut", "LogMentionableOut",
+                 "UnitOut", "UnitImportOut", "TemplateOut", "SweepOut", "RunOut",
+                 "InspectionRowOut", "CycleOut", "ComplianceOut"):
         assert name in defs, name
     assert defs["GuestThread"]["additionalProperties"] is False
     assert "notes" not in defs["GuestThread"]["properties"]

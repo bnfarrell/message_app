@@ -94,6 +94,51 @@
       "title": "AgentStats",
       "type": "object"
     },
+    "AnswerPatch": {
+      "additionalProperties": false,
+      "description": "Exactly one of these, matching the item's type (spec \u00a74.2).",
+      "properties": {
+        "boolValue": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Boolvalue"
+        },
+        "numberValue": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numbervalue"
+        },
+        "textValue": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Textvalue"
+        }
+      },
+      "title": "AnswerPatch",
+      "type": "object"
+    },
     "AssetIn": {
       "additionalProperties": false,
       "properties": {
@@ -595,6 +640,182 @@
       ],
       "title": "Channel",
       "type": "string"
+    },
+    "ComplianceCycleOut": {
+      "additionalProperties": false,
+      "properties": {
+        "endsOn": {
+          "format": "date",
+          "title": "Endson",
+          "type": "string"
+        },
+        "missed": {
+          "title": "Missed",
+          "type": "integer"
+        },
+        "onTimePct": {
+          "title": "Ontimepct",
+          "type": "number"
+        },
+        "ordinal": {
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "integer"
+        },
+        "startsOn": {
+          "format": "date",
+          "title": "Startson",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/PmCycleStatus"
+        },
+        "total": {
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ordinal",
+        "startsOn",
+        "endsOn",
+        "status",
+        "passed",
+        "missed",
+        "total",
+        "onTimePct"
+      ],
+      "title": "ComplianceCycleOut",
+      "type": "object"
+    },
+    "ComplianceOut": {
+      "additionalProperties": false,
+      "properties": {
+        "templates": {
+          "items": {
+            "$ref": "#/$defs/ComplianceTemplateOut"
+          },
+          "title": "Templates",
+          "type": "array"
+        }
+      },
+      "title": "ComplianceOut",
+      "type": "object"
+    },
+    "ComplianceQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "title": "From",
+          "type": "string"
+        },
+        "to": {
+          "title": "To",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "title": "ComplianceQuery",
+      "type": "object"
+    },
+    "ComplianceRunsOut": {
+      "additionalProperties": false,
+      "properties": {
+        "due": {
+          "title": "Due",
+          "type": "integer"
+        },
+        "failed": {
+          "title": "Failed",
+          "type": "integer"
+        },
+        "overdue": {
+          "title": "Overdue",
+          "type": "integer"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "due",
+        "passed",
+        "failed",
+        "overdue"
+      ],
+      "title": "ComplianceRunsOut",
+      "type": "object"
+    },
+    "ComplianceTemplateOut": {
+      "additionalProperties": false,
+      "properties": {
+        "cycles": {
+          "items": {
+            "$ref": "#/$defs/ComplianceCycleOut"
+          },
+          "title": "Cycles",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "inspectionPassRate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inspectionpassrate"
+        },
+        "mode": {
+          "$ref": "#/$defs/PmTemplateMode"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "runs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComplianceRunsOut"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unitKind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PmUnitKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "mode"
+      ],
+      "title": "ComplianceTemplateOut",
+      "type": "object"
     },
     "ConversationDetail": {
       "additionalProperties": false,
@@ -1330,6 +1551,66 @@
       "title": "CreateWorkOrder",
       "type": "object"
     },
+    "CycleOut": {
+      "additionalProperties": false,
+      "properties": {
+        "daysLeft": {
+          "title": "Daysleft",
+          "type": "integer"
+        },
+        "endsOn": {
+          "format": "date",
+          "title": "Endson",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "missed": {
+          "title": "Missed",
+          "type": "integer"
+        },
+        "ordinal": {
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "integer"
+        },
+        "startsOn": {
+          "format": "date",
+          "title": "Startson",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/PmCycleStatus"
+        },
+        "templateId": {
+          "title": "Templateid",
+          "type": "string"
+        },
+        "total": {
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "templateId",
+        "ordinal",
+        "startsOn",
+        "endsOn",
+        "status",
+        "daysLeft",
+        "passed",
+        "missed",
+        "total"
+      ],
+      "title": "CycleOut",
+      "type": "object"
+    },
     "DayBucket": {
       "additionalProperties": false,
       "properties": {
@@ -1829,6 +2110,177 @@
         "count"
       ],
       "title": "HourBucket",
+      "type": "object"
+    },
+    "InspectRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "result": {
+          "enum": [
+            "pass",
+            "fail"
+          ],
+          "title": "Result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "InspectRequest",
+      "type": "object"
+    },
+    "InspectionQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PmUnitKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sort": {
+          "default": "completed_at",
+          "enum": [
+            "days_since_last_pm",
+            "completed_at"
+          ],
+          "title": "Sort",
+          "type": "string"
+        },
+        "status": {
+          "default": "available",
+          "enum": [
+            "available",
+            "inspected"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "InspectionQuery",
+      "type": "object"
+    },
+    "InspectionRowOut": {
+      "additionalProperties": false,
+      "properties": {
+        "completedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completedat"
+        },
+        "completedByName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completedbyname"
+        },
+        "daysSinceLastPm": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dayssincelastpm"
+        },
+        "inspectedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inspectedat"
+        },
+        "inspectedByName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inspectedbyname"
+        },
+        "runId": {
+          "title": "Runid",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/PmRunStatus"
+        },
+        "templateName": {
+          "title": "Templatename",
+          "type": "string"
+        },
+        "unitCode": {
+          "title": "Unitcode",
+          "type": "string"
+        },
+        "unitId": {
+          "title": "Unitid",
+          "type": "string"
+        },
+        "unitKind": {
+          "$ref": "#/$defs/PmUnitKind"
+        },
+        "unitName": {
+          "title": "Unitname",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "unitId",
+        "unitCode",
+        "unitName",
+        "unitKind",
+        "templateName",
+        "status"
+      ],
+      "title": "InspectionRowOut",
       "type": "object"
     },
     "ListQuery": {
@@ -2726,6 +3178,72 @@
       "title": "Overview",
       "type": "object"
     },
+    "PmCadence": {
+      "enum": [
+        "monthly",
+        "quarterly",
+        "semiannual",
+        "annual"
+      ],
+      "title": "PmCadence",
+      "type": "string"
+    },
+    "PmCycleStatus": {
+      "enum": [
+        "open",
+        "closed"
+      ],
+      "title": "PmCycleStatus",
+      "type": "string"
+    },
+    "PmItemType": {
+      "enum": [
+        "checkbox",
+        "text",
+        "number",
+        "photo"
+      ],
+      "title": "PmItemType",
+      "type": "string"
+    },
+    "PmRunStatus": {
+      "enum": [
+        "pending",
+        "in_progress",
+        "completed",
+        "passed",
+        "failed",
+        "missed"
+      ],
+      "title": "PmRunStatus",
+      "type": "string"
+    },
+    "PmTemplateMode": {
+      "enum": [
+        "sweep",
+        "scheduled"
+      ],
+      "title": "PmTemplateMode",
+      "type": "string"
+    },
+    "PmUnitKind": {
+      "enum": [
+        "guest_room",
+        "common_area",
+        "equipment"
+      ],
+      "title": "PmUnitKind",
+      "type": "string"
+    },
+    "PmUnitSource": {
+      "enum": [
+        "manual",
+        "csv",
+        "pms"
+      ],
+      "title": "PmUnitSource",
+      "type": "string"
+    },
     "PrefsPatch": {
       "additionalProperties": false,
       "description": "Only the keys the client is allowed to set. `extra='forbid'` comes from CamelModel.",
@@ -3385,6 +3903,349 @@
       ],
       "title": "Role",
       "type": "string"
+    },
+    "RunAnswerOut": {
+      "additionalProperties": false,
+      "properties": {
+        "answeredAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answeredat"
+        },
+        "boolValue": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Boolvalue"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "itemId": {
+          "title": "Itemid",
+          "type": "string"
+        },
+        "numberValue": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numbervalue"
+        },
+        "outOfRange": {
+          "title": "Outofrange",
+          "type": "boolean"
+        },
+        "textValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Textvalue"
+        }
+      },
+      "required": [
+        "id",
+        "itemId",
+        "outOfRange"
+      ],
+      "title": "RunAnswerOut",
+      "type": "object"
+    },
+    "RunOut": {
+      "additionalProperties": false,
+      "properties": {
+        "answers": {
+          "items": {
+            "$ref": "#/$defs/RunAnswerOut"
+          },
+          "title": "Answers",
+          "type": "array"
+        },
+        "completedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completedat"
+        },
+        "cycleId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cycleid"
+        },
+        "dueAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dueat"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "inspectedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inspectedat"
+        },
+        "inspectedByName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inspectedbyname"
+        },
+        "inspectedByUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inspectedbyuserid"
+        },
+        "inspectionNote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inspectionnote"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/TemplateItemOut"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "missingRequired": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missingrequired",
+          "type": "array"
+        },
+        "photos": {
+          "items": {
+            "$ref": "#/$defs/RunPhotoOut"
+          },
+          "title": "Photos",
+          "type": "array"
+        },
+        "startedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Startedat"
+        },
+        "startedByName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Startedbyname"
+        },
+        "startedByUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Startedbyuserid"
+        },
+        "status": {
+          "$ref": "#/$defs/PmRunStatus"
+        },
+        "templateId": {
+          "title": "Templateid",
+          "type": "string"
+        },
+        "templateName": {
+          "title": "Templatename",
+          "type": "string"
+        },
+        "unitCode": {
+          "title": "Unitcode",
+          "type": "string"
+        },
+        "unitId": {
+          "title": "Unitid",
+          "type": "string"
+        },
+        "unitKind": {
+          "$ref": "#/$defs/PmUnitKind"
+        },
+        "unitName": {
+          "title": "Unitname",
+          "type": "string"
+        },
+        "workOrderId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workorderid"
+        }
+      },
+      "required": [
+        "id",
+        "templateId",
+        "templateName",
+        "unitId",
+        "unitCode",
+        "unitName",
+        "unitKind",
+        "status"
+      ],
+      "title": "RunOut",
+      "type": "object"
+    },
+    "RunPhotoOut": {
+      "additionalProperties": false,
+      "properties": {
+        "byteSize": {
+          "title": "Bytesize",
+          "type": "integer"
+        },
+        "contentType": {
+          "title": "Contenttype",
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "itemId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Itemid"
+        },
+        "uploadedByUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uploadedbyuserid"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "contentType",
+        "byteSize",
+        "url",
+        "createdAt"
+      ],
+      "title": "RunPhotoOut",
+      "type": "object"
     },
     "SendMessageRequest": {
       "additionalProperties": false,
@@ -4104,6 +4965,25 @@
       "title": "StaffUserOut",
       "type": "object"
     },
+    "StartRunRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "templateId": {
+          "title": "Templateid",
+          "type": "string"
+        },
+        "unitId": {
+          "title": "Unitid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "templateId",
+        "unitId"
+      ],
+      "title": "StartRunRequest",
+      "type": "object"
+    },
     "StayOut": {
       "additionalProperties": false,
       "properties": {
@@ -4188,6 +5068,1192 @@
       ],
       "title": "StayStatus",
       "type": "string"
+    },
+    "SweepCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "completed": {
+          "title": "Completed",
+          "type": "integer"
+        },
+        "remaining": {
+          "title": "Remaining",
+          "type": "integer"
+        },
+        "total": {
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "remaining",
+        "completed",
+        "total"
+      ],
+      "title": "SweepCounts",
+      "type": "object"
+    },
+    "SweepCycleOut": {
+      "additionalProperties": false,
+      "properties": {
+        "daysLeft": {
+          "title": "Daysleft",
+          "type": "integer"
+        },
+        "endsOn": {
+          "format": "date",
+          "title": "Endson",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "ordinal": {
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "startsOn": {
+          "format": "date",
+          "title": "Startson",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "ordinal",
+        "startsOn",
+        "endsOn",
+        "daysLeft"
+      ],
+      "title": "SweepCycleOut",
+      "type": "object"
+    },
+    "SweepOut": {
+      "additionalProperties": false,
+      "properties": {
+        "counts": {
+          "$ref": "#/$defs/SweepCounts"
+        },
+        "cycle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SweepCycleOut"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "template": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SweepTemplateOut"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "units": {
+          "items": {
+            "$ref": "#/$defs/SweepUnitOut"
+          },
+          "title": "Units",
+          "type": "array"
+        }
+      },
+      "required": [
+        "counts"
+      ],
+      "title": "SweepOut",
+      "type": "object"
+    },
+    "SweepQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/PmUnitKind"
+        },
+        "q": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Q"
+        },
+        "sort": {
+          "default": "code",
+          "enum": [
+            "code",
+            "floor",
+            "days_since_last_pm"
+          ],
+          "title": "Sort",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "remaining",
+                "completed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "SweepQuery",
+      "type": "object"
+    },
+    "SweepRunBrief": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "startedByName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Startedbyname"
+        },
+        "startedByUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Startedbyuserid"
+        },
+        "status": {
+          "$ref": "#/$defs/PmRunStatus"
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ],
+      "title": "SweepRunBrief",
+      "type": "object"
+    },
+    "SweepTemplateOut": {
+      "additionalProperties": false,
+      "properties": {
+        "cadence": {
+          "$ref": "#/$defs/PmCadence"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "cadence"
+      ],
+      "title": "SweepTemplateOut",
+      "type": "object"
+    },
+    "SweepUnitOut": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "currentRun": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SweepRunBrief"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "floor": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lastPassedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastpassedat"
+        },
+        "lastPassedByName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastpassedbyname"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "passedThisCycle": {
+          "title": "Passedthiscycle",
+          "type": "boolean"
+        },
+        "roomType": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roomtype"
+        }
+      },
+      "required": [
+        "id",
+        "code",
+        "name",
+        "passedThisCycle"
+      ],
+      "title": "SweepUnitOut",
+      "type": "object"
+    },
+    "TemplateIn": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "default": true,
+          "title": "Active",
+          "type": "boolean"
+        },
+        "cadence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PmCadence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/TemplateItemIn"
+          },
+          "maxItems": 100,
+          "title": "Items",
+          "type": "array"
+        },
+        "mode": {
+          "$ref": "#/$defs/PmTemplateMode"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "rrule": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rrule"
+        },
+        "rruleDtstart": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rruledtstart"
+        },
+        "unitIds": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 500,
+          "title": "Unitids",
+          "type": "array"
+        },
+        "unitKind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PmUnitKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "mode"
+      ],
+      "title": "TemplateIn",
+      "type": "object"
+    },
+    "TemplateItemIn": {
+      "additionalProperties": false,
+      "description": "`id` set = update that item in place; omitted = a new item. An item missing from the\nlist is soft-deleted (spec \u00a74.5).",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "itemType": {
+          "$ref": "#/$defs/PmItemType"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "maxValue": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxvalue"
+        },
+        "minValue": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minvalue"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "label",
+        "itemType"
+      ],
+      "title": "TemplateItemIn",
+      "type": "object"
+    },
+    "TemplateItemOut": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "itemType": {
+          "$ref": "#/$defs/PmItemType"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "maxValue": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxvalue"
+        },
+        "minValue": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minvalue"
+        },
+        "position": {
+          "title": "Position",
+          "type": "integer"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "id",
+        "position",
+        "label",
+        "itemType",
+        "required",
+        "active"
+      ],
+      "title": "TemplateItemOut",
+      "type": "object"
+    },
+    "TemplateOut": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "cadence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PmCadence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "hasRuns": {
+          "title": "Hasruns",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/TemplateItemOut"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "lastFiredAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastfiredat"
+        },
+        "mode": {
+          "$ref": "#/$defs/PmTemplateMode"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "rrule": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rrule"
+        },
+        "rruleDtstart": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rruledtstart"
+        },
+        "unitIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unitids",
+          "type": "array"
+        },
+        "unitKind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PmUnitKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "mode",
+        "active",
+        "hasRuns",
+        "createdAt"
+      ],
+      "title": "TemplateOut",
+      "type": "object"
+    },
+    "TemplatePatch": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "cadence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PmCadence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "items": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TemplateItemIn"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Items"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PmTemplateMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "rrule": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rrule"
+        },
+        "rruleDtstart": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rruledtstart"
+        },
+        "unitIds": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 500,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unitids"
+        },
+        "unitKind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PmUnitKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "TemplatePatch",
+      "type": "object"
+    },
+    "UnitImportError": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "line": {
+          "title": "Line",
+          "type": "integer"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "line",
+        "field",
+        "message"
+      ],
+      "title": "UnitImportError",
+      "type": "object"
+    },
+    "UnitImportOut": {
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "title": "Created",
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/UnitImportError"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "updated": {
+          "title": "Updated",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "created",
+        "updated"
+      ],
+      "title": "UnitImportOut",
+      "type": "object"
+    },
+    "UnitIn": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "externalId": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Externalid"
+        },
+        "floor": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor"
+        },
+        "kind": {
+          "$ref": "#/$defs/PmUnitKind"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "roomType": {
+          "anyOf": [
+            {
+              "maxLength": 20,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roomtype"
+        }
+      },
+      "required": [
+        "kind",
+        "code",
+        "name"
+      ],
+      "title": "UnitIn",
+      "type": "object"
+    },
+    "UnitListQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PmUnitKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "q": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Q"
+        }
+      },
+      "title": "UnitListQuery",
+      "type": "object"
+    },
+    "UnitOut": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "externalId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Externalid"
+        },
+        "floor": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/PmUnitKind"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "roomType": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roomtype"
+        },
+        "source": {
+          "$ref": "#/$defs/PmUnitSource"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "code",
+        "name",
+        "active",
+        "source",
+        "createdAt"
+      ],
+      "title": "UnitOut",
+      "type": "object"
+    },
+    "UnitPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code"
+        },
+        "externalId": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Externalid"
+        },
+        "floor": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PmUnitKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "roomType": {
+          "anyOf": [
+            {
+              "maxLength": 20,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roomtype"
+        }
+      },
+      "title": "UnitPatch",
+      "type": "object"
     },
     "UnreadCount": {
       "additionalProperties": false,
@@ -4481,6 +6547,18 @@
           },
           "title": "Photos",
           "type": "array"
+        },
+        "pmRunId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pmrunid"
         },
         "priority": {
           "$ref": "#/$defs/Priority"
