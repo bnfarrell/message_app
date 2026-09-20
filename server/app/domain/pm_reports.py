@@ -5,15 +5,23 @@ hundreds of units, not millions — and nothing here issues a query per row.
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import clock
 from app.domain import pm_cycles, pm_runs
 from app.domain.pm_units import natural_key
-from app.errors import NotFound
+from app.errors import NotFound, ValidationFailed
 from app.models import MaintainableUnit, PmCycle, PmRun, PmTemplate, Property
 from app.schemas.enums import PmCycleStatus, PmRunStatus, PmTemplateMode
 from app.schemas.pm import (
+    ComplianceCycleOut,
+    ComplianceOut,
+    ComplianceQuery,
+    ComplianceRunsOut,
+    ComplianceTemplateOut,
     CycleOut,
     SweepCounts,
     SweepCycleOut,
@@ -136,3 +144,68 @@ def cycles(db: Session, property_id: str, template_id: str) -> list[CycleOut]:
                             if cycle.status == PmCycleStatus.open else 0,
                             passed=passed, missed=missed, total=total))
     return out
+
+
+def _parse_day(raw: str, field: str) -> date:
+    try:
+        return date.fromisoformat(raw)
+    except ValueError as e:
+        raise ValidationFailed("Dates must be ISO (YYYY-MM-DD)", details={field: "invalid_date"}) \
+            from e
+
+
+def compliance(db: Session, property_id: str, query: ComplianceQuery) -> ComplianceOut:
+    """Per template: cycle outcomes for sweeps, due/overdue for schedules, and the inspection
+    pass rate over runs inspected in the window (spec §5.5). Percentages are 0–100."""
+    prop = db.get(Property, property_id)
+    from_day = _parse_day(query.from_, "from")
+    to_day = _parse_day(query.to, "to")
+    if to_day < from_day:
+        raise ValidationFailed("`to` must not precede `from`", details={"to": "before_from"})
+    window_start = pm_cycles.local_day_start_utc(prop, from_day)
+    window_end = pm_cycles.local_day_start_utc(prop, to_day + timedelta(days=1))
+    now = clock.now()
+
+    out: list[ComplianceTemplateOut] = []
+    for template in db.scalars(select(PmTemplate).where(PmTemplate.property_id == property_id)
+                               .order_by(PmTemplate.name, PmTemplate.id)).all():
+        inspected = db.execute(select(PmRun.status).where(
+            PmRun.template_id == template.id,
+            PmRun.status.in_([PmRunStatus.passed, PmRunStatus.failed]),
+            PmRun.inspected_at >= window_start, PmRun.inspected_at < window_end)).all()
+        pass_rate = (round(100 * sum(1 for (s,) in inspected if s == PmRunStatus.passed)
+                           / len(inspected), 1) if inspected else None)
+
+        if template.mode == PmTemplateMode.sweep:
+            cycle_rows = db.scalars(select(PmCycle).where(
+                PmCycle.template_id == template.id, PmCycle.starts_on <= to_day,
+                PmCycle.ends_on >= from_day).order_by(PmCycle.starts_on)).all()
+            cycles_out = []
+            for cycle in cycle_rows:
+                passed, missed, total = cycle_unit_counts(db, cycle)
+                if cycle.status == PmCycleStatus.open:
+                    total = len(pm_cycles.scope_unit_ids(db, template))
+                    missed = 0
+                cycles_out.append(ComplianceCycleOut(
+                    ordinal=cycle.ordinal, starts_on=cycle.starts_on, ends_on=cycle.ends_on,
+                    status=cycle.status, passed=passed, missed=missed, total=total,
+                    on_time_pct=round(100 * passed / total, 1) if total else 0.0))
+            out.append(ComplianceTemplateOut(id=template.id, name=template.name,
+                                             mode=template.mode, unit_kind=template.unit_kind,
+                                             cycles=cycles_out, runs=None,
+                                             inspection_pass_rate=pass_rate))
+        else:
+            runs = db.scalars(select(PmRun).where(
+                PmRun.template_id == template.id, PmRun.due_at >= window_start,
+                PmRun.due_at < window_end)).all()
+            out.append(ComplianceTemplateOut(
+                id=template.id, name=template.name, mode=template.mode, unit_kind=None,
+                cycles=[],
+                runs=ComplianceRunsOut(
+                    due=len(runs),
+                    passed=sum(1 for r in runs if r.status == PmRunStatus.passed),
+                    failed=sum(1 for r in runs if r.status == PmRunStatus.failed),
+                    overdue=sum(1 for r in runs if r.due_at < now and r.status in (
+                        PmRunStatus.pending, PmRunStatus.in_progress))),
+                inspection_pass_rate=pass_rate))
+    return ComplianceOut(templates=out)

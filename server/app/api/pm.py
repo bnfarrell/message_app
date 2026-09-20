@@ -10,6 +10,7 @@ from app.errors import ValidationFailed
 from app.schemas.common import CamelModel
 from app.schemas.pm import (
     AnswerPatch,
+    ComplianceQuery,
     InspectionQuery,
     InspectRequest,
     StartRunRequest,
@@ -192,3 +193,13 @@ def list_cycles(property_id: str):
     query = parse_query(_CyclesQuery)
     with db_session() as db:
         return ok(pm_reports.cycles(db, g.property_id, query.template_id))
+
+
+@bp.get("/compliance")
+@require_auth
+@require_property
+@require_capability("view_property_analytics")
+def compliance(property_id: str):
+    query = parse_query(ComplianceQuery)
+    with db_session() as db:
+        return ok(pm_reports.compliance(db, g.property_id, query))
