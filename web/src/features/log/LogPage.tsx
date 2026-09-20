@@ -49,14 +49,17 @@ export function LogPage() {
   const [departmentId, setDepartmentId] = useState('')
   const [mentioningMe, setMentioningMe] = useState(false)
   const { data: departments } = useDepartments()
-  const { data, isPending, error } = useLogFeed({
+  const { data, isPending, error, hasNextPage, fetchNextPage, isFetchingNextPage } = useLogFeed({
     shift: shift || undefined,
     departmentId: departmentId || undefined,
     mentioningMe,
   })
 
-  const pinned = data?.pinned ?? []
-  const groups = groupByDay(data?.entries ?? [])
+  // The pinned block comes from the first page only. The server repeats it on every
+  // page because it is unpaginated, so reading it from each page would render every
+  // pinned entry once per page loaded.
+  const pinned = data?.pages[0]?.pinned ?? []
+  const groups = groupByDay((data?.pages ?? []).flatMap((page) => page.entries ?? []))
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
@@ -147,6 +150,17 @@ export function LogPage() {
               ))}
             </section>
           ))}
+
+          {hasNextPage ? (
+            <button
+              type="button"
+              onClick={() => void fetchNextPage()}
+              disabled={isFetchingNextPage}
+              className="self-center rounded-md border border-line px-3 py-1.5 text-sm font-semibold text-text2 hover:text-text disabled:opacity-60"
+            >
+              {isFetchingNextPage ? 'Loading…' : 'Load more'}
+            </button>
+          ) : null}
         </div>
       )}
     </div>

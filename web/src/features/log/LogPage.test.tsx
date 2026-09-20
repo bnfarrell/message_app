@@ -49,6 +49,29 @@ function mount(feed?: LogFeedOut) {
   )
 }
 
+/** Serves `pages` in order to successive log-entries requests, so a test can walk
+ *  the cursor. The last page is repeated if anything asks for more. */
+function servePages(pages: LogFeedOut[]) {
+  let next = 0
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.includes('mentionables')) return jsonResponse([])
+    if (url.includes('/departments')) return jsonResponse(DEPARTMENTS)
+    if (url.includes('log-entries')) {
+      const page = pages[Math.min(next, pages.length - 1)]!
+      next += 1
+      return jsonResponse(page)
+    }
+    return jsonResponse([])
+  })
+  return renderWithProviders(
+    <SessionProvider>
+      <LogPage />
+    </SessionProvider>,
+    { session: sessionFixture({ role: 'agent' }) },
+  )
+}
+
 // Excludes the mentionables fetch, which also contains the substring "log-entries".
 function feedCalls() {
   return vi
@@ -125,5 +148,70 @@ describe('LogPage', () => {
     mount({ entries: [], pinned: [] })
     expect(await screen.findByText(/no log entries/i)).toBeInTheDocument()
     expect(screen.queryByText(/·/)).not.toBeInTheDocument()
+  })
+
+  describe('pagination', () => {
+    const PINNED: LogEntryOut = { ...BASE, id: 'log-pin', body: 'Pinned notice.', pinned: true }
+    const PAGE_ONE: LogFeedOut = {
+      pinned: [PINNED],
+      entries: [{ ...BASE, id: 'log-a', body: 'First page entry.' }],
+      nextCursor: '2026-09-19T10:00:00+00:00|log-a',
+    }
+    // The server returns the SAME pinned block on every page — it is unpaginated by
+    // design — so the page must take pinned from page 0 only.
+    const PAGE_TWO: LogFeedOut = {
+      pinned: [PINNED],
+      entries: [{ ...BASE, id: 'log-b', body: 'Second page entry.' }],
+      nextCursor: null,
+    }
+
+    it('loads older entries and keeps both pages, newest first', async () => {
+      servePages([PAGE_ONE, PAGE_TWO])
+      expect(await screen.findByText('First page entry.')).toBeInTheDocument()
+      expect(screen.queryByText('Second page entry.')).not.toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: /load more/i }))
+
+      expect(await screen.findByText('Second page entry.')).toBeInTheDocument()
+      expect(screen.getByText('First page entry.')).toBeInTheDocument()
+    })
+
+    it('sends the cursor from the previous page on the follow-up request', async () => {
+      servePages([PAGE_ONE, PAGE_TWO])
+      await screen.findByText('First page entry.')
+      await userEvent.click(screen.getByRole('button', { name: /load more/i }))
+
+      await waitFor(() =>
+        expect(
+          feedCalls().some(([input]) =>
+            String(input).includes(`cursor=${encodeURIComponent(PAGE_ONE.nextCursor!)}`),
+          ),
+        ).toBe(true),
+      )
+    })
+
+    it('renders the pinned block once, not once per loaded page', async () => {
+      servePages([PAGE_ONE, PAGE_TWO])
+      await screen.findByText('First page entry.')
+      await userEvent.click(screen.getByRole('button', { name: /load more/i }))
+      await screen.findByText('Second page entry.')
+
+      expect(screen.getAllByText('Pinned notice.')).toHaveLength(1)
+    })
+
+    it('hides Load more once the last page has no cursor', async () => {
+      servePages([PAGE_ONE, PAGE_TWO])
+      await screen.findByText('First page entry.')
+      await userEvent.click(screen.getByRole('button', { name: /load more/i }))
+      await screen.findByText('Second page entry.')
+
+      expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument()
+    })
+
+    it('shows no Load more when the first page is already the last', async () => {
+      mount({ pinned: [], entries: [{ ...BASE, id: 'log-a' }], nextCursor: null })
+      await screen.findByText('Checked the boiler room.')
+      expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument()
+    })
   })
 })
