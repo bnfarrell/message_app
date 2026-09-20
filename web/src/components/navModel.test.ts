@@ -35,3 +35,21 @@ describe('visibleNavGroups', () => {
     expect(items.find((i) => i.to === '/app/log')).toBeTruthy()
   })
 })
+
+describe('maintenance group', () => {
+  it('shows Preventative Maintenance to view_pm holders and PM Inspection to inspect_pm holders', () => {
+    const only = (cap: string) => visibleNavGroups((c) => c === cap)
+    expect(only('view_pm').flatMap((g) => g.items).map((i) => i.label)).toContain('Preventative Maintenance')
+    expect(only('view_pm').flatMap((g) => g.items).map((i) => i.label)).not.toContain('PM Inspection')
+    expect(only('inspect_pm').flatMap((g) => g.items).map((i) => i.label)).toContain('PM Inspection')
+  })
+
+  it('lights the PM entry on runs and compliance but not on the inspection queue', () => {
+    const pm = item('Preventative Maintenance')
+    expect(isNavItemActive(pm, '/app/pm')).toBe(true)
+    expect(isNavItemActive(pm, '/app/pm/runs/run-1')).toBe(true)
+    expect(isNavItemActive(pm, '/app/pm/compliance')).toBe(true)
+    expect(isNavItemActive(pm, '/app/inspection')).toBe(false)
+    expect(isNavItemActive(item('PM Inspection'), '/app/inspection')).toBe(true)
+  })
+})

@@ -37,6 +37,22 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    heading: 'Maintenance',
+    items: [
+      // Runs and the compliance tab live under /app/pm, so the prefix lights for all of them.
+      // The inspection queue is a sibling at /app/inspection precisely so it does not: two lit
+      // entries reads as a bug.
+      {
+        label: 'Preventative Maintenance',
+        to: '/app/pm',
+        icon: 'wrench',
+        needs: ['view_pm'],
+        match: ['/app/pm'],
+      },
+      { label: 'PM Inspection', to: '/app/inspection', icon: 'inspect', needs: ['inspect_pm'] },
+    ],
+  },
+  {
     heading: 'Insights',
     items: [
       { label: 'Analytics', to: '/app/analytics', icon: 'analytics', needs: ['view_property_analytics'] },
