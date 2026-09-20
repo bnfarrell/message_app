@@ -238,6 +238,12 @@ be harmless.
 A newly-created template gets its first cycle on the next tick, or immediately on creation
 (the create route calls the same function).
 
+Intervening cycle windows are not materialized across downtime: if the tick does not run for
+months, the next run closes only the one cycle that was open when it stopped (writing `missed` for
+that window) and then opens the window containing *today* — it does not walk forward and create a
+cycle for every window in between. A multi-month outage therefore leaves a gap in compliance
+history rather than a run of 100%-missed cycles. This is accepted behaviour, not a bug.
+
 **Phase B — RRULE.** For each active scheduled template:
 
 1. `last_fired_at` is stamped `clock.now()` when a scheduled template is created, and again
@@ -279,9 +285,13 @@ On `Complete`, for each answer with `out_of_range`: create
 `WorkOrder(type=maintenance, priority=high,
 title=f"{item.label} {value}{item.unit} out of range ({min}–{max}) — {unit.name}",
 location from the unit, department_id=template.department_id)` and notify every
-active supervisor-or-above member of that department (`notify` helper, type `pm.out_of_range`,
-entity the new work order). This is `design.md` §6.7's rule applied here because the item model is
-shared.
+active supervisor-or-above member of that department, **excluding the user who completed the
+run** — an engineer who fat-fingers a reading and immediately fixes it should not page themself.
+When the department has no active supervisor-or-above member, the notification falls back to the
+property's managers and admins instead, so an out-of-range reading is never reported to nobody;
+this changes who gets paged for a department with a supervision gap. (`notify` helper, type
+`pm.out_of_range`, entity the new work order.) This is `design.md` §6.7's rule applied here because
+the item model is shared.
 
 Deliberately at Complete, not at answer save: an engineer who fat-fingers 1220 and corrects it
 should not have spawned a work order.
@@ -354,7 +364,8 @@ Returns, for the requested `kind`:
   counts: {remaining, completed, total},
   units: [{
     id, code, name, floor, roomType,
-    lastPassedAt, lastPassedBy,          // most recent passed run, any cycle
+    lastPassedAt, lastPassedByName,      // most recent passed run, any cycle
+    passedThisCycle,                     // has a passed run in the open cycle
     currentRun: {id, status, startedBy} | null   // in_progress/completed run in the open cycle
   }]
 }
@@ -386,7 +397,7 @@ For the window, per template:
 { templates: [{
     id, name, mode, unitKind,
     cycles: [{ordinal, startsOn, endsOn, passed, missed, total, onTimePct}],   // sweep
-    runs:   {due, passed, failed, missed, overdue},                          // scheduled
+    runs:   {due, passed, failed, overdue},                                  // scheduled
     inspectionPassRate: number | null
 }]}
 ```
@@ -394,7 +405,8 @@ For the window, per template:
 `onTimePct` and `inspectionPassRate` are percentages (0–100, one decimal): `onTimePct =
 round(100 * passed / total, 1)`. A scheduled run is `overdue` when `due_at < now` and status is
 `pending` or `in_progress`. `inspectionPassRate = round(100 * passed / (passed + failed), 1)`
-across inspected runs in the window.
+across inspected runs in the window. `runs` carries no `missed` field: `missed` is written only by
+cycle close (§4.1), which applies to sweep templates only, so a scheduled run can never be missed.
 
 ---
 
