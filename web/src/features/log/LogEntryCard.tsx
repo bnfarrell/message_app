@@ -67,7 +67,7 @@ export function LogEntryCard({ entry }: { entry: LogEntryOut }): JSX.Element {
         </Link>
       ) : null}
       {entry.linkedConversationId ? (
-        <Link to={`/app/messages/${entry.linkedConversationId}`} className="text-xs font-semibold text-accent">
+        <Link to={`/app/inbox/${entry.linkedConversationId}`} className="text-xs font-semibold text-accent">
           View conversation
         </Link>
       ) : null}

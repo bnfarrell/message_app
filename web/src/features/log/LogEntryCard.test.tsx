@@ -115,6 +115,26 @@ describe('LogEntryCard', () => {
     expect(pinCalls()[0]?.[1]?.method).toBe('DELETE')
   })
 
+  it('renders the work order and conversation links with correct hrefs, and omits them when unset', () => {
+    const WORK_ORDER_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+    const CONVERSATION_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
+    mount({ ...BASE, linkedWorkOrderId: WORK_ORDER_ID, linkedConversationId: CONVERSATION_ID })
+    expect(screen.getByRole('link', { name: 'View work order' })).toHaveAttribute(
+      'href',
+      `/app/work-orders/${WORK_ORDER_ID}`,
+    )
+    expect(screen.getByRole('link', { name: 'View conversation' })).toHaveAttribute(
+      'href',
+      `/app/inbox/${CONVERSATION_ID}`,
+    )
+  })
+
+  it('renders neither link when linkedWorkOrderId and linkedConversationId are null', () => {
+    mount({ ...BASE, linkedWorkOrderId: null, linkedConversationId: null })
+    expect(screen.queryByRole('link', { name: 'View work order' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'View conversation' })).not.toBeInTheDocument()
+  })
+
   it('renders a mention whose display name contains HTML as literal text', () => {
     const token = tokenFor({ type: 'user', id: ANA_ID, displayName: '<b>x</b>' })
     mount({ ...BASE, body: `Hello ${token}` })

@@ -40,8 +40,10 @@ def parse_query[M: BaseModel](model: type[M]) -> M:
     try:
         return model.model_validate(request.args.to_dict())
     except ValidationError as e:
+        # include_context=False: see parse_body's comment above.
         raise ValidationFailed("Invalid query",
-                               details=e.errors(include_url=False, include_input=False)) from e
+                               details=e.errors(include_url=False, include_input=False,
+                                                 include_context=False)) from e
 
 
 def serialize(obj: Any) -> Any:
