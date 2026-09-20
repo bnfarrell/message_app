@@ -15,6 +15,7 @@ import { MessagesPage } from './features/messages/MessagesPage'
 import { LogPage } from './features/log/LogPage'
 import { AdminPage } from './features/admin/AdminPage'
 import { SweepPage } from './features/pm/SweepPage'
+import { RunPage } from './features/pm/RunPage'
 
 function LandingRedirect() {
   const { role } = useSession()
@@ -62,6 +63,7 @@ export function AppRoutes() {
           <Route path="messages/:id" element={<MessagesPage />} />
           <Route path="log" element={<LogPage />} />
           <Route path="pm" element={<SweepPage />} />
+          <Route path="pm/runs/:id" element={<RunPage />} />
           <Route
             path="admin/*"
             element={
