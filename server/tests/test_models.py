@@ -19,6 +19,8 @@ EXPECTED_TABLES = {
     "job", "notification", "audit_log", "pms_event", "alembic_version",
     "staff_conversation", "staff_conversation_participant", "staff_message",
     "log_entry", "log_entry_mention", "log_entry_photo", "log_entry_ack",
+    "maintainable_unit", "pm_template", "pm_template_item", "pm_template_unit",
+    "pm_cycle", "pm_run", "pm_run_answer", "pm_run_photo",
 }
 
 

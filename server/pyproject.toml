@@ -26,6 +26,9 @@ dependencies = [
   # step, which a container image cannot rely on — and managed providers hand out
   # `postgresql://`, which SQLAlchemy resolves to psycopg2, not this.
   "psycopg[binary]>=3.2",
+  # RFC 5545 RRULE expansion for scheduled PM templates (spec §3.10). Hand-rolling
+  # recurrence is not an option.
+  "python-dateutil>=2.9",
 ]
 
 [project.optional-dependencies]

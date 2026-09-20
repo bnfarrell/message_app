@@ -156,3 +156,48 @@ class Shift(StrEnum):
 class MentionTargetType(StrEnum):
     user = "user"
     department = "department"
+
+
+class PmUnitKind(StrEnum):
+    guest_room = "guest_room"
+    common_area = "common_area"
+    equipment = "equipment"
+
+
+class PmUnitSource(StrEnum):
+    manual = "manual"
+    csv = "csv"
+    pms = "pms"
+
+
+class PmTemplateMode(StrEnum):
+    sweep = "sweep"
+    scheduled = "scheduled"
+
+
+class PmCadence(StrEnum):
+    monthly = "monthly"
+    quarterly = "quarterly"
+    semiannual = "semiannual"
+    annual = "annual"
+
+
+class PmItemType(StrEnum):
+    checkbox = "checkbox"
+    text = "text"
+    number = "number"
+    photo = "photo"
+
+
+class PmCycleStatus(StrEnum):
+    open = "open"
+    closed = "closed"
+
+
+class PmRunStatus(StrEnum):
+    pending = "pending"
+    in_progress = "in_progress"
+    completed = "completed"
+    passed = "passed"
+    failed = "failed"
+    missed = "missed"
