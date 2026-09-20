@@ -6,6 +6,7 @@ import { CategoriesAdmin } from './CategoriesAdmin'
 import { DepartmentsAdmin } from './DepartmentsAdmin'
 import { PropertySettingsAdmin } from './PropertySettingsAdmin'
 import { QuickRepliesAdmin } from './QuickRepliesAdmin'
+import { UnitsAdmin } from './UnitsAdmin'
 import { UsersAdmin } from './UsersAdmin'
 
 // Shared with the Ctrl+K palette so the two can never disagree about what Admin contains;
@@ -58,6 +59,7 @@ export function AdminPage() {
         <Route path="assets" element={<AssetsAdmin />} />
         <Route path="categories" element={<CategoriesAdmin />} />
         <Route path="property" element={<PropertySettingsAdmin />} />
+        <Route path="units" element={<UnitsAdmin />} />
       </Routes>
     </div>
   )

@@ -86,6 +86,8 @@ export const ADMIN_SECTIONS = [
   { to: '/app/admin/assets', label: 'Digital assets' },
   { to: '/app/admin/categories', label: 'Resolution categories' },
   { to: '/app/admin/property', label: 'Property settings' },
+  { to: '/app/admin/units', label: 'Maintainable units' },
+  { to: '/app/admin/pm-templates', label: 'PM templates' },
 ]
 
 /** Whether `pathname` is inside this item's section. Compared by whole path segments, so
