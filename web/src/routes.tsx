@@ -2,7 +2,7 @@ import { Suspense, lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useSession } from './auth/SessionContext'
 import { RequireAuth } from './auth/RequireAuth'
-import { landingPath } from './auth/capabilities'
+import { type Capability, landingPath } from './auth/capabilities'
 import { AppLayout } from './AppLayout'
 import { Spinner } from './components/ui'
 import { LoginPage } from './features/login/LoginPage'
@@ -16,6 +16,7 @@ import { LogPage } from './features/log/LogPage'
 import { AdminPage } from './features/admin/AdminPage'
 import { SweepPage } from './features/pm/SweepPage'
 import { RunPage } from './features/pm/RunPage'
+import { InspectionPage } from './features/pm/InspectionPage'
 
 function LandingRedirect() {
   const { role } = useSession()
@@ -26,7 +27,7 @@ function RequireCapability({
   capability,
   children,
 }: {
-  capability: 'manage_admin' | 'view_property_analytics'
+  capability: Capability
   children: JSX.Element
 }) {
   const { can, role } = useSession()
@@ -64,6 +65,14 @@ export function AppRoutes() {
           <Route path="log" element={<LogPage />} />
           <Route path="pm" element={<SweepPage />} />
           <Route path="pm/runs/:id" element={<RunPage />} />
+          <Route
+            path="inspection"
+            element={
+              <RequireCapability capability="inspect_pm">
+                <InspectionPage />
+              </RequireCapability>
+            }
+          />
           <Route
             path="admin/*"
             element={
