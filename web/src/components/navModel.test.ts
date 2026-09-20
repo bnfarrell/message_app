@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NAV_GROUPS, isNavItemActive } from './navModel'
+import { NAV_GROUPS, isNavItemActive, visibleNavGroups } from './navModel'
 
 const item = (label: string) =>
   NAV_GROUPS.flatMap((group) => group.items).find((i) => i.label === label)!
@@ -25,5 +25,13 @@ describe('isNavItemActive', () => {
     expect(isNavItemActive(inbox, '/app/inbox')).toBe(true)
     expect(isNavItemActive(inbox, '/app/inbox/c-1')).toBe(true)
     expect(isNavItemActive(inbox, '/app/board')).toBe(false)
+  })
+})
+
+describe('visibleNavGroups', () => {
+  it('shows the Log entry to every staff role', () => {
+    const groups = visibleNavGroups(() => false) // no capabilities at all
+    const items = groups.flatMap((g) => g.items)
+    expect(items.find((i) => i.to === '/app/log')).toBeTruthy()
   })
 })

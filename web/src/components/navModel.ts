@@ -33,6 +33,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: 'Board', to: '/app/board', icon: 'board', needs: ['create_work_order', 'close_work_order'], match: ['/app/board', '/app/work-orders'] },
       { label: 'Alerts', to: '/app/notifications', icon: 'alerts', needs: [] },
       { label: 'Messages', to: '/app/messages', icon: 'inbox', needs: [] },
+      { label: 'Log', to: '/app/log', icon: 'log', needs: [] },
     ],
   },
   {

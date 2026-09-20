@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCountdown, formatDuration, relativeTime } from './time'
+import { dayKey, formatCountdown, formatDuration, relativeTime } from './time'
 
 describe('formatCountdown', () => {
   it('formats remaining time as mm:ss', () => {
@@ -39,6 +39,26 @@ describe('relativeTime', () => {
 
   it('shows whole days beyond that', () => {
     expect(relativeTime('2026-09-08T19:00:00Z', now)).toBe('2d')
+  })
+})
+
+describe('dayKey', () => {
+  it('returns the viewer local calendar day as YYYY-MM-DD', () => {
+    // Built from local Date components, not an ISO string, so this is independent of
+    // whatever timezone the test runner happens to be in.
+    expect(dayKey(new Date(2026, 8, 10, 9, 15).toISOString())).toBe('2026-09-10')
+  })
+
+  it('keys two timestamps on the same local day the same, regardless of time of day', () => {
+    const morning = new Date(2026, 8, 10, 0, 1).toISOString()
+    const night = new Date(2026, 8, 10, 23, 59).toISOString()
+    expect(dayKey(morning)).toBe(dayKey(night))
+  })
+
+  it('keys timestamps on either side of local midnight differently', () => {
+    const before = new Date(2026, 8, 10, 23, 59).toISOString()
+    const after = new Date(2026, 8, 11, 0, 1).toISOString()
+    expect(dayKey(before)).not.toBe(dayKey(after))
   })
 })
 

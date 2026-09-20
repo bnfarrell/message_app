@@ -12,6 +12,7 @@ import { WorkOrderDetailPage } from './features/board/WorkOrderDetailPage'
 import { AnalyticsPage } from './features/analytics/AnalyticsPage'
 import { NotificationsPage } from './features/notifications/NotificationsPage'
 import { MessagesPage } from './features/messages/MessagesPage'
+import { LogPage } from './features/log/LogPage'
 import { AdminPage } from './features/admin/AdminPage'
 
 function LandingRedirect() {
@@ -58,6 +59,7 @@ export function AppRoutes() {
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="messages" element={<MessagesPage />} />
           <Route path="messages/:id" element={<MessagesPage />} />
+          <Route path="log" element={<LogPage />} />
           <Route
             path="admin/*"
             element={

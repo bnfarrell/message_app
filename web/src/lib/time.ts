@@ -25,6 +25,15 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
   return `${Math.floor(hours / 24)}d`
 }
 
+/** The viewer's local calendar day, as `YYYY-MM-DD` — for grouping the log feed only.
+ *  Every clock in this app already renders in the viewer's zone (see `formatClock`
+ *  below), and the property timezone is not plumbed into any display component, so this
+ *  reads local Date fields rather than the property's. */
+export function dayKey(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 export function formatClock(iso: string): string {
   return new Date(iso).toLocaleTimeString([], {
     hour: '2-digit',
