@@ -55,6 +55,7 @@ def create_app(config: Config | None = None) -> Flask:
         log,
         maintainable_units,
         notifications,
+        pm,
         properties,
         quick_replies,
         short_links,
@@ -82,6 +83,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(staff_messages.directory_bp)
     app.register_blueprint(log.bp)
     app.register_blueprint(maintainable_units.bp)
+    app.register_blueprint(pm.bp)
 
     @app.after_request
     def _cors(resp):
