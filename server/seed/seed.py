@@ -13,8 +13,9 @@ from __future__ import annotations
 import random
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
@@ -23,6 +24,7 @@ from app.auth.passwords import hash_password
 from app.db import Database, run_migrations
 from app.domain import staff_messages
 from app.domain.assets import new_short_code
+from app.domain.log import shift_for
 from app.models import (
     Conversation,
     Department,
@@ -30,6 +32,8 @@ from app.models import (
     DraftPrompt,
     Guest,
     InternalNote,
+    LogEntry,
+    LogEntryMention,
     Message,
     Property,
     PropertyMembership,
@@ -50,6 +54,7 @@ from app.schemas.enums import (
     DepartmentType,
     Direction,
     DraftPromptStatus,
+    MentionTargetType,
     Priority,
     Role,
     SmsConsentStatus,
@@ -72,6 +77,7 @@ class SeedSummary:
     conversations: int
     messages: int
     work_orders: int
+    log_entries: int
 
 
 def _phone(rng: random.Random, used: set[str]) -> str:
@@ -278,6 +284,59 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
         staff_messages.send_message(db, hvh.id, all_channel.id, staff["alex"].id,
                                     body="Welcome to Relay Messages — this channel reaches "
                                         "every member of the team.")
+
+        # ---- hotel log: three entries for property A shaped to exercise the feature (spec
+        # §3) rather than to look tidy — an am shift-handover, a pinned pm announcement, and
+        # an overnight entry with an unacknowledged Housekeeping audience so the outstanding
+        # list is real on first load. Dated yesterday so the shift classification (which
+        # depends only on local time-of-day, spec §3.3) never lands in the future regardless
+        # of when this seed happens to run.
+        yesterday = today - timedelta(days=1)
+        hvh_tz = ZoneInfo(hvh.timezone)
+
+        def local_at(day, hour, minute=0):
+            return datetime.combine(day, time(hour, minute), tzinfo=hvh_tz).astimezone(UTC)
+
+        am_at = local_at(yesterday, 7, 30)
+        am_entry = LogEntry(
+            property_id=hvh.id, author_user_id=staff["ava"].id,
+            department_id=depts["front_desk"].id, shift=shift_for(hvh, am_at),
+            body=("AM CHECKLIST\nName: Ava Agent\n"
+                  f"Date: {yesterday.month}/{yesterday.day}/{yesterday.year}\n"
+                  "Shift Time: 7AM-3PM\n\n"
+                  "Arrivals expected: 12\nArrivals actual: 11\n"
+                  "Departures actual: 9\nDepartures left: 1\nOccupancy: 70.8%\n"
+                  "Notes: 412 AC repaired overnight, confirmed cool this morning. 516 "
+                  "requested late checkout to 1pm, approved.\n\n"
+                  f"@[Housekeeping](department:{depts['housekeeping'].id}) please turn the 9 "
+                  "departure rooms by noon — two are same-day sells."),
+            created_at=am_at)
+        db.add(am_entry)
+        db.flush()
+        db.add(LogEntryMention(log_entry_id=am_entry.id, property_id=hvh.id,
+                               type=MentionTargetType.department,
+                               target_id=depts["housekeeping"].id, position=0))
+
+        pm_at = local_at(yesterday, 15, 30)
+        db.add(LogEntry(
+            property_id=hvh.id, author_user_id=staff["sam"].id,
+            shift=shift_for(hvh, pm_at),
+            body=("Corporate site visit tomorrow at 10am. Please have the lobby display area "
+                  "cleared tonight and brief your teams before you leave."),
+            pinned=True, pinned_by_user_id=staff["sam"].id, pinned_at=pm_at,
+            created_at=pm_at))
+
+        overnight_at = local_at(yesterday, 2, 0)
+        db.add(LogEntry(
+            property_id=hvh.id, author_user_id=staff["marcus"].id,
+            department_id=depts["housekeeping"].id, shift=shift_for(hvh, overnight_at),
+            body=("Guest in 219 reported a leak under the bathroom sink around 1:45am. "
+                  "Engineering shut off the supply line; towels are down and the floor is wet. "
+                  "Needs a full clean and dry-out before the room can be resold."),
+            requires_ack=True,
+            ack_expected=[staff["hana"].id, staff["rosa"].id, staff["hk_sup"].id],
+            created_at=overnight_at))
+        db.flush()
 
         # ---- content
         for shortcut, title, body, dept in data.QUICK_REPLIES:
@@ -585,6 +644,7 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
             conversations=db.scalar(select(func.count()).select_from(Conversation)),
             messages=db.scalar(select(func.count()).select_from(Message)),
             work_orders=db.scalar(select(func.count()).select_from(WorkOrder)),
+            log_entries=db.scalar(select(func.count()).select_from(LogEntry)),
         )
     database.engine.dispose()
     return summary

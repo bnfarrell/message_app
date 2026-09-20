@@ -104,6 +104,7 @@ describe('CommandPalette', () => {
       'Board',
       'Alerts',
       'Messages',
+      'Log',
       'Switch to light theme',
       'Sign out',
     ])

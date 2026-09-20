@@ -38,6 +38,12 @@ export const qk = {
     ['staffConversation', propertyId, id] as const,
   staffDirectory: (propertyId: string) => ['staffDirectory', propertyId] as const,
 
+  logFeed: (propertyId: string, params: Record<string, string | boolean | null>) =>
+    ['logFeed', propertyId, params] as const,
+  logFeedAll: (propertyId: string) => ['logFeed', propertyId] as const,
+  logEntry: (propertyId: string, id: string) => ['logEntry', propertyId, id] as const,
+  logMentionables: (propertyId: string) => ['logMentionables', propertyId] as const,
+
   analyticsOverview: (propertyId: string, from: string, to: string) =>
     ['analytics', 'overview', propertyId, from, to] as const,
   analyticsAgents: (propertyId: string, from: string, to: string) =>

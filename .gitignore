@@ -20,3 +20,8 @@ __pycache__/
 
 # Real secrets. .env.example is committed; .env is not.
 .env
+
+# Local reference material, kept out of the repo by explicit instruction. images/
+# holds competitor screenshots (Kipsu exceed FCX) used to derive the hotel log and
+# later features — useful on disk, not something to redistribute in the repository.
+images/

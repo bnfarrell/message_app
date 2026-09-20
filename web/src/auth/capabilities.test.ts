@@ -47,3 +47,23 @@ describe('landingPath', () => {
     expect(landingPath('corporate')).toBe('/app/analytics')
   })
 })
+
+describe('log capabilities', () => {
+  const roles: Role[] = ['agent', 'dept_staff', 'supervisor', 'manager', 'admin', 'corporate']
+
+  it('lets every staff role read and post', () => {
+    for (const role of roles) {
+      expect(hasCapability(role, 'view_log')).toBe(true)
+      expect(hasCapability(role, 'post_log')).toBe(true)
+    }
+  })
+
+  it('restricts pinning to supervisor and above', () => {
+    expect(hasCapability('agent', 'pin_log_entry')).toBe(false)
+    expect(hasCapability('dept_staff', 'pin_log_entry')).toBe(false)
+    expect(hasCapability('corporate', 'pin_log_entry')).toBe(false)
+    expect(hasCapability('supervisor', 'pin_log_entry')).toBe(true)
+    expect(hasCapability('manager', 'pin_log_entry')).toBe(true)
+    expect(hasCapability('admin', 'pin_log_entry')).toBe(true)
+  })
+})

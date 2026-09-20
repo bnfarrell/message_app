@@ -2,13 +2,13 @@
   "name": "relay",
   "private": true,
   "scripts": {
-    "server": "cd server && python run.py",
-    "seed": "cd server && python -m seed.seed",
-    "test:server": "cd server && python -m pytest -q",
-    "schema": "cd server && python -m app.schemas.export_json_schema",
+    "server": "cd server && ..\\.venv\\Scripts\\python.exe run.py",
+    "seed": "cd server && ..\\.venv\\Scripts\\python.exe -m seed.seed",
+    "test:server": "cd server && ..\\.venv\\Scripts\\python.exe -m pytest -q",
+    "schema": "cd server && ..\\.venv\\Scripts\\python.exe -m app.schemas.export_json_schema",
     "web": "cd web && npm run dev",
     "test:web": "cd web && npm test",
     "gen:types": "cd web && npm run gen:types",
-    "dev": "echo Run npm run server and npm run web in two terminals"
+    "dev": "echo Run npm run server and npm run web in two terminals, or use start.bat"
   }
 }

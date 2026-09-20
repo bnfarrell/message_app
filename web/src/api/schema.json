@@ -995,6 +995,80 @@
       "title": "ConversationSummary",
       "type": "object"
     },
+    "CreateLogEntryRequest": {
+      "additionalProperties": false,
+      "description": "The non-file half of the body; a `photo` file part may arrive alongside it, exactly\nlike SendStaffMessageRequest.",
+      "properties": {
+        "ackAudience": {
+          "items": {
+            "$ref": "#/$defs/MentionRef"
+          },
+          "maxItems": 100,
+          "title": "Ackaudience",
+          "type": "array"
+        },
+        "body": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Body",
+          "type": "string"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "linkedConversationId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linkedconversationid"
+        },
+        "linkedWorkOrderId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linkedworkorderid"
+        },
+        "mentions": {
+          "items": {
+            "$ref": "#/$defs/MentionRef"
+          },
+          "maxItems": 100,
+          "title": "Mentions",
+          "type": "array"
+        },
+        "requiresAck": {
+          "default": false,
+          "title": "Requiresack",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "title": "CreateLogEntryRequest",
+      "type": "object"
+    },
     "CreateNoteRequest": {
       "additionalProperties": false,
       "properties": {
@@ -1804,6 +1878,395 @@
       "title": "LocationType",
       "type": "string"
     },
+    "LogAckOut": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledgedAt": {
+          "format": "date-time",
+          "title": "Acknowledgedat",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "userId": {
+          "title": "Userid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "acknowledgedAt"
+      ],
+      "title": "LogAckOut",
+      "type": "object"
+    },
+    "LogEntryOut": {
+      "additionalProperties": false,
+      "properties": {
+        "ackExpectedCount": {
+          "title": "Ackexpectedcount",
+          "type": "integer"
+        },
+        "ackedByMe": {
+          "title": "Ackedbyme",
+          "type": "boolean"
+        },
+        "acks": {
+          "items": {
+            "$ref": "#/$defs/LogAckOut"
+          },
+          "title": "Acks",
+          "type": "array"
+        },
+        "authorAvatarUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authoravatarurl"
+        },
+        "authorName": {
+          "title": "Authorname",
+          "type": "string"
+        },
+        "authorUserId": {
+          "title": "Authoruserid",
+          "type": "string"
+        },
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "canAck": {
+          "title": "Canack",
+          "type": "boolean"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "departmentName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentname"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "linkedConversationId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linkedconversationid"
+        },
+        "linkedWorkOrderId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linkedworkorderid"
+        },
+        "mentions": {
+          "items": {
+            "$ref": "#/$defs/LogMentionOut"
+          },
+          "title": "Mentions",
+          "type": "array"
+        },
+        "outstanding": {
+          "items": {
+            "$ref": "#/$defs/LogPersonOut"
+          },
+          "title": "Outstanding",
+          "type": "array"
+        },
+        "photoUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Photourl"
+        },
+        "pinned": {
+          "title": "Pinned",
+          "type": "boolean"
+        },
+        "pinnedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pinnedat"
+        },
+        "pinnedByUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pinnedbyuserid"
+        },
+        "requiresAck": {
+          "title": "Requiresack",
+          "type": "boolean"
+        },
+        "shift": {
+          "$ref": "#/$defs/Shift"
+        }
+      },
+      "required": [
+        "id",
+        "createdAt",
+        "authorUserId",
+        "authorName",
+        "shift",
+        "body",
+        "pinned",
+        "requiresAck",
+        "ackExpectedCount",
+        "ackedByMe",
+        "canAck"
+      ],
+      "title": "LogEntryOut",
+      "type": "object"
+    },
+    "LogFeedOut": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/LogEntryOut"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Nextcursor"
+        },
+        "pinned": {
+          "items": {
+            "$ref": "#/$defs/LogEntryOut"
+          },
+          "title": "Pinned",
+          "type": "array"
+        }
+      },
+      "title": "LogFeedOut",
+      "type": "object"
+    },
+    "LogFeedQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From"
+        },
+        "mentioningMe": {
+          "default": false,
+          "title": "Mentioningme",
+          "type": "boolean"
+        },
+        "shift": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Shift"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To"
+        }
+      },
+      "title": "LogFeedQuery",
+      "type": "object"
+    },
+    "LogMentionOut": {
+      "additionalProperties": false,
+      "properties": {
+        "displayName": {
+          "title": "Displayname",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/MentionTargetType"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "displayName"
+      ],
+      "title": "LogMentionOut",
+      "type": "object"
+    },
+    "LogMentionableOut": {
+      "additionalProperties": false,
+      "description": "One row of the composer's picker \u2014 a person or a department, one flat list.",
+      "properties": {
+        "displayName": {
+          "title": "Displayname",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "subtitle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subtitle"
+        },
+        "type": {
+          "$ref": "#/$defs/MentionTargetType"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "displayName"
+      ],
+      "title": "LogMentionableOut",
+      "type": "object"
+    },
+    "LogPersonOut": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "userId": {
+          "title": "Userid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "userId",
+        "name"
+      ],
+      "title": "LogPersonOut",
+      "type": "object"
+    },
     "LoginRequest": {
       "additionalProperties": false,
       "properties": {
@@ -1865,6 +2328,33 @@
       ],
       "title": "MembershipOut",
       "type": "object"
+    },
+    "MentionRef": {
+      "additionalProperties": false,
+      "description": "One @mention or one member of an acknowledgement audience.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/MentionTargetType"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "title": "MentionRef",
+      "type": "object"
+    },
+    "MentionTargetType": {
+      "enum": [
+        "user",
+        "department"
+      ],
+      "title": "MentionTargetType",
+      "type": "string"
     },
     "MessageOut": {
       "additionalProperties": false,
@@ -2977,6 +3467,15 @@
       ],
       "title": "SessionOut",
       "type": "object"
+    },
+    "Shift": {
+      "enum": [
+        "am",
+        "pm",
+        "overnight"
+      ],
+      "title": "Shift",
+      "type": "string"
     },
     "SimEvent": {
       "additionalProperties": false,

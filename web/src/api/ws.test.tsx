@@ -212,6 +212,23 @@ describe('invalidationsFor', () => {
       ),
     ).toHaveLength(0)
   })
+
+  it('invalidates the log feed on log.entry.created', () => {
+    const keys = invalidationsFor(
+      { type: 'log.entry.created', propertyId: 'p1', payload: { id: 'e1' }, at: '' },
+      'p1',
+    )
+    expect(keys).toContainEqual(['logFeed', 'p1'])
+  })
+
+  it('invalidates both feed and entry on log.entry.updated', () => {
+    const keys = invalidationsFor(
+      { type: 'log.entry.updated', propertyId: 'p1', payload: { id: 'e1' }, at: '' },
+      'p1',
+    )
+    expect(keys).toContainEqual(['logFeed', 'p1'])
+    expect(keys).toContainEqual(['logEntry', 'p1', 'e1'])
+  })
 })
 
 describe('RealtimeProvider', () => {

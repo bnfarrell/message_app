@@ -9,6 +9,7 @@ from app.models import (
     DigitalAsset,
     DraftPrompt,
     Guest,
+    LogEntry,
     Message,
     Property,
     PropertyMembership,
@@ -66,6 +67,10 @@ def test_seed_matches_spec_counts(tmp_path):
         assert count(ResolutionCategory, ResolutionCategory.property_id == hvh.id) >= 10
         assert count(Message, Message.delivery_status == DeliveryStatus.failed) >= 1
         assert db.scalar(select(UserAccount).where(UserAccount.email == "ava@hvh.test")) is not None
+        assert count(LogEntry, LogEntry.property_id == hvh.id) == 3
+        assert count(LogEntry, LogEntry.property_id == hvh.id, LogEntry.pinned.is_(True)) == 1
+        assert count(LogEntry, LogEntry.property_id == hvh.id,
+                     LogEntry.requires_ack.is_(True)) == 1
         # SeedSummary must match real rows, not an in-memory counter that a rewire can desync
         # (the showcase conversation's messages are deleted and re-added after being counted).
         assert summary.properties == count(Property)
@@ -75,6 +80,7 @@ def test_seed_matches_spec_counts(tmp_path):
         assert summary.conversations == count(Conversation)
         assert summary.messages == count(Message)
         assert summary.work_orders == count(WorkOrder)
+        assert summary.log_entries == count(LogEntry)
     db_.engine.dispose()
     assert summary.conversations == 35
     assert summary.guests == 110 and summary.stays == 113

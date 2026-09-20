@@ -86,6 +86,13 @@ export function invalidationsFor(event: ServerEvent, propertyId: string): readon
       if (conversationId) keys.push([...qk.staffConversation(propertyId, conversationId)])
       keys.push([...qk.staffConversationsAll(propertyId)])
       break
+    case 'log.entry.created':
+      keys.push([...qk.logFeedAll(propertyId)])
+      break
+    case 'log.entry.updated':
+      keys.push([...qk.logFeedAll(propertyId)])
+      if (id) keys.push([...qk.logEntry(propertyId, id)])
+      break
     default:
       break
   }
