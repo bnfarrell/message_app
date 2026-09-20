@@ -166,4 +166,18 @@ describe('WorkOrderDetailPage', () => {
     await userEvent.type(screen.getByLabelText('Comment'), 'x')
     expect(screen.getByRole('button', { name: 'Comment' })).toBeEnabled()
   })
+
+  it('links a scheduled-PM work order to its checklist', async () => {
+    serve(aWorkOrderDetail({ type: 'pm', pmRunId: 'run-9' }))
+    mount()
+    expect(await screen.findByRole('link', { name: 'Open PM checklist' })).toHaveAttribute(
+      'href', '/app/pm/runs/run-9')
+  })
+
+  it('shows no checklist link on an ordinary work order', async () => {
+    serve(aWorkOrderDetail())
+    mount()
+    await screen.findByText('#w-204')
+    expect(screen.queryByRole('link', { name: 'Open PM checklist' })).not.toBeInTheDocument()
+  })
 })

@@ -163,7 +163,10 @@ export function aWorkOrder(over: Partial<WorkOrderOut> = {}): WorkOrderOut {
 }
 
 export function aWorkOrderDetail(over: Partial<WorkOrderDetail> = {}): WorkOrderDetail {
-  return { ...aWorkOrder(), events: [], photos: [], guestName: 'Sarah Chen', roomNumber: '412', ...over }
+  return {
+    ...aWorkOrder(), events: [], photos: [], guestName: 'Sarah Chen', roomNumber: '412',
+    pmRunId: null, ...over,
+  }
 }
 
 export function aWorkOrderPhoto(over: Partial<WorkOrderPhotoOut> = {}): WorkOrderPhotoOut {

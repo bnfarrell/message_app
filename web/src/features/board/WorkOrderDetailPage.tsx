@@ -109,6 +109,14 @@ export function WorkOrderDetailPage() {
                 </Link>
               </p>
             ) : null}
+            {data.pmRunId ? (
+              <p className="mt-3 text-xs text-text3">
+                Scheduled preventative maintenance ·{' '}
+                <Link to={`/app/pm/runs/${data.pmRunId}`} className="text-accent hover:underline">
+                  Open PM checklist
+                </Link>
+              </p>
+            ) : null}
           </section>
 
           <PhotoPanel workOrderId={data.id} photos={data.photos} />
