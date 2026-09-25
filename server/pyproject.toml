@@ -29,6 +29,9 @@ dependencies = [
   # RFC 5545 RRULE expansion for scheduled PM templates (spec §3.10). Hand-rolling
   # recurrence is not an option.
   "python-dateutil>=2.9",
+  # Real SMS wire (SMS_ADAPTER=twilio). Also provides RequestValidator, which is how
+  # /api/hooks/sms/* authenticates that a callback genuinely came from Twilio.
+  "twilio>=9.11",
 ]
 
 [project.optional-dependencies]

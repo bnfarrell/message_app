@@ -104,6 +104,13 @@ server-side to a space, so the leading `+` is silently lost and the phone number
 Numbers ending in `0000` fail delivery with error `30007` so you can exercise the retry path. `STOP`, `START`
 and `HELP` behave per TCPA. The React phone simulator (web plan) wraps this in a UI.
 
+## Going live with Twilio
+Set `SMS_ADAPTER=twilio`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `PUBLIC_BASE_URL` (the
+service's public https origin — webhook signatures are verified against it). In the Twilio console
+point the number's *A message comes in* webhook at `<PUBLIC_BASE_URL>/api/hooks/sms/inbound`;
+delivery receipts arrive at `/api/hooks/sms/status`, which every send registers itself. Set the
+property's SMS number in Admin → Settings to the Twilio number in E.164 — inbound routes on it.
+
 ## API in one minute
 `POST /api/auth/login` → cookie `sid`. Everything staff-facing lives under `/api/p/<propertyId>/…`:
 `conversations`, `work-orders`, `quick-replies`, `assets`, `resolution-categories`, `users`, `departments`,

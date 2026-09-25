@@ -35,6 +35,11 @@ class Config:
     SESSION_SECRET: str = "dev-secret-change-me"
     MOCK_SMS_SECRET: str = "dev"
     SMS_ADAPTER: str = "mock"
+    # SMS_ADAPTER=twilio only. PUBLIC_BASE_URL is the https origin Twilio was given for its
+    # webhooks; signatures are computed over it, so it must match the console exactly.
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    PUBLIC_BASE_URL: str = ""
     PMS_TICK_SECONDS: int = 90
     START_WORKER: bool = False
     CORS_ORIGIN: str = "http://localhost:5173"
@@ -80,6 +85,9 @@ class Config:
             SESSION_SECRET=os.getenv("SESSION_SECRET", cls.SESSION_SECRET),
             MOCK_SMS_SECRET=os.getenv("MOCK_SMS_SECRET", cls.MOCK_SMS_SECRET),
             SMS_ADAPTER=os.getenv("SMS_ADAPTER", cls.SMS_ADAPTER),
+            TWILIO_ACCOUNT_SID=os.getenv("TWILIO_ACCOUNT_SID", ""),
+            TWILIO_AUTH_TOKEN=os.getenv("TWILIO_AUTH_TOKEN", ""),
+            PUBLIC_BASE_URL=os.getenv("PUBLIC_BASE_URL", ""),
             PMS_TICK_SECONDS=int(os.getenv("PMS_TICK_SECONDS", cls.PMS_TICK_SECONDS)),
             START_WORKER=os.getenv("START_WORKER", "0") == "1",
             CORS_ORIGIN=os.getenv("CORS_ORIGIN", cls.CORS_ORIGIN),
