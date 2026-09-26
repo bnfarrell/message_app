@@ -24,6 +24,13 @@ CAPABILITIES: dict[str, set[Role]] = {
     "view_pm": STAFF,
     "perform_pm": {Role.dept_staff, Role.supervisor, Role.manager, Role.admin},
     "inspect_pm": {Role.supervisor, Role.manager, Role.admin},
+    # Housekeeping (spec §4.2). All include admin, as above. Front desk (agent) can see the
+    # board and mark a room dirty or rush it, and nothing more.
+    "view_housekeeping": STAFF,
+    "mark_room_dirty": {Role.agent, Role.dept_staff, Role.supervisor, Role.manager, Role.admin},
+    "perform_housekeeping": {Role.dept_staff, Role.supervisor, Role.manager, Role.admin},
+    "manage_housekeeping": {Role.supervisor, Role.manager, Role.admin},
+    "inspect_housekeeping": {Role.supervisor, Role.manager, Role.admin},
 }
 
 

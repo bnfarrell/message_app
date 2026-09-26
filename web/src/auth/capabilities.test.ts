@@ -89,3 +89,20 @@ describe('pm capabilities', () => {
       expect(hasCapability(role, 'inspect_pm'), role).toBe(true)
   })
 })
+
+describe('housekeeping capabilities', () => {
+  it('mirrors server/app/auth/permissions.py', () => {
+    expect(hasCapability('corporate', 'view_housekeeping')).toBe(true)
+    expect(hasCapability('agent', 'mark_room_dirty')).toBe(true)
+    expect(hasCapability('corporate', 'mark_room_dirty')).toBe(false)
+    expect(hasCapability('agent', 'perform_housekeeping')).toBe(false)
+    expect(hasCapability('dept_staff', 'perform_housekeeping')).toBe(true)
+    expect(hasCapability('dept_staff', 'manage_housekeeping')).toBe(false)
+    expect(hasCapability('supervisor', 'manage_housekeeping')).toBe(true)
+    expect(hasCapability('supervisor', 'inspect_housekeeping')).toBe(true)
+    for (const cap of ['view_housekeeping', 'mark_room_dirty', 'perform_housekeeping',
+      'manage_housekeeping', 'inspect_housekeeping'] as const) {
+      expect(hasCapability('admin', cap)).toBe(true)
+    }
+  })
+})
