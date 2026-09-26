@@ -49,6 +49,9 @@ def _validate_schedule(schedule, shift, weekdays) -> None:
     if schedule == ChecklistSchedule.on_demand and (shift is not None or weekdays is not None):
         raise ValidationFailed("An on-demand checklist has no shift or days — it takes the shift "
                                "it is started in", details={"shift": "not_allowed"})
+    if schedule == ChecklistSchedule.unscheduled and (shift is not None or weekdays is not None):
+        raise ValidationFailed("An unscheduled checklist has no shift or days yet",
+                               details={"shift": "not_allowed"})
 
 
 def _assert_department(db: Session, property_id: str, department_id: str) -> None:
