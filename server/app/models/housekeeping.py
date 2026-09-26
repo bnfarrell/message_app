@@ -98,4 +98,4 @@ class HousekeepingPhoto(TimestampMixin, Base):
     uploaded_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("user_account.id"))
     content_type: Mapped[str] = mapped_column(String(40), nullable=False)
     byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
-    data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, deferred=True)

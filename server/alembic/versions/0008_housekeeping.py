@@ -126,7 +126,7 @@ def upgrade() -> None:
         sa.Column("uploaded_by_user_id", sa.String(length=36), nullable=True),
         sa.Column("content_type", sa.String(length=40), nullable=False),
         sa.Column("byte_size", sa.Integer(), nullable=False),
-        sa.Column("data", sa.LargeBinary(), nullable=True),
+        sa.Column("data", sa.LargeBinary(), nullable=False),
         *_timestamps(),
         sa.ForeignKeyConstraint(["assignment_id"], ["housekeeping_assignment.id"]),
         sa.ForeignKeyConstraint(["property_id"], ["property.id"]),
