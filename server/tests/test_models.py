@@ -24,6 +24,7 @@ EXPECTED_TABLES = {
     "room", "housekeeping_assignment", "room_event", "housekeeping_photo",
     "checklist_template", "checklist_template_item", "checklist_instance", "checklist_answer",
     "checklist_photo",
+    "log_template", "log_template_field", "log_template_audience", "log_entry_field_value",
 }
 
 

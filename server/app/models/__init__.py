@@ -11,7 +11,16 @@ from app.models.core import Department, Property, PropertyMembership, UserAccoun
 from app.models.guests import Guest, Stay
 from app.models.housekeeping import HousekeepingAssignment, HousekeepingPhoto, Room, RoomEvent
 from app.models.infra import AuditLog, Job, Notification, PmsEvent, UserSession
-from app.models.log import LogEntry, LogEntryAck, LogEntryMention, LogEntryPhoto
+from app.models.log import (
+    LogEntry,
+    LogEntryAck,
+    LogEntryFieldValue,
+    LogEntryMention,
+    LogEntryPhoto,
+    LogTemplate,
+    LogTemplateAudience,
+    LogTemplateField,
+)
 from app.models.pm import (
     MaintainableUnit,
     PmCycle,
@@ -34,7 +43,8 @@ __all__ = [
     "AuditLog", "ChecklistAnswer", "ChecklistInstance", "ChecklistPhoto", "ChecklistTemplate",
     "ChecklistTemplateItem", "Conversation", "Department", "DigitalAsset", "DraftPrompt", "Guest",
     "HousekeepingAssignment", "HousekeepingPhoto", "InternalNote", "Job", "LogEntry",
-    "LogEntryAck", "LogEntryMention", "LogEntryPhoto",
+    "LogEntryAck", "LogEntryFieldValue", "LogEntryMention", "LogEntryPhoto", "LogTemplate",
+    "LogTemplateAudience", "LogTemplateField",
     "MaintainableUnit", "Message", "Notification", "PmsEvent", "PmCycle", "PmRun",
     "PmRunAnswer", "PmRunPhoto", "PmTemplate", "PmTemplateItem", "PmTemplateUnit", "Property",
     "PropertyMembership", "QuickReply", "ResolutionCategory", "Room", "RoomEvent",

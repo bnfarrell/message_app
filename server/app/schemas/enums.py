@@ -259,3 +259,11 @@ class ChecklistStatus(StrEnum):
     in_progress = "in_progress"
     complete = "complete"
     missed = "missed"
+
+
+class LogFieldType(StrEnum):
+    short_text = "short_text"
+    long_text = "long_text"
+    integer = "integer"
+    decimal = "decimal"
+    percent = "percent"

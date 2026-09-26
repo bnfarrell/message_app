@@ -17,7 +17,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base, UTCDateTime
 from app.models.core import TimestampMixin, enum_type
-from app.schemas.enums import MentionTargetType, Shift
+from app.models.pm import READING
+from app.schemas.enums import LogFieldType, MentionTargetType, Shift
 
 
 class LogEntry(TimestampMixin, Base):
@@ -47,6 +48,8 @@ class LogEntry(TimestampMixin, Base):
     ack_expected: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     linked_work_order_id: Mapped[str | None] = mapped_column(ForeignKey("work_order.id"))
     linked_conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversation.id"))
+    # Set on a templated post (log templates spec §2.1); free-form posts leave it null.
+    template_id: Mapped[str | None] = mapped_column(ForeignKey("log_template.id"))
 
 
 class LogEntryMention(TimestampMixin, Base):
@@ -101,3 +104,65 @@ class LogEntryAck(TimestampMixin, Base):
     property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("user_account.id"), nullable=False)
     acknowledged_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+
+
+class LogTemplate(TimestampMixin, Base):
+    """A structured shift-report form (log templates spec §2.1). Retired with `active = false`,
+    never deleted, so old posts keep their link."""
+
+    __tablename__ = "log_template"
+    property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    shift: Mapped[Shift | None] = mapped_column(enum_type(Shift))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("user_account.id"), nullable=False)
+
+
+class LogTemplateField(TimestampMixin, Base):
+    """Soft-deleted via `active`, so a post's value rows keep the field they answered."""
+
+    __tablename__ = "log_template_field"
+    template_id: Mapped[str] = mapped_column(ForeignKey("log_template.id"), nullable=False,
+                                             index=True)
+    property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    field_type: Mapped[LogFieldType] = mapped_column(enum_type(LogFieldType), nullable=False)
+    required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class LogTemplateAudience(TimestampMixin, Base):
+    """Who may post with a template. No rows = everyone at the property (spec §2.1)."""
+
+    __tablename__ = "log_template_audience"
+    __table_args__ = (
+        UniqueConstraint("template_id", "type", "target_id",
+                         name="uq_log_template_audience_target"),
+    )
+    template_id: Mapped[str] = mapped_column(ForeignKey("log_template.id"), nullable=False,
+                                             index=True)
+    property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
+    type: Mapped[MentionTargetType] = mapped_column(enum_type(MentionTargetType), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+
+
+class LogEntryFieldValue(TimestampMixin, Base):
+    """One answered field of a templated post. `label` and `field_type` are snapshots, so
+    editing the template never changes a past post; written once, never updated (spec §2.1)."""
+
+    __tablename__ = "log_entry_field_value"
+    __table_args__ = (
+        UniqueConstraint("log_entry_id", "field_id", name="uq_log_field_value_entry_field"),
+        Index("ix_log_field_value_property_field", "property_id", "field_id"),
+    )
+    log_entry_id: Mapped[str] = mapped_column(ForeignKey("log_entry.id"), nullable=False,
+                                              index=True)
+    property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False)
+    field_id: Mapped[str] = mapped_column(ForeignKey("log_template_field.id"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    field_type: Mapped[LogFieldType] = mapped_column(enum_type(LogFieldType), nullable=False)
+    text_value: Mapped[str | None] = mapped_column(Text)
+    number_value: Mapped[float | None] = mapped_column(READING)
