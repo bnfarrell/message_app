@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionProvider } from '../../auth/SessionContext'
 import { sessionFixture, testQueryClient } from '../../test/harness'
 import { qk } from '../queryKeys'
-import { useCreateLogEntry } from './log'
+import { useAdminLogTemplates, useCreateLogEntry, useLogTemplates, usePatchLogTemplate } from './log'
 
 function serve(status = 201, body: unknown = { id: 'e-1' }) {
   vi.mocked(fetch).mockImplementation(() =>
@@ -60,5 +60,61 @@ describe('useCreateLogEntry', () => {
     // which sends the whole object.
     expect(form.get('linkedWorkOrderId')).toBe('wo-1')
     expect(form.get('linkedConversationId')).toBe('conv-1')
+  })
+
+  it('carries templateId and fieldValues over multipart, and an empty body for notes', async () => {
+    const client = testQueryClient()
+    client.setQueryData(qk.session, sessionFixture({ role: 'agent' }))
+    const { result } = renderHook(() => useCreateLogEntry(), { wrapper: wrapper(client) })
+
+    const photo = new File(['bytes'], 'x.png', { type: 'image/png' })
+    const fieldValues = [{ fieldId: 'f-occ', value: 87 }]
+    act(() => {
+      result.current.mutate({ templateId: 't-night', fieldValues, photo })
+    })
+
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
+    const form = vi.mocked(fetch).mock.calls[0]![1]!.body as FormData
+    expect(form.get('templateId')).toBe('t-night')
+    expect(JSON.parse(String(form.get('fieldValues')))).toEqual(fieldValues)
+    expect(form.get('body')).toBe('')
+  })
+})
+
+describe('log template hooks', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+    serve(200, [])
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reads the picker from log-entries/templates and the admin list from log-templates', async () => {
+    const client = testQueryClient()
+    client.setQueryData(qk.session, sessionFixture({ role: 'admin' }))
+    renderHook(() => { useLogTemplates(); useAdminLogTemplates() }, { wrapper: wrapper(client) })
+
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2))
+    const urls = vi.mocked(fetch).mock.calls.map(([input]) => String(input))
+    expect(urls).toContain('/api/p/prop-a/log-entries/templates')
+    expect(urls).toContain('/api/p/prop-a/log-templates')
+  })
+
+  it('patches by id and refreshes both template lists', async () => {
+    const client = testQueryClient()
+    client.setQueryData(qk.session, sessionFixture({ role: 'admin' }))
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+    const { result } = renderHook(() => usePatchLogTemplate(), { wrapper: wrapper(client) })
+
+    act(() => {
+      result.current.mutate({ id: 't-1', active: false })
+    })
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['logTemplates', 'prop-a'] }))
+    const [input, init] = vi.mocked(fetch).mock.calls[0]!
+    expect(String(input)).toBe('/api/p/prop-a/log-templates/t-1')
+    expect(init!.method).toBe('PATCH')
+    expect(JSON.parse(String(init!.body))).toEqual({ active: false })
   })
 })

@@ -43,6 +43,9 @@ export const qk = {
   logFeedAll: (propertyId: string) => ['logFeed', propertyId] as const,
   logEntry: (propertyId: string, id: string) => ['logEntry', propertyId, id] as const,
   logMentionables: (propertyId: string) => ['logMentionables', propertyId] as const,
+  logTemplatesAll: (propertyId: string) => ['logTemplates', propertyId] as const,
+  logTemplatesUsable: (propertyId: string) => ['logTemplates', propertyId, 'usable'] as const,
+  logTemplatesAdmin: (propertyId: string) => ['logTemplates', propertyId, 'admin'] as const,
 
   pmAll: (propertyId: string) => ['pm', propertyId] as const,
   pmUnits: (propertyId: string, params: Record<string, string | boolean | null>) =>

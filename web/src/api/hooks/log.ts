@@ -7,6 +7,9 @@ import type {
   LogEntryOut,
   LogFeedOut,
   LogMentionableOut,
+  LogTemplateIn,
+  LogTemplateOut,
+  LogTemplatePatch,
 } from '../types'
 
 export type LogFeedParams = {
@@ -89,6 +92,8 @@ export function useCreateLogEntry() {
       if (rest.ackAudience?.length) form.set('ackAudience', JSON.stringify(rest.ackAudience))
       if (rest.linkedWorkOrderId) form.set('linkedWorkOrderId', rest.linkedWorkOrderId)
       if (rest.linkedConversationId) form.set('linkedConversationId', rest.linkedConversationId)
+      if (rest.templateId) form.set('templateId', rest.templateId)
+      if (rest.fieldValues?.length) form.set('fieldValues', JSON.stringify(rest.fieldValues))
       form.set('photo', photo)
       return api<LogEntryOut>(propertyPath(propertyId, 'log-entries'), {
         method: 'POST',
@@ -97,9 +102,51 @@ export function useCreateLogEntry() {
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: qk.logFeedAll(propertyId) })
+      // A templated post moves its template's usage count on the admin screen.
+      void client.invalidateQueries({ queryKey: qk.logTemplatesAll(propertyId) })
     },
   })
 }
+
+/** The composer's picker: active templates the caller may post with, current shift first. */
+export function useLogTemplates() {
+  const { propertyId } = useSession()
+  return useQuery<LogTemplateOut[], ApiError>({
+    queryKey: qk.logTemplatesUsable(propertyId),
+    queryFn: () => api<LogTemplateOut[]>(propertyPath(propertyId, 'log-entries/templates')),
+  })
+}
+
+/** Admin → Log templates: every template, inactive included, with its usage count. */
+export function useAdminLogTemplates() {
+  const { propertyId } = useSession()
+  return useQuery<LogTemplateOut[], ApiError>({
+    queryKey: qk.logTemplatesAdmin(propertyId),
+    queryFn: () => api<LogTemplateOut[]>(propertyPath(propertyId, 'log-templates')),
+  })
+}
+
+/** Template edits emit no realtime event (spec §3.4), so both lists refetch from here. */
+function useLogTemplateWrite<TVars>(send: (propertyId: string, vars: TVars) => Promise<LogTemplateOut>) {
+  const { propertyId } = useSession()
+  const client = useQueryClient()
+  return useMutation<LogTemplateOut, ApiError, TVars>({
+    mutationFn: (vars) => send(propertyId, vars),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: qk.logTemplatesAll(propertyId) })
+    },
+  })
+}
+
+export const useCreateLogTemplate = () =>
+  useLogTemplateWrite<LogTemplateIn>((p, body) =>
+    api<LogTemplateOut>(propertyPath(p, 'log-templates'), { method: 'POST', json: body }),
+  )
+
+export const usePatchLogTemplate = () =>
+  useLogTemplateWrite<LogTemplatePatch & { id: string }>((p, { id, ...patch }) =>
+    api<LogTemplateOut>(propertyPath(p, `log-templates/${id}`), { method: 'PATCH', json: patch }),
+  )
 
 export function useAckLogEntry() {
   const { propertyId } = useSession()
