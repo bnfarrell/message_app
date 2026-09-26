@@ -38,7 +38,7 @@ export function LibraryImportDialog({ open, onClose, onImported }: {
     setKey(entry.key)
     // Suggest the first department of the entry's type; the admin can pick another.
     const match = (departments ?? []).find((d) => d.type === entry.departmentType)
-    if (match) setDepartmentId(match.id)
+    setDepartmentId(match?.id ?? '')
   }
 
   return (

@@ -12,6 +12,8 @@ const LIBRARY: ChecklistLibraryEntryOut[] = [
     categories: [{ name: 'Pre-audit', itemCount: 2 }, { name: 'Handover', itemCount: 2 }], itemCount: 4 },
   { key: 'pool_spa', name: 'Pool & Spa Readings', kind: 'readings', departmentType: 'engineering',
     categories: [], itemCount: 5 },
+  { key: 'security_rounds', name: 'Security Rounds', kind: 'normal', departmentType: 'security',
+    categories: [], itemCount: 3 },
 ]
 
 const IMPORTED: ChecklistTemplateOut = {
@@ -91,6 +93,17 @@ describe('Import from library', () => {
     expect(screen.getByLabelText('Name')).toHaveValue('Night Audit')
     expect(screen.getByRole('radio', { name: 'Not scheduled yet' })).toBeChecked()
     expect(screen.getByLabelText('Name for category 1')).toHaveValue('Pre-audit')
+  })
+
+  it('clears the department when the newly chosen entry matches none', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByRole('button', { name: 'Import from library' }))
+    await user.click(await screen.findByRole('radio', { name: /Night Audit/ }))
+    expect(screen.getByLabelText('Department', { selector: '#library-dept' })).toHaveValue('dept-fd')
+    await user.click(await screen.findByRole('radio', { name: /Security Rounds/ }))
+    expect(screen.getByLabelText('Department', { selector: '#library-dept' })).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled()
   })
 
   it('shows a refused import inside the dialog', async () => {

@@ -183,7 +183,14 @@ export function ChecklistTemplatesAdmin() {
           ) : error ? (
             <EmptyState title="Could not load templates" hint={error.message} />
           ) : rows.length === 0 ? (
-            <EmptyState title="No checklist templates" hint="A weekly template repeats on a shift and chosen days; an on-demand one is started manually." />
+            <EmptyState
+              title={
+                kindFilter && all.length > 0
+                  ? `No ${KIND_LABELS[kindFilter].toLowerCase()} checklists`
+                  : 'No checklist templates'
+              }
+              hint="A weekly template repeats on a shift and chosen days; an on-demand one is started manually."
+            />
           ) : (
             <div className="rounded-card border border-border2 bg-surface">
               <AdminTable columns={columns} rows={rows} selectedId={selected?.id ?? null} onSelect={open} />
@@ -283,8 +290,8 @@ export function ChecklistTemplatesAdmin() {
             </>
           ) : draft.schedule === 'unscheduled' ? (
             <p className="text-xs text-text3">
-              Saved without a schedule, it never appears on the Checklists page. Pick Weekly or On
-              demand when it is ready.
+              No checklists are created from it until you schedule it. Pick Weekly or On demand
+              when it is ready.
             </p>
           ) : null}
 

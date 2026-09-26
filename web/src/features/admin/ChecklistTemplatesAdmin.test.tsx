@@ -179,4 +179,26 @@ describe('ChecklistTemplatesAdmin', () => {
     expect(screen.getByText('Night Audit')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Normal 1' })).toBeInTheDocument()
   })
+
+  it('shows the plain empty state when there are no templates at all', async () => {
+    templates = []
+    mount()
+    expect(await screen.findByText('No checklist templates')).toBeInTheDocument()
+  })
+
+  it('names the active kind filter in the empty state when it hides every row', async () => {
+    templates = [NIGHT] // kind normal
+    mount()
+    await screen.findByText('Night Audit')
+    await userEvent.click(screen.getByRole('button', { name: 'Readings 0' }))
+    expect(await screen.findByText('No readings checklists')).toBeInTheDocument()
+  })
+
+  it('says no checklists are created from an unscheduled template until it is scheduled', async () => {
+    await startNew('Pool')
+    await userEvent.click(screen.getByRole('radio', { name: 'Not scheduled yet' }))
+    expect(screen.getByText('No checklists are created from it until you schedule it.', { exact: false }))
+      .toBeInTheDocument()
+    expect(screen.queryByText(/never appears on the Checklists page/)).not.toBeInTheDocument()
+  })
 })
