@@ -85,6 +85,19 @@ class LogPersonOut(CamelModel):
     name: str
 
 
+class LogTemplateRef(CamelModel):
+    id: str
+    name: str
+
+
+class LogFieldValueOut(CamelModel):
+    field_id: str
+    label: str
+    field_type: LogFieldType
+    text_value: str | None = None
+    number_value: float | None = None
+
+
 class LogEntryOut(CamelModel):
     id: str
     created_at: datetime
@@ -108,6 +121,12 @@ class LogEntryOut(CamelModel):
     photo_url: str | None = None
     linked_work_order_id: str | None = None
     linked_conversation_id: str | None = None
+    template: LogTemplateRef | None = None
+    field_values: list[LogFieldValueOut] = Field(default_factory=list)
+    # The author's notes on a templated post — the body minus its generated field summary — so
+    # the card can show the values as a table without repeating them (spec §4.2). None on a
+    # free-form post, whose `body` is already the whole text.
+    notes: str | None = None
 
 
 class LogFeedOut(CamelModel):

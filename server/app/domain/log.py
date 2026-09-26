@@ -20,6 +20,7 @@ from app.models import (
     LogEntryFieldValue,
     LogEntryMention,
     LogEntryPhoto,
+    LogTemplate,
     Property,
     PropertyMembership,
     UserAccount,
@@ -35,9 +36,11 @@ from app.schemas.log import (
     LogEntryOut,
     LogFeedOut,
     LogFeedQuery,
+    LogFieldValueOut,
     LogMentionableOut,
     LogMentionOut,
     LogPersonOut,
+    LogTemplateRef,
     MentionRef,
 )
 
@@ -272,6 +275,19 @@ def _to_out(db: Session, entries: list[LogEntry], viewer_user_id: str) -> list[L
     has_photo = set(db.scalars(select(LogEntryPhoto.log_entry_id)
                                .where(LogEntryPhoto.log_entry_id.in_(ids))).all())
 
+    # A templated post names its template by the template's current name (a deactivated one
+    # included); its values come from the value rows' own snapshots (log templates spec §2.1).
+    template_ids = {e.template_id for e in entries if e.template_id}
+    template_names = dict(db.execute(
+        select(LogTemplate.id, LogTemplate.name)
+        .where(LogTemplate.property_id == property_id,
+               LogTemplate.id.in_(template_ids))).all()) if template_ids else {}
+    values: dict[str, list[LogEntryFieldValue]] = {i: [] for i in ids}
+    for row in db.scalars(select(LogEntryFieldValue)
+                          .where(LogEntryFieldValue.log_entry_id.in_(ids))
+                          .order_by(LogEntryFieldValue.position)).all():
+        values[row.log_entry_id].append(row)
+
     out: list[LogEntryOut] = []
     for e in entries:
         acked = {a.user_id for a in acks[e.id]}
@@ -294,6 +310,14 @@ def _to_out(db: Session, entries: list[LogEntry], viewer_user_id: str) -> list[L
             photo_url=photo_url(e.property_id, e.id) if e.id in has_photo else None,
             linked_work_order_id=e.linked_work_order_id,
             linked_conversation_id=e.linked_conversation_id,
+            template=(LogTemplateRef(id=e.template_id,
+                                     name=template_names.get(e.template_id, "Template"))
+                      if e.template_id else None),
+            field_values=[LogFieldValueOut(field_id=v.field_id, label=v.label,
+                                           field_type=v.field_type, text_value=v.text_value,
+                                           number_value=v.number_value)
+                          for v in values[e.id]],
+            notes=log_templates.notes_of(e.body, values[e.id]) if e.template_id else None,
         ))
     return out
 

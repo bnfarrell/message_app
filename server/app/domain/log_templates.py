@@ -12,7 +12,8 @@ import math
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.domain import audit
+from app import clock
+from app.domain import audit, shifts
 from app.errors import Forbidden, NotFound, ValidationFailed
 from app.models import (
     Department,
@@ -21,6 +22,7 @@ from app.models import (
     LogTemplate,
     LogTemplateAudience,
     LogTemplateField,
+    Property,
     PropertyMembership,
 )
 from app.schemas.enums import LogFieldType, MentionTargetType, Role
@@ -318,3 +320,33 @@ def summary(values: list) -> str:
     number_value), so the read side rebuilds exactly the text the write side stored."""
     return "\n".join(f"{v.label}: {format_value(v.field_type, v.text_value, v.number_value)}"
                      for v in values)
+
+
+def notes_of(body: str, values: list) -> str | None:
+    """The author's notes: the body minus the generated summary and the blank line after it."""
+    head = summary(values)
+    rest = body[len(head):] if head and body.startswith(head) else body
+    return rest.removeprefix("\n\n").strip() or None
+
+
+# ---- the two lists (spec §3.2) --------------------------------------------------------------
+
+
+def list_admin(db: Session, property_id: str) -> list[LogTemplateOut]:
+    """Every template, inactive included, for Admin → Log templates."""
+    rows = db.scalars(select(LogTemplate).where(LogTemplate.property_id == property_id)
+                      .order_by(LogTemplate.position, LogTemplate.name, LogTemplate.id)).all()
+    return _outs(db, property_id, list(rows))
+
+
+def list_usable(db: Session, property_id: str, user_id: str) -> list[LogTemplateOut]:
+    """The composer's picker: active templates the caller may post with, the current shift's
+    first, then untagged and other shifts, each group by position then name."""
+    rows = list(db.scalars(select(LogTemplate).where(LogTemplate.property_id == property_id,
+                                                     LogTemplate.active.is_(True))).all())
+    audiences = _audiences(db, [t.id for t in rows])
+    membership = _membership(db, property_id, user_id)
+    usable = [t for t in rows if _allowed(membership, audiences[t.id])]
+    _, current = shifts.current_shift(db.get(Property, property_id), clock.now())
+    usable.sort(key=lambda t: (t.shift != current, t.position, t.name, t.id))
+    return _outs(db, property_id, usable)

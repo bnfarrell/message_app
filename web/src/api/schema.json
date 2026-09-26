@@ -3781,6 +3781,13 @@
           "default": null,
           "title": "Departmentname"
         },
+        "fieldValues": {
+          "items": {
+            "$ref": "#/$defs/LogFieldValueOut"
+          },
+          "title": "Fieldvalues",
+          "type": "array"
+        },
         "id": {
           "title": "Id",
           "type": "string"
@@ -3815,6 +3822,18 @@
           },
           "title": "Mentions",
           "type": "array"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
         },
         "outstanding": {
           "items": {
@@ -3870,6 +3889,17 @@
         },
         "shift": {
           "$ref": "#/$defs/Shift"
+        },
+        "template": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LogTemplateRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -4034,6 +4064,53 @@
         "fieldId"
       ],
       "title": "LogFieldValueIn",
+      "type": "object"
+    },
+    "LogFieldValueOut": {
+      "additionalProperties": false,
+      "properties": {
+        "fieldId": {
+          "title": "Fieldid",
+          "type": "string"
+        },
+        "fieldType": {
+          "$ref": "#/$defs/LogFieldType"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "numberValue": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numbervalue"
+        },
+        "textValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Textvalue"
+        }
+      },
+      "required": [
+        "fieldId",
+        "label",
+        "fieldType"
+      ],
+      "title": "LogFieldValueOut",
       "type": "object"
     },
     "LogMentionOut": {
@@ -4376,6 +4453,25 @@
         }
       },
       "title": "LogTemplatePatch",
+      "type": "object"
+    },
+    "LogTemplateRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "LogTemplateRef",
       "type": "object"
     },
     "LoginRequest": {

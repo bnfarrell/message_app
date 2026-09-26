@@ -585,12 +585,23 @@ export type Canack = boolean;
 export type Createdat6 = string;
 export type Departmentid14 = string | null;
 export type Departmentname4 = string | null;
+export type Fieldid1 = string;
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "LogFieldType".
+ */
+export type LogFieldType = 'short_text' | 'long_text' | 'integer' | 'decimal' | 'percent';
+export type Label2 = string;
+export type Numbervalue2 = number | null;
+export type Textvalue2 = string | null;
+export type Fieldvalues1 = LogFieldValueOut[];
 export type Id26 = string;
 export type Linkedconversationid1 = string | null;
 export type Linkedworkorderid1 = string | null;
 export type Displayname = string;
 export type Id27 = string;
 export type Mentions2 = LogMentionOut[];
+export type Notes2 = string | null;
 export type Name18 = string;
 export type Userid5 = string;
 export type Outstanding = LogPersonOut[];
@@ -599,6 +610,8 @@ export type Pinned = boolean;
 export type Pinnedat = string | null;
 export type Pinnedbyuserid = string | null;
 export type Requiresack1 = boolean;
+export type Id28 = string;
+export type Name19 = string;
 export type Entries = LogEntryOut[];
 export type Nextcursor = string | null;
 export type Pinned1 = LogEntryOut[];
@@ -607,20 +620,15 @@ export type Departmentid15 = string | null;
 export type From1 = string | null;
 export type Mentioningme = boolean;
 export type To1 = string | null;
-/**
- * This interface was referenced by `RelayAPI`'s JSON-Schema
- * via the `definition` "LogFieldType".
- */
-export type LogFieldType = 'short_text' | 'long_text' | 'integer' | 'decimal' | 'percent';
 export type Displayname1 = string;
-export type Id28 = string;
+export type Id29 = string;
 export type Subtitle = string | null;
-export type Id29 = string | null;
-export type Label2 = string;
+export type Id30 = string | null;
+export type Label3 = string;
 export type Required2 = boolean;
 export type Active13 = boolean;
-export type Id30 = string;
-export type Label3 = string;
+export type Id31 = string;
+export type Label4 = string;
 export type Position1 = number;
 export type Required3 = boolean;
 export type Active14 = boolean;
@@ -633,18 +641,18 @@ export type Audience = MentionRef[];
  * @maxItems 50
  */
 export type Fields = [LogTemplateFieldIn, ...LogTemplateFieldIn[]];
-export type Name19 = string;
+export type Name20 = string;
 export type Active15 = boolean;
 export type Audience1 = MentionRef[];
 export type Fields1 = LogTemplateFieldOut[];
-export type Id31 = string;
-export type Name20 = string;
+export type Id32 = string;
+export type Name21 = string;
 export type Position2 = number;
 export type Usedcount = number;
 export type Active16 = boolean | null;
 export type Audience2 = MentionRef[] | null;
 export type Fields2 = [LogTemplateFieldIn, ...LogTemplateFieldIn[]] | null;
-export type Name21 = string | null;
+export type Name22 = string | null;
 export type Email2 = string;
 export type Password1 = string;
 export type Departmentid16 = string | null;
@@ -655,13 +663,13 @@ export type Body7 = string | null;
 export type Createdat7 = string;
 export type Entityid = string | null;
 export type Entitytype = string | null;
-export type Id32 = string;
+export type Id33 = string;
 export type Readat = string | null;
 export type Title2 = string;
 export type Type = string;
 export type Conversations = number;
 export type Count2 = number;
-export type Label4 = string;
+export type Label5 = string;
 export type Share = number;
 export type Firstresponsedistribution = ResponseBucket[];
 export type Firstresponsep50Seconds1 = number | null;
@@ -698,9 +706,9 @@ export type Brand = string | null;
 export type Code1 = string;
 export type Currency = string;
 export type Helptext = string | null;
-export type Id33 = string;
+export type Id34 = string;
 export type Logourl = string | null;
-export type Name22 = string;
+export type Name23 = string;
 export type Phone2 = string | null;
 export type Primarycolor = string | null;
 export type Slaminutes = number;
@@ -712,7 +720,7 @@ export type Brand1 = string | null;
 export type Currency1 = string | null;
 export type Helptext1 = string | null;
 export type Logourl1 = string | null;
-export type Name23 = string | null;
+export type Name24 = string | null;
 export type Phone3 = string | null;
 export type Primarycolor1 = string | null;
 export type Slaminutes1 = number | null;
@@ -729,7 +737,7 @@ export type Active18 = boolean;
 export type Body10 = string;
 export type Category4 = string | null;
 export type Departmentid18 = string | null;
-export type Id34 = string;
+export type Id35 = string;
 export type Locale1 = string;
 export type Shortcut1 = string;
 export type Title4 = string;
@@ -749,7 +757,7 @@ export type Answers1 = RunAnswerOut[];
 export type Completedat4 = string | null;
 export type Cycleid = string | null;
 export type Dueat1 = string | null;
-export type Id35 = string;
+export type Id36 = string;
 export type Inspectedat2 = string | null;
 export type Inspectedbyname2 = string | null;
 export type Inspectedbyuserid = string | null;
@@ -774,7 +782,7 @@ export type Memberships = MembershipOut[];
 export type Avatarurl1 = string | null;
 export type Email3 = string;
 export type Firstname2 = string;
-export type Id36 = string;
+export type Id37 = string;
 export type Lastname2 = string;
 export type Locale3 = string;
 export type At = string;
@@ -782,7 +790,7 @@ export type Propertyid1 = string;
 export type Type1 = string;
 export type Guestid = string;
 export type Inhouse = boolean;
-export type Name24 = string;
+export type Name25 = string;
 export type Phone4 = string;
 export type Propertyid2 = string;
 export type Propertyname2 = string;
@@ -793,7 +801,7 @@ export type Willfail = boolean;
 export type Avatarurl2 = string | null;
 export type Createdat8 = string;
 export type Displayname2 = string;
-export type Id37 = string;
+export type Id38 = string;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "StaffConversationKind".
@@ -806,10 +814,10 @@ export type Authoruserid3 = string;
 export type Body15 = string | null;
 export type Conversationid3 = string;
 export type Createdat9 = string;
-export type Id38 = string;
+export type Id39 = string;
 export type Photourl1 = string | null;
 export type Messages2 = StaffMessageOut[];
-export type Name25 = string | null;
+export type Name26 = string | null;
 export type Otheruserid = string | null;
 export type Avatarurl3 = string | null;
 export type Departmentid20 = string | null;
@@ -822,10 +830,10 @@ export type Updatedat = string;
 export type Avatarurl4 = string | null;
 export type Createdat10 = string;
 export type Displayname3 = string;
-export type Id39 = string;
+export type Id40 = string;
 export type Lastmessageat1 = string | null;
 export type Lastmessagepreview2 = string | null;
-export type Name26 = string | null;
+export type Name27 = string | null;
 export type Otheruserid1 = string | null;
 export type Participants1 = StaffParticipantOut[];
 export type Unread1 = boolean;
@@ -841,7 +849,7 @@ export type Avatarurl6 = string | null;
 export type Departmentid23 = string | null;
 export type Email4 = string;
 export type Firstname5 = string;
-export type Id40 = string;
+export type Id41 = string;
 export type Lastname5 = string;
 export type Status2 = string;
 export type Templateid5 = string;
@@ -851,20 +859,20 @@ export type Remaining = number;
 export type Total4 = number;
 export type Daysleft1 = number;
 export type Endson2 = string;
-export type Id41 = string;
+export type Id42 = string;
 export type Ordinal2 = number;
 export type Startson2 = string;
-export type Id42 = string;
-export type Name27 = string;
-export type Code2 = string;
 export type Id43 = string;
+export type Name28 = string;
+export type Code2 = string;
+export type Id44 = string;
 export type Startedbyname2 = string | null;
 export type Startedbyuserid1 = string | null;
 export type Floor1 = number | null;
-export type Id44 = string;
+export type Id45 = string;
 export type Lastpassedat = string | null;
 export type Lastpassedbyname = string | null;
-export type Name28 = string;
+export type Name29 = string;
 export type Passedthiscycle = boolean;
 export type Roomtype2 = string | null;
 export type Units = SweepUnitOut[];
@@ -877,7 +885,7 @@ export type Departmentid24 = string | null;
  * @maxItems 100
  */
 export type Items5 = TemplateItemIn[];
-export type Name29 = string;
+export type Name30 = string;
 export type Rrule = string | null;
 export type Rruledtstart = string | null;
 /**
@@ -888,17 +896,17 @@ export type Active21 = boolean;
 export type Createdat11 = string;
 export type Departmentid25 = string | null;
 export type Hasruns = boolean;
-export type Id45 = string;
+export type Id46 = string;
 export type Items6 = TemplateItemOut[];
 export type Lastfiredat = string | null;
-export type Name30 = string;
+export type Name31 = string;
 export type Rrule1 = string | null;
 export type Rruledtstart1 = string | null;
 export type Unitids1 = string[];
 export type Active22 = boolean | null;
 export type Departmentid26 = string | null;
 export type Items7 = TemplateItemIn[] | null;
-export type Name31 = string | null;
+export type Name32 = string | null;
 export type Rrule2 = string | null;
 export type Rruledtstart2 = string | null;
 export type Unitids2 = string[] | null;
@@ -911,8 +919,8 @@ export type Updated = number;
 export type Code3 = string;
 export type Externalid = string | null;
 export type Floor2 = number | null;
-export type Name32 = string;
-export type Notes2 = string | null;
+export type Name33 = string;
+export type Notes3 = string | null;
 export type Roomtype3 = string | null;
 export type Active23 = boolean | null;
 export type Q1 = string | null;
@@ -921,16 +929,16 @@ export type Code4 = string;
 export type Createdat12 = string;
 export type Externalid1 = string | null;
 export type Floor3 = number | null;
-export type Id46 = string;
-export type Name33 = string;
-export type Notes3 = string | null;
+export type Id47 = string;
+export type Name34 = string;
+export type Notes4 = string | null;
 export type Roomtype4 = string | null;
 export type Active25 = boolean | null;
 export type Code5 = string | null;
 export type Externalid2 = string | null;
 export type Floor4 = number | null;
-export type Name34 = string | null;
-export type Notes4 = string | null;
+export type Name35 = string | null;
+export type Notes5 = string | null;
 export type Roomtype5 = string | null;
 export type Count3 = number;
 export type Acknowledgedat1 = string | null;
@@ -943,7 +951,7 @@ export type Dueat2 = string | null;
 export type Comment3 = string | null;
 export type Createdat14 = string;
 export type Fromvalue1 = string | null;
-export type Id47 = string;
+export type Id48 = string;
 export type Tovalue1 = string | null;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -956,12 +964,12 @@ export type Username1 = string | null;
 export type Events1 = WorkOrderEventOut[];
 export type Guestname1 = string | null;
 export type Guestnotifiedat1 = string | null;
-export type Id48 = string;
+export type Id49 = string;
 export type Locationref1 = string | null;
 export type Bytesize2 = number;
 export type Contenttype2 = string;
 export type Createdat15 = string;
-export type Id49 = string;
+export type Id50 = string;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderPhotoKind".
@@ -994,7 +1002,7 @@ export type Departmentid28 = string | null;
 export type Description5 = string | null;
 export type Dueat3 = string | null;
 export type Guestnotifiedat2 = string | null;
-export type Id50 = string;
+export type Id51 = string;
 export type Locationref2 = string | null;
 export type Reportedbyuserid1 = string | null;
 export type Sourceconversationid2 = string | null;
@@ -1933,10 +1941,12 @@ export interface LogEntryOut {
   createdAt: Createdat6;
   departmentId?: Departmentid14;
   departmentName?: Departmentname4;
+  fieldValues?: Fieldvalues1;
   id: Id26;
   linkedConversationId?: Linkedconversationid1;
   linkedWorkOrderId?: Linkedworkorderid1;
   mentions?: Mentions2;
+  notes?: Notes2;
   outstanding?: Outstanding;
   photoUrl?: Photourl;
   pinned: Pinned;
@@ -1944,6 +1954,18 @@ export interface LogEntryOut {
   pinnedByUserId?: Pinnedbyuserid;
   requiresAck: Requiresack1;
   shift: Shift;
+  template?: LogTemplateRef | null;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "LogFieldValueOut".
+ */
+export interface LogFieldValueOut {
+  fieldId: Fieldid1;
+  fieldType: LogFieldType;
+  label: Label2;
+  numberValue?: Numbervalue2;
+  textValue?: Textvalue2;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1961,6 +1983,14 @@ export interface LogMentionOut {
 export interface LogPersonOut {
   name: Name18;
   userId: Userid5;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "LogTemplateRef".
+ */
+export interface LogTemplateRef {
+  id: Id28;
+  name: Name19;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1991,7 +2021,7 @@ export interface LogFeedQuery {
  */
 export interface LogMentionableOut {
   displayName: Displayname1;
-  id: Id28;
+  id: Id29;
   subtitle?: Subtitle;
   type: MentionTargetType;
 }
@@ -2004,8 +2034,8 @@ export interface LogMentionableOut {
  */
 export interface LogTemplateFieldIn {
   fieldType: LogFieldType;
-  id?: Id29;
-  label: Label2;
+  id?: Id30;
+  label: Label3;
   required?: Required2;
 }
 /**
@@ -2015,8 +2045,8 @@ export interface LogTemplateFieldIn {
 export interface LogTemplateFieldOut {
   active: Active13;
   fieldType: LogFieldType;
-  id: Id30;
-  label: Label3;
+  id: Id31;
+  label: Label4;
   position: Position1;
   required: Required3;
 }
@@ -2028,7 +2058,7 @@ export interface LogTemplateIn {
   active?: Active14;
   audience?: Audience;
   fields: Fields;
-  name: Name19;
+  name: Name20;
   shift?: Shift | null;
 }
 /**
@@ -2039,8 +2069,8 @@ export interface LogTemplateOut {
   active: Active15;
   audience: Audience1;
   fields: Fields1;
-  id: Id31;
-  name: Name20;
+  id: Id32;
+  name: Name21;
   position: Position2;
   shift?: Shift | null;
   usedCount: Usedcount;
@@ -2053,7 +2083,7 @@ export interface LogTemplatePatch {
   active?: Active16;
   audience?: Audience2;
   fields?: Fields2;
-  name?: Name21;
+  name?: Name22;
   shift?: Shift | null;
 }
 /**
@@ -2085,7 +2115,7 @@ export interface NotificationOut {
   createdAt: Createdat7;
   entityId?: Entityid;
   entityType?: Entitytype;
-  id: Id32;
+  id: Id33;
   readAt?: Readat;
   title: Title2;
   type: Type;
@@ -2119,7 +2149,7 @@ export interface Overview {
  */
 export interface ResponseBucket {
   count: Count2;
-  label: Label4;
+  label: Label5;
   share: Share;
 }
 /**
@@ -2152,9 +2182,9 @@ export interface PropertySettingsOut {
   code: Code1;
   currency: Currency;
   helpText?: Helptext;
-  id: Id33;
+  id: Id34;
   logoUrl?: Logourl;
-  name: Name22;
+  name: Name23;
   phone?: Phone2;
   primaryColor?: Primarycolor;
   slaMinutes: Slaminutes;
@@ -2179,7 +2209,7 @@ export interface PropertySettingsPatch {
   currency?: Currency1;
   helpText?: Helptext1;
   logoUrl?: Logourl1;
-  name?: Name23;
+  name?: Name24;
   phone?: Phone3;
   primaryColor?: Primarycolor1;
   slaMinutes?: Slaminutes1;
@@ -2208,7 +2238,7 @@ export interface QuickReplyOut {
   body: Body10;
   category?: Category4;
   departmentId?: Departmentid18;
-  id: Id34;
+  id: Id35;
   locale: Locale1;
   shortcut: Shortcut1;
   title: Title4;
@@ -2252,7 +2282,7 @@ export interface RunOut {
   completedAt?: Completedat4;
   cycleId?: Cycleid;
   dueAt?: Dueat1;
-  id: Id35;
+  id: Id36;
   inspectedAt?: Inspectedat2;
   inspectedByName?: Inspectedbyname2;
   inspectedByUserId?: Inspectedbyuserid;
@@ -2307,7 +2337,7 @@ export interface UserOut {
   avatarUrl?: Avatarurl1;
   email: Email3;
   firstName: Firstname2;
-  id: Id36;
+  id: Id37;
   lastName: Lastname2;
   locale: Locale3;
   notificationPrefs?: Notificationprefs;
@@ -2335,7 +2365,7 @@ export interface Payload {
 export interface SimGuest {
   guestId: Guestid;
   inHouse: Inhouse;
-  name: Name24;
+  name: Name25;
   phone: Phone4;
   propertyId: Propertyid2;
   propertyName: Propertyname2;
@@ -2353,12 +2383,12 @@ export interface StaffConversationDetail {
   avatarUrl?: Avatarurl2;
   createdAt: Createdat8;
   displayName: Displayname2;
-  id: Id37;
+  id: Id38;
   kind: StaffConversationKind;
   lastMessageAt?: Lastmessageat;
   lastMessagePreview?: Lastmessagepreview1;
   messages: Messages2;
-  name?: Name25;
+  name?: Name26;
   otherUserId?: Otheruserid;
   participants: Participants;
   unread: Unread;
@@ -2374,7 +2404,7 @@ export interface StaffMessageOut {
   body?: Body15;
   conversationId: Conversationid3;
   createdAt: Createdat9;
-  id: Id38;
+  id: Id39;
   photoUrl?: Photourl1;
 }
 /**
@@ -2397,11 +2427,11 @@ export interface StaffConversationOut {
   avatarUrl?: Avatarurl4;
   createdAt: Createdat10;
   displayName: Displayname3;
-  id: Id39;
+  id: Id40;
   kind: StaffConversationKind;
   lastMessageAt?: Lastmessageat1;
   lastMessagePreview?: Lastmessagepreview2;
-  name?: Name26;
+  name?: Name27;
   otherUserId?: Otheruserid1;
   participants: Participants1;
   unread: Unread1;
@@ -2446,7 +2476,7 @@ export interface StaffUserOut {
   departmentId?: Departmentid23;
   email: Email4;
   firstName: Firstname5;
-  id: Id40;
+  id: Id41;
   lastName: Lastname5;
   role: Role;
   status: Status2;
@@ -2475,7 +2505,7 @@ export interface SweepCounts {
 export interface SweepCycleOut {
   daysLeft: Daysleft1;
   endsOn: Endson2;
-  id: Id41;
+  id: Id42;
   ordinal: Ordinal2;
   startsOn: Startson2;
 }
@@ -2495,8 +2525,8 @@ export interface SweepOut {
  */
 export interface SweepTemplateOut {
   cadence: PmCadence;
-  id: Id42;
-  name: Name27;
+  id: Id43;
+  name: Name28;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -2506,10 +2536,10 @@ export interface SweepUnitOut {
   code: Code2;
   currentRun?: SweepRunBrief | null;
   floor?: Floor1;
-  id: Id44;
+  id: Id45;
   lastPassedAt?: Lastpassedat;
   lastPassedByName?: Lastpassedbyname;
-  name: Name28;
+  name: Name29;
   passedThisCycle: Passedthiscycle;
   roomType?: Roomtype2;
 }
@@ -2518,7 +2548,7 @@ export interface SweepUnitOut {
  * via the `definition` "SweepRunBrief".
  */
 export interface SweepRunBrief {
-  id: Id43;
+  id: Id44;
   startedByName?: Startedbyname2;
   startedByUserId?: Startedbyuserid1;
   status: PmRunStatus;
@@ -2543,7 +2573,7 @@ export interface TemplateIn {
   departmentId?: Departmentid24;
   items?: Items5;
   mode: PmTemplateMode;
-  name: Name29;
+  name: Name30;
   rrule?: Rrule;
   rruleDtstart?: Rruledtstart;
   unitIds?: Unitids;
@@ -2559,11 +2589,11 @@ export interface TemplateOut {
   createdAt: Createdat11;
   departmentId?: Departmentid25;
   hasRuns: Hasruns;
-  id: Id45;
+  id: Id46;
   items?: Items6;
   lastFiredAt?: Lastfiredat;
   mode: PmTemplateMode;
-  name: Name30;
+  name: Name31;
   rrule?: Rrule1;
   rruleDtstart?: Rruledtstart1;
   unitIds?: Unitids1;
@@ -2579,7 +2609,7 @@ export interface TemplatePatch {
   departmentId?: Departmentid26;
   items?: Items7;
   mode?: PmTemplateMode | null;
-  name?: Name31;
+  name?: Name32;
   rrule?: Rrule2;
   rruleDtstart?: Rruledtstart2;
   unitIds?: Unitids2;
@@ -2612,8 +2642,8 @@ export interface UnitIn {
   externalId?: Externalid;
   floor?: Floor2;
   kind: PmUnitKind;
-  name: Name32;
-  notes?: Notes2;
+  name: Name33;
+  notes?: Notes3;
   roomType?: Roomtype3;
 }
 /**
@@ -2635,10 +2665,10 @@ export interface UnitOut {
   createdAt: Createdat12;
   externalId?: Externalid1;
   floor?: Floor3;
-  id: Id46;
+  id: Id47;
   kind: PmUnitKind;
-  name: Name33;
-  notes?: Notes3;
+  name: Name34;
+  notes?: Notes4;
   roomType?: Roomtype4;
   source: PmUnitSource;
 }
@@ -2652,8 +2682,8 @@ export interface UnitPatch {
   externalId?: Externalid2;
   floor?: Floor4;
   kind?: PmUnitKind | null;
-  name?: Name34;
-  notes?: Notes4;
+  name?: Name35;
+  notes?: Notes5;
   roomType?: Roomtype5;
 }
 /**
@@ -2678,7 +2708,7 @@ export interface WorkOrderDetail {
   events: Events1;
   guestName?: Guestname1;
   guestNotifiedAt?: Guestnotifiedat1;
-  id: Id48;
+  id: Id49;
   locationRef?: Locationref1;
   locationType: LocationType1;
   photos: Photos4;
@@ -2703,7 +2733,7 @@ export interface WorkOrderEventOut {
   comment?: Comment3;
   createdAt: Createdat14;
   fromValue?: Fromvalue1;
-  id: Id47;
+  id: Id48;
   toValue?: Tovalue1;
   type: WorkOrderEventType;
   userId?: Userid8;
@@ -2717,7 +2747,7 @@ export interface WorkOrderPhotoOut {
   byteSize: Bytesize2;
   contentType: Contenttype2;
   createdAt: Createdat15;
-  id: Id49;
+  id: Id50;
   kind: WorkOrderPhotoKind;
   uploadedByName?: Uploadedbyname;
   uploadedByUserId?: Uploadedbyuserid1;
@@ -2749,7 +2779,7 @@ export interface WorkOrderOut {
   description?: Description5;
   dueAt?: Dueat3;
   guestNotifiedAt?: Guestnotifiedat2;
-  id: Id50;
+  id: Id51;
   locationRef?: Locationref2;
   locationType: LocationType1;
   priority: Priority;
