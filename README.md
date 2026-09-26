@@ -144,7 +144,7 @@ background job worker are all in process memory, so a second worker splits prese
 
 ### Deploying to Railway
 The repo ships a `Dockerfile` that builds the client and serves it and the API from a single Flask process — one
-origin, because auth is a cookie and the inbox holds a WebSocket open. `railway.json` points the healthcheck at
+origin, because auth is a cookie and the inbox holds a WebSocket open. `.railway/railway.ts` points the healthcheck at
 `/api/health`; `GET /` is a 404 by design, so the default would fail every deploy. Set `SESSION_SECRET` (the app
 refuses to boot in production with the placeholder), `START_WORKER=1` (it defaults to `0`, and without it SLA
 sweeps and delivery-status transitions silently never run), `FLASK_ENV=production`, and `DATABASE_URL` from a
