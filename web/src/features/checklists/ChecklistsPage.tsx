@@ -168,15 +168,11 @@ function MissedList() {
 }
 
 export function ChecklistsPage() {
-  const { membership, role } = useSession()
+  const { can, membership } = useSession()
   const { data: departments } = useDepartments()
   const [departmentId, setDepartmentId] = useState(membership.departmentId ?? '')
   const [tab, setTab] = useState<'today' | 'missed'>('today')
-  // `view_property_analytics` also covers supervisors (it predates checklists and gates
-  // the property-wide Analytics/Compliance screens), but the Missed tab is a manager-level
-  // report of every department's misses, not a supervisor's own-department view — so this
-  // checks the role directly rather than that capability.
-  const canSeeMissed = role === 'manager' || role === 'admin' || role === 'corporate'
+  const canSeeMissed = can('view_property_analytics')
 
   const { data, isPending, error } = useChecklistInstances({
     departmentId: departmentId || null,

@@ -95,7 +95,7 @@ describe('ChecklistsPage', () => {
     expect(await screen.findByText('checklist page')).toBeInTheDocument()
   })
 
-  it('shows Assign only to supervisors and the Missed tab only to managers', async () => {
+  it('shows Assign and Missed only to supervisors and above', async () => {
     const staff = mount('dept_staff')
     await screen.findByText('Engineering AM Rounds')
     expect(screen.queryByLabelText('Assign Engineering AM Rounds')).not.toBeInTheDocument()
@@ -104,7 +104,7 @@ describe('ChecklistsPage', () => {
 
     const sup = mount('supervisor')
     expect(await screen.findByLabelText('Assign Engineering AM Rounds')).toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: 'Missed' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: 'Missed' })).toBeInTheDocument()
     sup.unmount()
 
     const user = userEvent.setup()
