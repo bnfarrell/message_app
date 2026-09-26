@@ -21,6 +21,7 @@ EXPECTED_TABLES = {
     "log_entry", "log_entry_mention", "log_entry_photo", "log_entry_ack",
     "maintainable_unit", "pm_template", "pm_template_item", "pm_template_unit",
     "pm_cycle", "pm_run", "pm_run_answer", "pm_run_photo",
+    "room", "housekeeping_assignment", "room_event", "housekeeping_photo",
 }
 
 

@@ -2,6 +2,7 @@ from app.models.content import DigitalAsset, QuickReply
 from app.models.conversations import Conversation, InternalNote, Message, ResolutionCategory
 from app.models.core import Department, Property, PropertyMembership, UserAccount
 from app.models.guests import Guest, Stay
+from app.models.housekeeping import HousekeepingAssignment, HousekeepingPhoto, Room, RoomEvent
 from app.models.infra import AuditLog, Job, Notification, PmsEvent, UserSession
 from app.models.log import LogEntry, LogEntryAck, LogEntryMention, LogEntryPhoto
 from app.models.pm import (
@@ -24,10 +25,11 @@ from app.models.work_orders import (
 
 __all__ = [
     "AuditLog", "Conversation", "Department", "DigitalAsset", "DraftPrompt", "Guest",
-    "InternalNote", "Job", "LogEntry", "LogEntryAck", "LogEntryMention", "LogEntryPhoto",
+    "HousekeepingAssignment", "HousekeepingPhoto", "InternalNote", "Job", "LogEntry",
+    "LogEntryAck", "LogEntryMention", "LogEntryPhoto",
     "MaintainableUnit", "Message", "Notification", "PmsEvent", "PmCycle", "PmRun",
     "PmRunAnswer", "PmRunPhoto", "PmTemplate", "PmTemplateItem", "PmTemplateUnit", "Property",
-    "PropertyMembership", "QuickReply", "ResolutionCategory", "StaffConversation",
-    "StaffConversationParticipant", "StaffMessage", "Stay", "UserAccount", "UserSession",
-    "WorkOrder", "WorkOrderEvent", "WorkOrderPhoto",
+    "PropertyMembership", "QuickReply", "ResolutionCategory", "Room", "RoomEvent",
+    "StaffConversation", "StaffConversationParticipant", "StaffMessage", "Stay", "UserAccount",
+    "UserSession", "WorkOrder", "WorkOrderEvent", "WorkOrderPhoto",
 ]

@@ -201,3 +201,49 @@ class PmRunStatus(StrEnum):
     passed = "passed"
     failed = "failed"
     missed = "missed"
+
+
+class HkStatus(StrEnum):
+    """`clean` = the housekeeper finished and it awaits inspection; `inspected` = a supervisor
+    passed it (spec §2.1)."""
+    clean = "clean"
+    dirty = "dirty"
+    in_progress = "in_progress"
+    inspected = "inspected"
+    out_of_order = "out_of_order"
+    out_of_service = "out_of_service"
+
+
+class HkServiceType(StrEnum):
+    departure = "departure"
+    stayover = "stayover"
+    touch_up = "touch_up"
+
+
+class HkAssignmentStatus(StrEnum):
+    assigned = "assigned"
+    in_progress = "in_progress"
+    done = "done"
+    passed = "passed"
+
+
+class RoomEventType(StrEnum):
+    status_changed = "status_changed"
+    assigned = "assigned"
+    reassigned = "reassigned"
+    unassigned = "unassigned"
+    started = "started"
+    completed = "completed"
+    inspection_passed = "inspection_passed"
+    inspection_failed = "inspection_failed"
+    marked_dirty = "marked_dirty"
+    rush_set = "rush_set"
+    rush_cleared = "rush_cleared"
+
+
+class HkOccupancy(StrEnum):
+    """Derived per request from `stay`, never stored (spec §2.1)."""
+    vacant = "vacant"
+    arrival = "arrival"
+    stayover = "stayover"
+    departure = "departure"
