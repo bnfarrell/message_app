@@ -48,6 +48,8 @@ def assign(db: Session, property_id: str, actor_id: str, room_ids: list[str],
                                details={"housekeeperUserId": "not_housekeeping"})
     day = hk_rooms.today(db, property_id)
     rooms = [hk_rooms.get(db, property_id, rid) for rid in dict.fromkeys(room_ids)]
+    # Two concurrent assign requests for the same room can both pass the open-assignment check
+    # below (no row lock); the UI disables the button while pending.
     # Validate everything before touching anything, so a bad room in a batch of twelve
     # leaves the other eleven as they were.
     plan: list[tuple[Room, HousekeepingAssignment | None]] = []

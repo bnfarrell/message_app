@@ -3,6 +3,7 @@ import {
   useReorder,
   useSelfAssignStart,
   useSetRoomStatus,
+  useSetRush,
   useUnassign,
 } from '../../api/hooks/housekeeping'
 import type { HkAssignmentOut, HkRoomOut } from '../../api/types'
@@ -35,10 +36,13 @@ export function RoomDrawer({
   const unassign = useUnassign()
   const reorder = useReorder()
   const selfStart = useSelfAssignStart()
+  const setRush = useSetRush()
   const room = detail.data?.room
   const a = room?.assignment ?? null
   const canManage = can('manage_housekeeping')
   const out = room?.hkStatus === 'out_of_order' || room?.hkStatus === 'out_of_service'
+  const error = setStatus.error ?? unassign.error ?? reorder.error ?? selfStart.error
+    ?? setRush.error
 
   function move(delta: -1 | 1) {
     if (!a) return
@@ -123,6 +127,14 @@ export function RoomDrawer({
               ) : null}
             </div>
           ) : null}
+          {room.rush && can('mark_room_dirty') ? (
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => setRush.mutate({ roomId: room.id, on: false })}>
+                Clear rush
+              </Button>
+            </div>
+          ) : null}
+          {error ? <p role="alert" className="text-sm text-dangerText">{error.message}</p> : null}
           <section aria-label="History">
             <h3 className="mb-1 text-xs font-bold uppercase text-text3">History</h3>
             <ol className="flex flex-col gap-1">

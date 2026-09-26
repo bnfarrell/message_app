@@ -234,6 +234,7 @@ def dirty_for_departure(db: Session, room: Room, comment: str) -> None:
         assignment.started_at = None
         assignment.completed_at = None
         assignment.type = HkServiceType.departure
+        assignment.inspection_note = None
     set_status(db, room, HkStatus.dirty, None, comment=comment)
 
 
@@ -247,7 +248,19 @@ def dirty_on_checkout(db: Session, property_id: str, room_number: str | None) ->
         .where(Room.property_id == property_id, MaintainableUnit.code == room_number,
                MaintainableUnit.kind == PmUnitKind.guest_room,
                MaintainableUnit.active.is_(True)))
-    if room is None or room.hk_status not in (HkStatus.clean, HkStatus.inspected):
+    if room is None:
+        return
+    if room.hk_status in (HkStatus.dirty, HkStatus.in_progress):
+        # Already dirty/in progress for a stayover clean, but the guest just checked out: the
+        # clean must become a departure clean, not silently stay a stayover (controller ruling).
+        # No status change, so no RoomEvent.
+        room.service_type = HkServiceType.departure
+        assignment = open_assignment(db, room, today(db, property_id))
+        if assignment is not None and assignment.status != HkAssignmentStatus.done:
+            assignment.type = HkServiceType.departure
+        emit(db, property_id, [room.id])
+        return
+    if room.hk_status not in (HkStatus.clean, HkStatus.inspected):
         return
     dirty_for_departure(db, room, "Guest checked out")
     emit(db, property_id, [room.id])

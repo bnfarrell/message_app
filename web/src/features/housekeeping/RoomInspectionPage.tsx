@@ -31,6 +31,9 @@ export function RoomInspectionPage() {
       <header className="border-b border-border px-4 py-3">
         <h1 className="text-base font-bold">Room Inspection</h1>
       </header>
+      {inspect.error && !failing ? (
+        <p role="alert" className="mx-4 mt-3 text-sm text-dangerText">{inspect.error.message}</p>
+      ) : null}
       {queue.data.length === 0 ? (
         <EmptyState title="No rooms are waiting for inspection" />
       ) : (
@@ -53,6 +56,7 @@ export function RoomInspectionPage() {
                 </span>
                 <span className="ml-auto flex gap-2">
                   <Button variant="primary" aria-label={`Pass room ${row.room.code}`}
+                          loading={inspect.isPending}
                           onClick={() => inspect.mutate({ assignmentId: a.id, result: 'pass' })}>
                     Pass
                   </Button>
@@ -90,6 +94,9 @@ export function RoomInspectionPage() {
           What needs fixing?
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} />
         </label>
+        {inspect.error && failing ? (
+          <p role="alert" className="text-sm text-dangerText">{inspect.error.message}</p>
+        ) : null}
       </Dialog>
     </div>
   )

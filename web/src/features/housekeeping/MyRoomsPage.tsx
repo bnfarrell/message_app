@@ -17,12 +17,22 @@ function NextAction({ room }: { room: HkRoomOut }) {
   const complete = useCompleteAssignment()
   const a = room.assignment!
   if (a.status === 'assigned') {
-    return <Button variant="primary" className={BIG} loading={start.isPending}
-                   onClick={() => start.mutate(a.id)}>Start</Button>
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <Button variant="primary" className={BIG} loading={start.isPending}
+                onClick={() => start.mutate(a.id)}>Start</Button>
+        {start.error ? <p role="alert" className="text-sm text-dangerText">{start.error.message}</p> : null}
+      </div>
+    )
   }
   if (a.status === 'in_progress') {
-    return <Button variant="primary" className={BIG} loading={complete.isPending}
-                   onClick={() => complete.mutate(a.id)}>Mark ready</Button>
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <Button variant="primary" className={BIG} loading={complete.isPending}
+                onClick={() => complete.mutate(a.id)}>Mark ready</Button>
+        {complete.error ? <p role="alert" className="text-sm text-dangerText">{complete.error.message}</p> : null}
+      </div>
+    )
   }
   return <Badge tone={a.status === 'passed' ? 'ok' : 'note'}>{a.status === 'passed' ? 'Inspected' : 'Ready'}</Badge>
 }

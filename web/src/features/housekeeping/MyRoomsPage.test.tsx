@@ -77,4 +77,21 @@ describe('MyRoomsPage', () => {
     expect(screen.getByText(/Hair in the bathroom sink\./)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Back to my rooms' })).toBeInTheDocument()
   })
+
+  it('shows the server error inline when starting a room fails', async () => {
+    vi.mocked(fetch).mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify({
+          error: { code: 'INVALID_TRANSITION', message: 'Only an assigned, dirty room can be started' },
+        }), { status: 409 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(MINE), { status: 200 }))
+    })
+    const user = userEvent.setup()
+    const starts = await screen.findAllByRole('button', { name: 'Start' })
+    await user.click(starts[0]!)
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Only an assigned, dirty room can be started',
+    )
+  })
 })

@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import select
 
 from app import clock
-from app.domain import hk_rooms, hk_tick
+from app.domain import hk_assignments, hk_rooms, hk_tick, hk_transitions, hk_views
 from app.models import HousekeepingAssignment, MaintainableUnit, Room, Stay
 from app.pms.base import NormalizedGuest, NormalizedStay, PmsEvent
 from app.pms.handle_event import handle_event
@@ -15,6 +15,7 @@ from app.schemas.enums import (
     HkServiceType,
     HkStatus,
     PmUnitKind,
+    Role,
     StayStatus,
 )
 from tests.hk_helpers import add_stay, local_today, make_rooms, rooms_by_code
@@ -70,7 +71,7 @@ def test_tick_is_idempotent_and_a_noop_tick_is_silent(database, fx, events):
         assert hk_tick.tick(db)["dirtied"] == 1
     events.clear()
     with database.session() as db:
-        assert hk_tick.tick(db) == {"created": 0, "dirtied": 0}
+        assert hk_tick.tick(db) == {"created": 0, "dirtied": 0, "carried": 0}
     assert [e for e in events if e.type == hk_rooms.EVENT] == []
 
 
@@ -152,6 +153,64 @@ def test_a_checkout_the_hook_missed_is_caught_by_the_tick(database, fx):
         assert room.service_type is HkServiceType.departure
 
 
+def test_tick_reopens_a_same_day_done_assignment_on_a_missed_checkout(database, fx):
+    """The tick's own missed-checkout branch (dirty_for_departure) reopens a same-day `done`
+    assignment exactly like the PMS hook does (spec §3.2 controller ruling, item 6)."""
+    with database.session() as db:
+        pid = fx.property_a.id
+        today = local_today(db, pid)
+        room = make_rooms(db, pid, codes=("101",))["101"]
+        _at(room, datetime(2026, 9, 10, 5, 0, tzinfo=UTC))  # after midnight, before checkout
+        assignment = HousekeepingAssignment(
+            property_id=pid, room_id=room.id, housekeeper_user_id=fx.housekeeper_a.id,
+            shift_date=today, sequence=1, type=HkServiceType.stayover,
+            status=HkAssignmentStatus.done, started_at=clock.now(), completed_at=clock.now())
+        db.add(assignment)
+        room.hk_status = HkStatus.clean
+        db.flush()
+        add_stay(db, pid, "101", status=StayStatus.checked_out,
+                 arrival=today - timedelta(days=2), departure=today,
+                 checked_out_at=datetime(2026, 9, 10, 11, 0, tzinfo=UTC))
+        assert hk_tick.tick(db)["dirtied"] == 1
+        assert room.hk_status is HkStatus.dirty
+        assert room.service_type is HkServiceType.departure
+        assert assignment.status is HkAssignmentStatus.assigned
+        assert assignment.started_at is None
+        assert assignment.completed_at is None
+
+
+def test_an_in_progress_room_carries_over_past_midnight(database, fx):
+    """A housekeeper who starts a room and doesn't finish before local midnight must not get
+    stuck (item 1): the tick carries the assignment's shift_date forward so start/complete/
+    inspect keep working the next day, and the room reappears on the board and My Rooms."""
+    with database.session() as db:
+        pid = fx.property_a.id
+        room = make_rooms(db, pid, codes=("101",))["101"]
+        hk_transitions.mark_dirty(db, pid, fx.supervisor_a.id, room.id, None)
+        a = hk_assignments.assign(db, pid, fx.supervisor_a.id, [room.id], fx.housekeeper_a.id)[0]
+        hk_transitions.start(db, pid, fx.housekeeper_a.id, Role.dept_staff, a.id)
+        assignment_id, room_id = a.id, room.id
+
+    clock.freeze(datetime(2026, 9, 11, 12, 0, tzinfo=UTC))  # next day, 08:00 New York
+    with database.session() as db:
+        new_today = local_today(db, pid)
+        result = hk_tick.tick(db)
+        assert result["carried"] == 1
+        assignment = db.get(HousekeepingAssignment, assignment_id)
+        assert assignment.shift_date == new_today
+        mine = hk_views.my_rooms(db, pid, fx.housekeeper_a.id)
+        assert room_id in [r.id for r in mine]
+        board_row = next(r for r in hk_views.board(db, pid).rooms if r.id == room_id)
+        assert board_row.assignment is not None and board_row.assignment.id == assignment_id
+
+        # Idempotent: a second tick right now, before the room is finished, carries nothing
+        # more — the assignment's shift_date is already today's.
+        assert hk_tick.tick(db)["carried"] == 0
+
+        hk_transitions.complete(db, pid, fx.housekeeper_a.id, Role.dept_staff, assignment_id)
+        hk_transitions.inspect(db, pid, fx.supervisor_a.id, assignment_id, "pass", None)
+
+
 def test_tick_creates_rooms_for_new_guest_room_units(database, fx):
     with database.session() as db:
         db.add(MaintainableUnit(property_id=fx.property_a.id, kind=PmUnitKind.guest_room,
@@ -191,16 +250,17 @@ def test_checkout_for_an_unknown_room_number_is_ignored(database, fx):
 def test_checkout_after_a_same_day_clean_reopens_the_assignment(database, fx):
     """A stayover cleaned today, then the guest checks out before inspection: the room goes
     dirty for departure and the `done` assignment reopens to `assigned` so it can be
-    reassigned or started (controller ruling)."""
+    reassigned or started (controller ruling). The stale "sent back" note from that inspection
+    (there wasn't one — this is a clean, not a fail) must not linger on the reopened row."""
     with database.session() as db:
         room = make_rooms(db, fx.property_a.id, codes=("412",))["412"]
-        room.hk_status = HkStatus.dirty
         today = local_today(db, fx.property_a.id)
         assignment = HousekeepingAssignment(
             property_id=fx.property_a.id, room_id=room.id,
             housekeeper_user_id=fx.housekeeper_a.id, shift_date=today, sequence=1,
             type=HkServiceType.stayover, status=HkAssignmentStatus.done,
-            started_at=clock.now(), completed_at=clock.now())
+            started_at=clock.now(), completed_at=clock.now(),
+            inspection_note="Sent back last time")
         db.add(assignment)
         room.hk_status = HkStatus.clean
         db.flush()
@@ -211,3 +271,26 @@ def test_checkout_after_a_same_day_clean_reopens_the_assignment(database, fx):
         assert assignment.started_at is None
         assert assignment.completed_at is None
         assert assignment.fail_count == 0
+        assert assignment.inspection_note is None
+
+
+def test_checkout_on_a_dirty_assigned_room_keeps_it_dirty_for_departure(database, fx):
+    """A room already dirty (or in progress) for a stayover clean whose guest then checks out
+    must not silently stay a "stayover": the room and its open assignment both flip to a
+    departure clean, with no status change (controller ruling, item 3)."""
+    with database.session() as db:
+        room = make_rooms(db, fx.property_a.id, codes=("412",))["412"]
+        room.hk_status = HkStatus.dirty
+        room.service_type = HkServiceType.stayover
+        today = local_today(db, fx.property_a.id)
+        assignment = HousekeepingAssignment(
+            property_id=fx.property_a.id, room_id=room.id,
+            housekeeper_user_id=fx.housekeeper_a.id, shift_date=today, sequence=1,
+            type=HkServiceType.stayover, status=HkAssignmentStatus.assigned, fail_count=0)
+        db.add(assignment)
+        db.flush()
+        assert handle_event(db, _checkout_event(fx, "412"))
+        assert room.hk_status is HkStatus.dirty
+        assert room.service_type is HkServiceType.departure
+        assert assignment.status is HkAssignmentStatus.assigned
+        assert assignment.type is HkServiceType.departure

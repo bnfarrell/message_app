@@ -34,7 +34,17 @@ function serve() {
     const url = String(input)
     const method = init?.method ?? 'GET'
     calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null })
-    const body = url.endsWith('/housekeeping/board') ? BOARD : method === 'POST' ? [] : {}
+    if (url.endsWith('/housekeeping/board')) {
+      return Promise.resolve(new Response(JSON.stringify(BOARD), { status: 200 }))
+    }
+    const detailMatch = method === 'GET' && url.match(/\/housekeeping\/rooms\/([^/]+)$/)
+    if (detailMatch) {
+      const room = BOARD.rooms.find((r) => r.id === detailMatch[1])
+      return Promise.resolve(
+        new Response(JSON.stringify({ room, photos: [], events: [] }), { status: 200 }),
+      )
+    }
+    const body = method === 'POST' ? [] : {}
     return Promise.resolve(new Response(JSON.stringify(body), { status: method === 'POST' ? 201 : 200 }))
   })
 }
@@ -101,5 +111,29 @@ describe('RoomBoardPage', () => {
     const tiles = screen.getAllByRole('button', { name: /^Room / })
     expect(tiles).toHaveLength(1)
     expect(within(tiles[0]!.closest('li')!).getByText('102')).toBeInTheDocument()
+  })
+
+  it('clears rush from the room drawer', async () => {
+    const user = userEvent.setup()
+    mount('supervisor')
+    await user.click(await screen.findByRole('button', { name: 'Room 103, Dirty' }))
+    await user.click(await screen.findByRole('button', { name: 'Clear rush' }))
+    expect(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/rooms/r-103/rush'))).toBe(true)
+  })
+
+  it('shows the server error inline in the drawer when a transition fails', async () => {
+    const user = userEvent.setup()
+    mount('supervisor')
+    await user.click(await screen.findByRole('button', { name: 'Room 101, Dirty' }))
+    vi.mocked(fetch).mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify({
+          error: { code: 'INVALID_TRANSITION', message: 'The room is already out_of_order' },
+        }), { status: 409 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }))
+    })
+    await user.click(await screen.findByRole('button', { name: 'Out of order' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The room is already out_of_order')
   })
 })

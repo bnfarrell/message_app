@@ -86,3 +86,24 @@ def test_rooms_of_another_property_are_404_not_leaked(database, fx, login):
 def test_session_carries_the_department_type(fx, login):
     body = login("housekeeper@hvh.test").get("/api/auth/me").get_json()
     assert body["memberships"][0]["departmentType"] == "housekeeping"
+
+
+def test_supervisor_self_assign_starts_a_dirty_unassigned_room(database, fx, login):
+    rooms = _rooms(database, fx)
+    with database.session() as db:
+        hk_rooms.get(db, fx.property_a.id, rooms["101"]).hk_status = HkStatus.dirty
+    res = login("supervisor@hvh.test").post(_hk(fx, f"/rooms/{rooms['101']}/self-assign-start"))
+    assert res.status_code == 200
+    assert res.get_json()["hkStatus"] == "in_progress"
+
+
+def test_supervisor_unassigns_an_unstarted_assignment(database, fx, login):
+    rooms = _rooms(database, fx)
+    with database.session() as db:
+        hk_rooms.get(db, fx.property_a.id, rooms["101"]).hk_status = HkStatus.dirty
+    sup = login("supervisor@hvh.test")
+    aid = sup.post(_hk(fx, "/assignments"), json={
+        "roomIds": [rooms["101"]], "housekeeperUserId": fx.housekeeper_a.id}).get_json()[0]["id"]
+    res = sup.delete(_hk(fx, f"/assignments/{aid}"))
+    assert res.status_code == 200
+    assert res.get_json()["assignment"] is None

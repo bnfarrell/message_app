@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Route, Routes } from 'react-router-dom'
@@ -70,5 +70,38 @@ describe('RoomInspectionPage', () => {
     await user.type(screen.getByLabelText('What needs fixing?'), 'Streaky mirror.')
     await user.click(confirm)
     expect(posts[0]!.body).toEqual({ result: 'fail', note: 'Streaky mirror.' })
+  })
+
+  function serveConflict() {
+    vi.mocked(fetch).mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify({
+          error: { code: 'INVALID_TRANSITION', message: 'Only a room awaiting inspection can be inspected' },
+        }), { status: 409 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(QUEUE), { status: 200 }))
+    })
+  }
+
+  it('shows the server error inline when passing a room fails', async () => {
+    serveConflict()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Pass room 204' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Only a room awaiting inspection can be inspected',
+    )
+  })
+
+  it('keeps the fail dialog open and shows the error inside it', async () => {
+    serveConflict()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Fail room 204' }))
+    await user.type(screen.getByLabelText('What needs fixing?'), 'Streaky mirror.')
+    await user.click(screen.getByRole('button', { name: 'Fail room' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Only a room awaiting inspection can be inspected',
+    )
+    expect(dialog).toBeInTheDocument()
   })
 })
