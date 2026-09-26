@@ -72,6 +72,7 @@ export const qk = {
   ckInstancesAll: (propertyId: string) => ['ck', propertyId, 'instances'] as const,
   ckInstance: (propertyId: string, id: string) => ['ck', propertyId, 'instance', id] as const,
   ckMissedAll: (propertyId: string) => ['ck', propertyId, 'missed'] as const,
+  ckLibrary: (propertyId: string) => ['ck', propertyId, 'library'] as const,
 
   hkAll: (propertyId: string) => ['hk', propertyId] as const,
   hkBoardAll: (propertyId: string) => ['hk', propertyId, 'board'] as const,

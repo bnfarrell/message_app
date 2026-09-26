@@ -40,6 +40,8 @@ const REASON_COPY: Record<string, string> = {
   unknown_department: 'This department is no longer part of this property.',
   inactive: 'This template is no longer in use.',
   no_template: 'Choose a template before answering its fields.',
+  // Checklist template categories (`app/domain/ck_templates.py`).
+  unknown_category: 'That category is no longer on this checklist. Reload and try again.',
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { ChecklistStatus, Shift } from '../../api/types'
+import type { ChecklistKind, ChecklistSchedule, ChecklistStatus, Shift } from '../../api/types'
 
 export const SHIFT_LABELS: Record<Shift, string> = {
   am: 'AM',
@@ -20,10 +20,27 @@ export const STATUS_TONE: Record<ChecklistStatus, 'neutral' | 'note' | 'ok' | 'd
   missed: 'danger',
 }
 
+export const KIND_LABELS: Record<ChecklistKind, string> = {
+  normal: 'Normal',
+  readings: 'Readings',
+}
+
 export const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 export function weekdayLabel(mask: number | null | undefined): string {
   if (!mask) return '—'
   if (mask === 127) return 'Every day'
   return WEEKDAYS.filter((_, i) => (mask >> i) & 1).join(', ')
+}
+
+/** How a template's schedule reads in a list. An unscheduled one is a call to action
+ *  (checklist structure spec §4.1). */
+export function scheduleLabel(t: {
+  schedule: ChecklistSchedule
+  shift?: Shift | null
+  weekdays?: number | null
+}): string {
+  if (t.schedule === 'on_demand') return 'On demand'
+  if (t.schedule === 'unscheduled') return 'Set schedule'
+  return `${t.shift ? SHIFT_LABELS[t.shift] : ''} · ${weekdayLabel(t.weekdays)}`
 }

@@ -34,7 +34,7 @@ describe('fieldErrors', () => {
     const SERVER_CODES = ['required', 'invalid_phone_number', 'invalid_timezone',
       'not_a_number', 'not_whole', 'out_of_range', 'too_long', 'unknown_field', 'duplicate',
       'type_change', 'duplicate_field', 'unknown_user', 'unknown_department', 'inactive',
-      'no_template']
+      'no_template', 'unknown_category']
 
     it.each(SERVER_CODES)('words %s as a sentence rather than leaving the code on screen', (code) => {
       const shown = fieldErrors(failure({ smsNumber: code })).smsNumber!

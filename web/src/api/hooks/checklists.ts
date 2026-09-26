@@ -6,6 +6,8 @@ import type {
   AnswerPatch,
   ChecklistInstanceOut,
   ChecklistInstanceRowOut,
+  ChecklistLibraryEntryOut,
+  ChecklistLibraryImport,
   ChecklistTemplateIn,
   ChecklistTemplateOut,
   ChecklistTemplatePatch,
@@ -56,6 +58,23 @@ export const useCreateChecklistTemplate = () =>
 export const usePatchChecklistTemplate = () =>
   useCkMutation<ChecklistTemplatePatch & { id: string }, ChecklistTemplateOut>(
     (p, { id, ...patch }) => api(ckPath(p, `templates/${id}`), { method: 'PATCH', json: patch }),
+  )
+
+// ---- starter library (checklist structure spec §3.3) --------------------------------------
+
+export function useChecklistLibrary(enabled: boolean) {
+  const { propertyId } = useSession()
+  return useQuery<ChecklistLibraryEntryOut[], ApiError>({
+    queryKey: qk.ckLibrary(propertyId),
+    queryFn: () => api<ChecklistLibraryEntryOut[]>(ckPath(propertyId, 'library')),
+    enabled,
+  })
+}
+
+export const useImportChecklist = () =>
+  useCkMutation<ChecklistLibraryImport & { key: string }, ChecklistTemplateOut>(
+    (p, { key, ...body }) =>
+      api(ckPath(p, `library/${encodeURIComponent(key)}/import`), { method: 'POST', json: body }),
   )
 
 // ---- instances -------------------------------------------------------------------------------
