@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LogEntryOut, Role } from '../../api/types'
@@ -140,5 +140,39 @@ describe('LogEntryCard', () => {
     mount({ ...BASE, body: `Hello ${token}` })
     expect(screen.getByText('<b>x</b>')).toBeInTheDocument()
     expect(document.querySelector('b')).toBeNull()
+  })
+
+  describe('a templated post', () => {
+    const TEMPLATED: LogEntryOut = {
+      ...BASE,
+      body: 'Arrivals actual: 38\nOccupancy: 87.5%\n\nQuiet night.',
+      template: { id: 't-night', name: 'Night Audit' },
+      fieldValues: [
+        { fieldId: 'f-arr', label: 'Arrivals actual', fieldType: 'integer', numberValue: 38 },
+        { fieldId: 'f-occ', label: 'Occupancy', fieldType: 'percent', numberValue: 87.5 },
+      ],
+      notes: 'Quiet night.',
+    }
+
+    it('shows the template tag and a label/value table with percent formatting', () => {
+      mount(TEMPLATED)
+      expect(screen.getByText('Night Audit')).toBeInTheDocument()
+      const table = screen.getByText('Arrivals actual').closest('dl')!
+      expect(table).not.toBeNull()
+      expect(within(table).getByText('38')).toBeInTheDocument()
+      expect(within(table).getByText('87.5%')).toBeInTheDocument()
+    })
+
+    it('renders the notes under the table, never the generated summary', () => {
+      mount(TEMPLATED)
+      expect(screen.getByText('Quiet night.')).toBeInTheDocument()
+      expect(screen.queryByText(/Arrivals actual: 38/)).toBeNull()
+    })
+
+    it('renders no body paragraph at all when there are no notes', () => {
+      mount({ ...TEMPLATED, body: 'Arrivals actual: 38\nOccupancy: 87.5%', notes: null })
+      expect(screen.queryByText(/Arrivals actual:/)).toBeNull()
+      expect(screen.getByText('87.5%')).toBeInTheDocument()
+    })
   })
 })
