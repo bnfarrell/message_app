@@ -247,3 +247,15 @@ class HkOccupancy(StrEnum):
     arrival = "arrival"
     stayover = "stayover"
     departure = "departure"
+
+
+class ChecklistSchedule(StrEnum):
+    weekly = "weekly"
+    on_demand = "on_demand"
+
+
+class ChecklistStatus(StrEnum):
+    open = "open"
+    in_progress = "in_progress"
+    complete = "complete"
+    missed = "missed"

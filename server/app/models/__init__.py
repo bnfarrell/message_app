@@ -1,3 +1,10 @@
+from app.models.checklists import (
+    ChecklistAnswer,
+    ChecklistInstance,
+    ChecklistPhoto,
+    ChecklistTemplate,
+    ChecklistTemplateItem,
+)
 from app.models.content import DigitalAsset, QuickReply
 from app.models.conversations import Conversation, InternalNote, Message, ResolutionCategory
 from app.models.core import Department, Property, PropertyMembership, UserAccount
@@ -24,7 +31,8 @@ from app.models.work_orders import (
 )
 
 __all__ = [
-    "AuditLog", "Conversation", "Department", "DigitalAsset", "DraftPrompt", "Guest",
+    "AuditLog", "ChecklistAnswer", "ChecklistInstance", "ChecklistPhoto", "ChecklistTemplate",
+    "ChecklistTemplateItem", "Conversation", "Department", "DigitalAsset", "DraftPrompt", "Guest",
     "HousekeepingAssignment", "HousekeepingPhoto", "InternalNote", "Job", "LogEntry",
     "LogEntryAck", "LogEntryMention", "LogEntryPhoto",
     "MaintainableUnit", "Message", "Notification", "PmsEvent", "PmCycle", "PmRun",
