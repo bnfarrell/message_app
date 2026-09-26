@@ -1,10 +1,14 @@
 from collections import defaultdict
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import func, select
 
 from app.db import Database
+from app.domain import pm_cycles
 from app.models import (
+    ChecklistInstance,
+    ChecklistTemplate,
     Conversation,
     DigitalAsset,
     DraftPrompt,
@@ -25,6 +29,7 @@ from app.models import (
     WorkOrder,
 )
 from app.schemas.enums import (
+    ChecklistStatus,
     ConversationStatus,
     DeliveryStatus,
     HkAssignmentStatus,
@@ -64,11 +69,12 @@ def test_seed_matches_spec_counts(tmp_path):
         assert count(DraftPrompt) == 2
         assert count(Guest, Guest.sms_consent_status == SmsConsentStatus.opted_out) == 1
         assert count(Message, Message.redacted.is_(True)) == 1
+        # 15 + 2 boiler PMs + 1 checklist out-of-range WO (pH 8.1)
         assert count(WorkOrder, WorkOrder.property_id == hvh.id,
                      WorkOrder.status.in_([WorkOrderStatus.open, WorkOrderStatus.assigned,
                                            WorkOrderStatus.in_progress,
                                            WorkOrderStatus.blocked,
-                                           WorkOrderStatus.complete])) == 17  # 15 + 2 boiler PMs
+                                           WorkOrderStatus.complete])) == 18
         assert count(WorkOrder, WorkOrder.source_conversation_id.isnot(None)) >= 6
         assert count(QuickReply, QuickReply.property_id == hvh.id) >= 15
         assert count(DigitalAsset, DigitalAsset.property_id == hvh.id) == 8
@@ -105,6 +111,14 @@ def test_seed_matches_spec_counts(tmp_path):
         assert count(Room, Room.rush.is_(True)) == 1
         assert count(Room, Room.hk_status == HkStatus.out_of_order) == 2
         assert count(Room, Room.hk_status == HkStatus.out_of_service) == 1
+        # shift checklists (spec §5) — yesterday's planted instances only (clarification 6)
+        yesterday = pm_cycles.local_today(hvh) - timedelta(days=1)
+        assert count(ChecklistTemplate, ChecklistTemplate.property_id == hvh.id) == 5
+        assert count(ChecklistInstance, ChecklistInstance.due_date == yesterday,
+                     ChecklistInstance.status == ChecklistStatus.complete) == 2
+        assert count(ChecklistInstance, ChecklistInstance.due_date == yesterday,
+                     ChecklistInstance.status == ChecklistStatus.missed) == 1
+        assert count(WorkOrder, WorkOrder.title.like("Pool pH 8.1 out of range%")) == 1
         # SeedSummary must match real rows, not an in-memory counter that a rewire can desync
         # (the showcase conversation's messages are deleted and re-added after being counted).
         assert summary.properties == count(Property)
@@ -116,6 +130,7 @@ def test_seed_matches_spec_counts(tmp_path):
         assert summary.work_orders == count(WorkOrder)
         assert summary.log_entries == count(LogEntry)
         assert (summary.rooms, summary.hk_assignments) == (120, 28)
+        assert summary.checklist_templates == 5
     db_.engine.dispose()
     assert summary.conversations == 35
     assert summary.guests == 110 and summary.stays == 113

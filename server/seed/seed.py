@@ -24,17 +24,25 @@ from app import clock
 from app.auth.passwords import hash_password
 from app.db import Database, run_migrations
 from app.domain import (
+    ck_instances,
+    ck_templates,
+    ck_tick,
     hk_assignments,
     hk_photos,
     hk_rooms,
     hk_tick,
     hk_transitions,
     pm_cycles,
+    shifts,
     staff_messages,
 )
 from app.domain.assets import new_short_code
 from app.domain.log import shift_for
 from app.models import (
+    ChecklistAnswer,
+    ChecklistInstance,
+    ChecklistTemplate,
+    ChecklistTemplateItem,
     Conversation,
     Department,
     DigitalAsset,
@@ -64,10 +72,12 @@ from app.models import (
     WorkOrderEvent,
 )
 from app.queue import jobs
+from app.schemas.checklists import ChecklistTemplateIn
 from app.schemas.enums import (
     AssetType,
     AuthorType,
     Channel,
+    ChecklistStatus,
     ConversationStatus,
     DeliveryStatus,
     DepartmentType,
@@ -92,6 +102,7 @@ from app.schemas.enums import (
     WorkOrderStatus,
     WorkOrderType,
 )
+from app.schemas.pm import AnswerPatch, TemplateItemIn
 from seed import data
 from seed.pm_units import unit_rows
 
@@ -119,6 +130,8 @@ class SeedSummary:
     pm_runs: int
     rooms: int
     hk_assignments: int
+    checklist_templates: int
+    checklist_instances: int
 
 
 def _phone(rng: random.Random, used: set[str]) -> str:
@@ -881,8 +894,89 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
             hk_transitions.set_room_status(db, hvh.id, grace.id, room.id, status, note)
         db.flush()
 
+        # ---- shift checklists (checklists spec §5). Through the domain. Yesterday's instances
+        # are planted directly so test_seed never depends on the time of day (plan
+        # clarification 6); today's depend on when the seed runs and are not asserted.
+        def ck_template(name, dept, schedule, shift, weekdays, items):
+            return ck_templates.create(db, hvh.id, staff["alex"].id, ChecklistTemplateIn(
+                name=name, department_id=depts[dept].id, schedule=schedule, shift=shift,
+                weekdays=weekdays, items=[TemplateItemIn(**i) for i in items]))
+
+        every_day, mon_wed_fri = 0b1111111, 0b0010101
+        fd_open = ck_template("Front Desk AM Opening", "front_desk", "weekly", "am", every_day, [
+            {"label": "Cash drawer counted", "item_type": "number", "unit": "$",
+             "min_value": 150, "max_value": 250},
+            {"label": "Lobby walk-through done", "item_type": "checkbox"},
+            {"label": "Key encoder tested", "item_type": "checkbox"}])
+        ck_template("Front Desk Overnight Night Audit", "front_desk", "weekly", "overnight",
+                    every_day, [
+                        {"label": "Night audit run", "item_type": "checkbox"},
+                        {"label": "Credit card batch closed", "item_type": "checkbox"},
+                        {"label": "Audit report", "item_type": "photo"}])
+        rounds = ck_template("Engineering AM Rounds", "engineering", "weekly", "am", every_day, [
+            {"label": "Pool free chlorine", "item_type": "number", "unit": "ppm",
+             "min_value": 1.0, "max_value": 3.0},
+            {"label": "Pool pH", "item_type": "number", "unit": "", "min_value": 7.2,
+             "max_value": 7.8},
+            {"label": "Boiler supply temp", "item_type": "number", "unit": "°F",
+             "min_value": 140, "max_value": 180}])
+        linen = ck_template("Housekeeping PM Linen Par", "housekeeping", "weekly", "pm",
+                            mon_wed_fri, [
+                                {"label": "King sheet sets", "item_type": "number",
+                                 "unit": "sets", "min_value": 40},
+                                {"label": "Bath towels", "item_type": "number", "min_value": 120},
+                                {"label": "Linen room tidy", "item_type": "checkbox"}])
+        ck_template("Engineering Power Outage Response", "engineering", "on_demand", None, None, [
+            {"label": "Generator started", "item_type": "checkbox"},
+            {"label": "Elevators checked for trapped guests", "item_type": "checkbox"},
+            {"label": "Notes", "item_type": "text", "required": False}])
+
+        value_field = {PmItemType.checkbox: "bool_value", PmItemType.text: "text_value",
+                       PmItemType.number: "number_value"}
+
+        def run_checklist(inst, actor, role, values):
+            ck_instances.start(db, hvh.id, actor.id, role, inst.id)
+            for answer, item in db.execute(
+                    select(ChecklistAnswer, ChecklistTemplateItem)
+                    .join(ChecklistTemplateItem,
+                          ChecklistTemplateItem.id == ChecklistAnswer.item_id)
+                    .where(ChecklistAnswer.instance_id == inst.id)).all():
+                if item.label in values:
+                    ck_instances.save_answer(
+                        db, hvh.id, actor.id, role, inst.id, answer.id,
+                        AnswerPatch(**{value_field[item.item_type]: values[item.label]}))
+
+        ck_yesterday = pm_cycles.local_today(hvh) - timedelta(days=1)
+        for template, actor, role, values in (
+                (fd_open, staff["marcus"], Role.agent,
+                 {"Cash drawer counted": 200, "Lobby walk-through done": True,
+                  "Key encoder tested": True}),
+                (rounds, staff["eli"], Role.dept_staff,
+                 {"Pool free chlorine": 2.1, "Pool pH": 8.1, "Boiler supply temp": 162})):
+            inst, _ = ck_instances.ensure_instance(db, template, ck_yesterday)
+            run_checklist(inst, actor, role, values)
+            ck_instances.complete(db, hvh.id, actor.id, role, inst.id)  # pH 8.1 → work order
+            window_start, _ = shifts.shift_window(hvh, ck_yesterday, inst.shift)
+            inst.started_at = window_start + timedelta(minutes=40)
+            inst.completed_at = window_start + timedelta(minutes=65)
+        abandoned, _ = ck_instances.ensure_instance(db, linen, ck_yesterday)
+        run_checklist(abandoned, staff["hana"], Role.dept_staff, {"King sheet sets": 44})
+        ck_tick.tick(db)  # yesterday's PM window is over → missed; today's generated
+        # Ruling (task 10 ledger): the brief's ensure_instance(today) + unconditional start would
+        # plant an instance that is born already missed once today's AM window has passed,
+        # contradicting "never born missed" (clarification 1). Instead, only start today's AM
+        # Rounds instance if `ck_tick.tick` actually generated it and it is still open.
+        today_rounds = db.scalar(select(ChecklistInstance).where(
+            ChecklistInstance.template_id == rounds.id,
+            ChecklistInstance.due_date == pm_cycles.local_today(hvh),
+            ChecklistInstance.slot == 0))
+        if today_rounds is not None and today_rounds.status == ChecklistStatus.open:
+            ck_instances.start(db, hvh.id, staff["noah"].id, Role.dept_staff, today_rounds.id)
+        db.flush()
+
         # ---- recurring jobs
-        for job_type in ("sla.sweep", "snooze.wake", "pms.tick", "pm.tick", "housekeeping.tick"):
+        for job_type in ("sla.sweep", "snooze.wake", "pms.tick", "pm.tick", "housekeeping.tick",
+                         "checklist.tick"):
             jobs.ensure_recurring(db, job_type)
 
         # Derive every count from the database rather than in-memory counters/lists: the showcase
@@ -903,6 +997,8 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
             pm_runs=db.scalar(select(func.count()).select_from(PmRun)),
             rooms=db.scalar(select(func.count()).select_from(Room)),
             hk_assignments=db.scalar(select(func.count()).select_from(HousekeepingAssignment)),
+            checklist_templates=db.scalar(select(func.count()).select_from(ChecklistTemplate)),
+            checklist_instances=db.scalar(select(func.count()).select_from(ChecklistInstance)),
         )
     database.engine.dispose()
     return summary
