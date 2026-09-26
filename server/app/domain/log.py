@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app import clock
 from app.domain import audit, notifications
+from app.domain.shifts import boundary
 from app.domain.users import active_members_of_department
 from app.errors import Forbidden, NotFound, ValidationFailed
 from app.models import (
@@ -38,9 +39,6 @@ from app.schemas.log import (
     MentionRef,
 )
 
-# Spec §3.3. Overridable per property via settings["shift_boundaries"].
-DEFAULT_SHIFT_BOUNDARIES = {"am": "07:00", "pm": "15:00", "overnight": "23:00"}
-
 # Mirrors the frontend's `TOKEN_RE` (web/src/features/log/MentionInput.tsx) — including the
 # 36-char UUID id group. The two must agree and nothing enforces that but this comment.
 _MENTION_TOKEN = re.compile(r"@\[([^\]]+)\]\((?:user|department):[0-9a-f-]{36}\)")
@@ -57,12 +55,6 @@ def _plain_text(body: str) -> str:
     return _MENTION_TOKEN.sub(r"@\1", body)
 
 
-def _boundary(raw: dict, key: str) -> time:
-    value = raw.get(key) or DEFAULT_SHIFT_BOUNDARIES[key]
-    hour, _, minute = value.partition(":")
-    return time(int(hour), int(minute))
-
-
 def shift_for(prop: Property, at: datetime) -> Shift:
     """Which shift `at` falls in, on the property's own clock.
 
@@ -73,7 +65,7 @@ def shift_for(prop: Property, at: datetime) -> Shift:
     if at.tzinfo is None:
         raise ValueError("shift_for requires an aware datetime")
     raw = (prop.settings or {}).get("shift_boundaries") or {}
-    am, pm, overnight = (_boundary(raw, k) for k in ("am", "pm", "overnight"))
+    am, pm, overnight = (boundary(raw, k) for k in ("am", "pm", "overnight"))
     local = at.astimezone(ZoneInfo(prop.timezone)).time()
     if am <= local < pm:
         return Shift.am
