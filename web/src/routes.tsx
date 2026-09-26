@@ -21,6 +21,7 @@ import { CompliancePage } from './features/pm/CompliancePage'
 import { RoomBoardPage } from './features/housekeeping/RoomBoardPage'
 import { MyRoomsPage } from './features/housekeeping/MyRoomsPage'
 import { RoomInspectionPage } from './features/housekeeping/RoomInspectionPage'
+import { ChecklistsPage } from './features/checklists/ChecklistsPage'
 
 function LandingRedirect() {
   const { membership } = useSession()
@@ -67,6 +68,14 @@ export function AppRoutes() {
           <Route path="messages" element={<MessagesPage />} />
           <Route path="messages/:id" element={<MessagesPage />} />
           <Route path="log" element={<LogPage />} />
+          <Route
+            path="checklists"
+            element={
+              <RequireCapability capability="view_checklists">
+                <ChecklistsPage />
+              </RequireCapability>
+            }
+          />
           <Route path="pm" element={<SweepPage />} />
           <Route path="pm/runs/:id" element={<RunPage />} />
           <Route

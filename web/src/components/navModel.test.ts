@@ -29,6 +29,16 @@ describe('isNavItemActive', () => {
   })
 })
 
+describe('checklists navigation', () => {
+  it('puts Checklists in Overview after Log', () => {
+    const overview = NAV_GROUPS.find((g) => g.heading === 'Overview')!
+    const labels = overview.items.map((i) => i.label)
+    expect(labels.indexOf('Checklists')).toBe(labels.indexOf('Log') + 1)
+    const item = overview.items.find((i) => i.label === 'Checklists')!
+    expect(isNavItemActive(item, '/app/checklists/abc')).toBe(true)
+  })
+})
+
 describe('visibleNavGroups', () => {
   it('shows the Log entry to every staff role', () => {
     const groups = visibleNavGroups(() => false) // no capabilities at all

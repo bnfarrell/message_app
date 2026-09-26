@@ -34,6 +34,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: 'Alerts', to: '/app/notifications', icon: 'alerts', needs: [] },
       { label: 'Messages', to: '/app/messages', icon: 'inbox', needs: [] },
       { label: 'Log', to: '/app/log', icon: 'log', needs: [] },
+      { label: 'Checklists', to: '/app/checklists', icon: 'checklist', needs: ['view_checklists'], match: ['/app/checklists'] },
     ],
   },
   {
