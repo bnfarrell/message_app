@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Route, Routes } from 'react-router-dom'
@@ -27,6 +27,13 @@ const BASE: ChecklistInstanceOut = {
   ],
   photos: [],
   missingRequired: ['it-chk'],
+}
+
+// Checklist structure spec §2.2: Skimmers ungrouped, Pool pH under "Pool" (answered, so 1 / 1).
+const GROUPED: ChecklistInstanceOut = {
+  ...BASE, kind: 'readings',
+  categories: [{ id: 'c-pool', name: 'Pool', position: 0, done: 1, total: 1 }],
+  items: [{ ...BASE.items[0]!, categoryId: null }, { ...BASE.items[1]!, categoryId: 'c-pool' }],
 }
 
 let instance: ChecklistInstanceOut = BASE
@@ -107,6 +114,39 @@ describe('ChecklistRunPage', () => {
   it('lets the note grow to the server\'s 4000-character limit', async () => {
     mount()
     expect(await screen.findByLabelText('Handover note')).toHaveAttribute('maxlength', '4000')
+  })
+
+  it('shows a checklist without categories as one list with no headings', async () => {
+    mount()
+    await screen.findByRole('checkbox', { name: /Skimmers/ })
+    expect(screen.queryByRole('button', { name: /done$/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('Readings')).not.toBeInTheDocument()
+  })
+
+  it('groups items under collapsible category headings with progress, ungrouped first', async () => {
+    instance = GROUPED
+    const user = userEvent.setup()
+    mount()
+    const heading = await screen.findByRole('button', { name: 'Pool, 1 of 1 done' })
+    expect(heading).toHaveAttribute('aria-expanded', 'true')
+    expect(within(heading).getByText('1 / 1')).toBeInTheDocument()
+    const pool = screen.getByRole('region', { name: 'Pool' })
+    expect(within(pool).getByText(/Pool pH/)).toBeInTheDocument()
+    expect(within(pool).queryByText(/Skimmers/)).not.toBeInTheDocument()
+    // the ungrouped item is above the first heading
+    const skimmers = screen.getByRole('checkbox', { name: /Skimmers/ })
+    expect(skimmers.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await user.click(heading)
+    expect(heading).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText(/Pool pH/)).not.toBeInTheDocument()
+    await user.click(heading)
+    expect(screen.getByText(/Pool pH/)).toBeInTheDocument()
+  })
+
+  it('tags a readings checklist in the header', async () => {
+    instance = GROUPED
+    mount()
+    expect(await screen.findByText('Readings')).toBeInTheDocument()
   })
 
   it('shows a failed save inline', async () => {

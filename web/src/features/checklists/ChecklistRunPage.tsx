@@ -11,8 +11,10 @@ import {
 import { useSession } from '../../auth/SessionContext'
 import { Badge, Button, EmptyState, Spinner, Textarea } from '../../components/ui'
 import { formatClock } from '../../lib/time'
+import type { ChecklistItemOut } from '../../api/types'
 import { ChecklistItem } from '../pm/ChecklistItem'
-import { SHIFT_LABELS, STATUS_LABELS, STATUS_TONE } from './labels'
+import { groupByCategory } from './grouping'
+import { KIND_LABELS, SHIFT_LABELS, STATUS_LABELS, STATUS_TONE } from './labels'
 
 export function ChecklistRunPage() {
   const { id } = useParams<{ id: string }>()
@@ -25,6 +27,7 @@ export function ChecklistRunPage() {
   const start = useStartChecklist()
   const [note, setNote] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
 
   useEffect(() => {
     if (instance) setNote(instance.comment ?? '')
@@ -51,6 +54,34 @@ export function ChecklistRunPage() {
   const missingLabels = items.filter((i) => missing.has(i.id)).map((i) => i.label)
   const answerFor = (itemId: string) => answers.find((a) => a.itemId === itemId)
   const general = photos.filter((p) => !p.itemId)
+  const { ungrouped, groups } = groupByCategory(items, instance.categories ?? [])
+  const toggle = (categoryId: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(categoryId)) next.delete(categoryId)
+      else next.add(categoryId)
+      return next
+    })
+
+  const renderItem = (item: ChecklistItemOut) => (
+    <ChecklistItem
+      key={item.id}
+      item={item}
+      answer={answerFor(item.id)}
+      photos={photos.filter((p) => p.itemId === item.id)}
+      readOnly={readOnly}
+      missing={missing.has(item.id)}
+      onSave={(patch) => {
+        const answer = answerFor(item.id)
+        if (answer) {
+          save.mutate({ instanceId: instance.id, answerId: answer.id, patch }, { onError: fail })
+        }
+      }}
+      onUpload={(file) =>
+        upload.mutate({ instanceId: instance.id, file, itemId: item.id }, { onError: fail })
+      }
+    />
+  )
 
   return (
     <div className="h-full overflow-y-auto">
@@ -60,6 +91,7 @@ export function ChecklistRunPage() {
         </Link>
         <h1 className="text-base font-bold">{instance.templateName}</h1>
         <Badge tone={STATUS_TONE[instance.status]}>{STATUS_LABELS[instance.status]}</Badge>
+        {instance.kind === 'readings' ? <Badge tone="note">{KIND_LABELS.readings}</Badge> : null}
         <span className="w-full text-xs text-text3 md:ml-auto md:w-auto">
           {instance.departmentName} · {SHIFT_LABELS[instance.shift]} · {instance.dueDate}
           {instance.startedByName ? ` · started by ${instance.startedByName}` : ''}
@@ -91,27 +123,34 @@ export function ChecklistRunPage() {
             <EmptyState title="This checklist is waiting to be started" />
           )
         ) : (
-          <ol className="flex flex-col gap-3">
-            {items.map((item) => (
-              <ChecklistItem
-                key={item.id}
-                item={item}
-                answer={answerFor(item.id)}
-                photos={photos.filter((p) => p.itemId === item.id)}
-                readOnly={readOnly}
-                missing={missing.has(item.id)}
-                onSave={(patch) => {
-                  const answer = answerFor(item.id)
-                  if (answer) {
-                    save.mutate({ instanceId: instance.id, answerId: answer.id, patch }, { onError: fail })
-                  }
-                }}
-                onUpload={(file) =>
-                  upload.mutate({ instanceId: instance.id, file, itemId: item.id }, { onError: fail })
-                }
-              />
-            ))}
-          </ol>
+          <>
+            {/* Ungrouped items first, with no heading: a checklist without categories looks
+                exactly as it always has (checklist structure spec §2.2). */}
+            {ungrouped.length > 0 ? (
+              <ol className="flex flex-col gap-3">{ungrouped.map(renderItem)}</ol>
+            ) : null}
+            {groups.map((group) => {
+              const open = !collapsed.has(group.id)
+              return (
+                <section key={group.id} aria-label={group.name} className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    aria-label={`${group.name}, ${group.done} of ${group.total} done`}
+                    onClick={() => toggle(group.id)}
+                    className="flex items-center gap-2 text-left text-xs font-bold uppercase tracking-widest text-text3 hover:text-text"
+                  >
+                    <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+                    <span>{group.name}</span>
+                    <span className="ml-auto font-mono normal-case tracking-normal">
+                      {group.done} / {group.total}
+                    </span>
+                  </button>
+                  {open ? <ol className="flex flex-col gap-3">{group.items.map(renderItem)}</ol> : null}
+                </section>
+              )
+            })}
+          </>
         )}
 
         {instance.status !== 'open' ? (

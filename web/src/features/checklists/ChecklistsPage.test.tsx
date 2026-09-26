@@ -20,8 +20,8 @@ function row(over: Partial<ChecklistInstanceRowOut>): ChecklistInstanceRowOut {
 const TODAY = [
   row({}),
   row({ id: 'i-pm', templateId: 't-pm', templateName: 'Engineering PM Walk', shift: 'pm',
-        status: 'in_progress', assignedUserId: 'u-eli', assignedName: 'Eli Engineer', done: 2,
-        total: 5, outOfRangeCount: 1 }),
+        status: 'in_progress', kind: 'readings', assignedUserId: 'u-eli',
+        assignedName: 'Eli Engineer', done: 2, total: 5, outOfRangeCount: 1 }),
 ]
 const ON_DEMAND: ChecklistTemplateOut = {
   id: 't-out', name: 'Power Outage', departmentId: 'dept-eng', departmentName: 'Engineering',
@@ -77,6 +77,32 @@ describe('ChecklistsPage', () => {
     expect(within(pm).getByText('2 / 5')).toBeInTheDocument()
     expect(within(pm).getByText('Eli Engineer')).toBeInTheDocument()
     expect(within(pm).getByText('1 out of range')).toBeInTheDocument()
+  })
+
+  it('tags a readings checklist card', async () => {
+    mount('dept_staff')
+    const pm = (await screen.findByText('Engineering PM Walk')).closest('li')!
+    expect(within(pm).getByText('Readings')).toBeInTheDocument()
+    const am = screen.getByText('Engineering AM Rounds').closest('li')!
+    expect(within(am).queryByText('Readings')).not.toBeInTheDocument()
+  })
+
+  it('never offers an unscheduled template in the on-demand menu', async () => {
+    const unscheduled: ChecklistTemplateOut = { ...ON_DEMAND, id: 't-later', name: 'Deep Clean',
+                                                schedule: 'unscheduled' }
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      const body = url.includes('/departments') ? [aDepartment()]
+        : url.includes('staff-directory') ? []
+        : url.includes('/checklists/templates') && method === 'GET' ? [ON_DEMAND, unscheduled]
+        : TODAY
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
+    })
+    mount('dept_staff')
+    const menu = await screen.findByLabelText('Start a checklist')
+    expect(within(menu).getAllByRole('option').map((o) => o.textContent))
+      .toEqual(['Choose one', 'Power Outage'])
   })
 
   it('asks the server for my department by default', async () => {

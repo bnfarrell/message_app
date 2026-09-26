@@ -14,7 +14,7 @@ import type { ChecklistInstanceRowOut, Shift } from '../../api/types'
 import { useSession } from '../../auth/SessionContext'
 import { Badge, Button, EmptyState, Spinner } from '../../components/ui'
 import { cn } from '../../lib/cn'
-import { SHIFT_LABELS, STATUS_LABELS, STATUS_TONE } from './labels'
+import { KIND_LABELS, SHIFT_LABELS, STATUS_LABELS, STATUS_TONE } from './labels'
 
 const SELECT =
   'h-9 rounded border border-border3 bg-surface2 px-2 text-sm text-text focus:border-accent focus:outline-none'
@@ -67,6 +67,7 @@ function ChecklistCard({ row }: { row: ChecklistInstanceRowOut }) {
     <li className="flex flex-col gap-2 rounded-card border border-border2 bg-surface p-3">
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold">{row.templateName}</span>
+        {row.kind === 'readings' ? <Badge tone="note">{KIND_LABELS.readings}</Badge> : null}
         <span className="text-xs text-text3">{row.departmentName}</span>
         <Badge tone={STATUS_TONE[row.status]}>{STATUS_LABELS[row.status]}</Badge>
         <span className="text-xs text-text3">{row.assignedName ?? 'Unassigned'}</span>
