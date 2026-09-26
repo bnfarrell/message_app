@@ -31,6 +31,12 @@ CAPABILITIES: dict[str, set[Role]] = {
     "perform_housekeeping": {Role.dept_staff, Role.supervisor, Role.manager, Role.admin},
     "manage_housekeeping": {Role.supervisor, Role.manager, Role.admin},
     "inspect_housekeeping": {Role.supervisor, Role.manager, Role.admin},
+    # Shift checklists (checklists spec §4.3). All include admin, as above. Front desk (agent)
+    # performs its own opening/closing checklists.
+    "view_checklists": STAFF,
+    "perform_checklists": {Role.agent, Role.dept_staff, Role.supervisor, Role.manager,
+                           Role.admin},
+    "manage_checklists": {Role.supervisor, Role.manager, Role.admin},
 }
 
 

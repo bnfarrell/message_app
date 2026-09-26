@@ -23,6 +23,9 @@ export type Capability =
   | 'perform_housekeeping'
   | 'manage_housekeeping'
   | 'inspect_housekeeping'
+  | 'view_checklists'
+  | 'perform_checklists'
+  | 'manage_checklists'
 
 const STAFF: Role[] = ['agent', 'dept_staff', 'supervisor', 'manager', 'admin', 'corporate']
 
@@ -50,6 +53,9 @@ const CAPABILITIES: Record<Capability, Role[]> = {
   perform_housekeeping: ['dept_staff', 'supervisor', 'manager', 'admin'],
   manage_housekeeping: ['supervisor', 'manager', 'admin'],
   inspect_housekeeping: ['supervisor', 'manager', 'admin'],
+  view_checklists: STAFF,
+  perform_checklists: ['agent', 'dept_staff', 'supervisor', 'manager', 'admin'],
+  manage_checklists: ['supervisor', 'manager', 'admin'],
 }
 
 export function hasCapability(role: Role, capability: Capability): boolean {

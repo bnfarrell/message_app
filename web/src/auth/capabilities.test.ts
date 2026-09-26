@@ -113,3 +113,16 @@ describe('housekeeping capabilities', () => {
     }
   })
 })
+
+describe('checklist capabilities', () => {
+  it('mirrors server/app/auth/permissions.py', () => {
+    expect(hasCapability('corporate', 'view_checklists')).toBe(true)
+    expect(hasCapability('agent', 'perform_checklists')).toBe(true)
+    expect(hasCapability('corporate', 'perform_checklists')).toBe(false)
+    expect(hasCapability('dept_staff', 'manage_checklists')).toBe(false)
+    expect(hasCapability('supervisor', 'manage_checklists')).toBe(true)
+    for (const cap of ['view_checklists', 'perform_checklists', 'manage_checklists'] as const) {
+      expect(hasCapability('admin', cap)).toBe(true)
+    }
+  })
+})
