@@ -1,10 +1,9 @@
 # Housekeeping — design
 
-**Status: DRAFT IN PROGRESS.** Sections 1–4 below were presented and approved section by section
-in the brainstorming session of 2026-09-25. Sections 5–8 (realtime, sample data, migration and
-portability, testing) are still to be drafted, and the spec has not yet had its self-review or
-user review pass. Do not start implementation from this file until it is complete and approved —
-resume by drafting §5 onward, then re-reading the whole thing.
+**Status: AWAITING WRITTEN-SPEC REVIEW.** All eight sections were presented and approved section
+by section in the brainstorming sessions of 2026-09-25, and the spec has had its self-review.
+Next: the user reviews this file; on approval, an implementation plan is written from it. Do not
+start implementation from this file directly.
 
 ---
 
@@ -95,8 +94,12 @@ A **failed inspection returns the row to `assigned`** with the note and `fail_co
 than creating a second row. One row therefore tells the whole story of that room's day, and
 inspection-pass-rate analytics later are a count of fail events rather than a join.
 
-At most one non-`passed` assignment per room at a time, enforced in the domain layer — a partial
-unique index is not portable enough to lean on across SQLite and Postgres.
+At most one non-`passed` assignment per room **per `shift_date`**, enforced in the domain layer —
+a partial unique index is not portable enough to lean on across SQLite and Postgres. Scoping it to
+the day matters: a room left `clean` overnight with its `done` assignment never inspected is
+re-dirtied by the tick (§3.1), and yesterday's unfinished row must stay as history rather than
+block today's assignment. "Today's assignment" everywhere means `shift_date` = property-local
+today.
 
 ### 2.3 `room_event`
 
@@ -149,7 +152,7 @@ An explicit table in the domain layer. Anything not listed is a 409:
 
 | from → to | who | side effects |
 |---|---|---|
-| any non-OOO → `dirty` | front desk, HK staff, supervisor+ | `service_type` = `touch_up` if occupied, else `departure`; optional note |
+| `inspected` → `dirty` (mark dirty) | front desk, HK staff, supervisor+ | `service_type` = `touch_up` if occupied, else `departure`; optional note. From `dirty` / `in_progress` it is a 409 (already on its way); from `clean` it is a 409 telling the user a supervisor must fail the inspection, so mark-dirty can never bypass the fail path and its note |
 | `dirty` → `in_progress` | the assigned housekeeper, or supervisor+ | assignment → `in_progress`, `started_at` |
 | `in_progress` → `clean` | same | assignment → `done`, `completed_at`, `last_cleaned_at`; supervisors notified |
 | `clean` → `inspected` | supervisor+ | assignment → `passed`, `rush` cleared, `last_inspected_at` |
@@ -255,20 +258,180 @@ cannot distinguish a housekeeping `dept_staff` from an engineering one. So `Memb
 a `departmentType` field (already joinable) and `dept_staff` in a housekeeping department lands
 on `/app/my-rooms`. Every other role is unchanged.
 
-Query hooks in `web/src/api/hooks/housekeeping.ts`, keyed and invalidated on the `room.updated`
-realtime event exactly as the PM hooks are.
+Query hooks in `web/src/api/hooks/housekeeping.ts`, keyed and invalidated on the
+`housekeeping.rooms.changed` realtime event (§5) exactly as the PM hooks are.
 
 ---
 
-## 5–8. Still to draft
+## 5. Realtime
 
-- **§5 Realtime** — one `room.updated {id}` event broadcast on every change, following PM's
-  invalidate-on-event pattern. Needs writing out properly, including which of the three screens
-  refetch on it.
-- **§6 Sample data** — seeding rooms, a day's assignments across the two seeded housekeepers and
-  the HK supervisor, and rooms in each status so the board is not empty on a fresh database.
-- **§7 Migration and portability** — `0008_housekeeping`, backfilling a `room` row per active
-  guest-room unit, and the `downgrade()` that truly reverses it. Verified against Postgres 18 per
-  CLAUDE.md before merge.
-- **§8 Testing** — the transition table, tick idempotency, the assignment/inspection loop,
-  cross-property isolation, and the capability matrix.
+**One event type:** `housekeeping.rooms.changed`, payload `{ ids: [roomId, …] }` — named in the
+style of `pm.run.changed`. The payload is always a list, so a bulk action (assigning twelve rooms,
+the tick dirtying forty after midnight, a reorder) sends **one** event, not N. It carries ids only,
+no guest data, so it goes property-wide like every other operational event.
+
+**One emission point.** A single domain helper calls `queue_event`, and every mutation in §3 goes
+through it — transitions, assign, reassign, unassign, reorder, rush, inspect, photo upload, the
+tick, and the PMS checkout hook — so no code path can change a room silently. The tick emits only
+when it actually changed a row; a no-op tick is silent. Delivery is after commit, as for every
+event (`app/realtime/broadcast.py`).
+
+**What refetches** — a new case in `web/src/api/ws.ts`:
+
+| query key | why |
+|---|---|
+| `hkBoardAll` | tiles, summary counts, assignee initials |
+| `hkMyRoomsAll` | a housekeeper's list changes when assigned, reordered, rushed or failed back |
+| `hkInspectionsAll` | a room reaching `clean` joins the queue; passing removes it |
+| `hkRoom(id)` per id | an open detail drawer stays current |
+
+Every screen refetches on every event, with no per-user filtering — at one property's volume that
+is a few small GETs per change, the trade PM already makes, and filtering client-side would
+duplicate the server's "is this mine" logic in the browser.
+
+**Notifications need nothing new.** Assigned, rush, ready-for-inspection and failed-back all go
+through `notifications.notify_users`, which already emits a per-user `notification.created`, so
+the bell and toast work unchanged. `notification.type` is a free string; no constraint changes.
+
+---
+
+## 6. Sample data
+
+**The seed goes through the domain, never around it.** It stages a plausible "last night" and then
+runs the real code — `housekeeping.tick`, then domain calls made as the seeded users — so seeding
+doubles as an end-to-end smoke test: a broken transition rule fails the seed loudly instead of
+seeding a state the app could never produce.
+
+1. **Last night.** A `room` row per HVH guest-room unit (120, floors 1–6 × 01–20), created by the
+   same ensure-rooms function the tick uses. Every room starts `inspected` with
+   `status_changed_at` = yesterday 18:00 property-local.
+2. **This morning.** One `housekeeping.tick(now)`. The real rules dirty the stayovers
+   (`stayover`) and the ten departures-today (`departure`); vacant rooms stay `inspected`. No
+   hand-picked dirty list.
+3. **Mid-shift**, scripted and deterministic under the seeder's existing `rng(42)`. Grace (HK
+   supervisor) assigns 14 rooms each to Hana and Rosa. For each housekeeper:
+   - 4 **passed** — started, completed, inspected by Grace; one carries a photo (the seeder's
+     existing 1×1 PNG constant);
+   - 2 **done**, awaiting inspection, so the inspection queue is not empty;
+   - 1 **in progress**;
+   - 1 **failed back once** — `fail_count` 1, note "Hair in the bathroom sink.";
+   - 6 **assigned**, not started.
+
+   Then: Marcus (front desk) sets **rush** on one of Rosa's assigned departures; 2 rooms go
+   **out of order** ("AC unit leaking, WO open") and 1 **out of service**. The remaining dirty
+   rooms stay **unassigned** — realistic for two seeded housekeepers in a 120-room hotel, and it
+   gives the unassigned-only filter something to show.
+
+LSI gets no housekeeping data beyond what ensure-rooms creates for any guest-room units it has.
+
+`SeedSummary` gains `rooms` and `hk_assignments`; `test_seed_matches_spec_counts` asserts them.
+`server/data/app.db` is regenerated and committed — a genuine seed change (CLAUDE.md).
+
+**Production is never seeded.** Its rows come from the migration backfill (§7) and the tick; its
+board starts with every room `inspected`.
+
+**Known consequence, accepted:** seeded assignments belong to the day the seed ran. On later days
+the tick dirties rooms normally and nothing is assigned until someone assigns it — the same way
+PM's seeded runs age.
+
+---
+
+## 7. Migration and portability
+
+**`0008_housekeeping`** — revision `0008`, down-revision `0007`, in 0007's style: the same
+`_enum()` / `_timestamps()` helpers, `native_enum=False` with CHECK constraints, indexes via
+`batch_alter_table`. It only adds tables; no existing table or CHECK constraint changes (the
+class of migration that needed care in 0004). The recurring job is an entry in
+`app/queue/jobs.py:RECURRING` (`"housekeeping.tick": 300`), not schema.
+
+**Tables, in FK order:** `room` → `housekeeping_assignment` → `room_event` →
+`housekeeping_photo`. `room.unit_id` unique. Indexes: `property_id` on all four;
+`(property_id, hk_status)` on `room`; `(property_id, shift_date, housekeeper_user_id)` on
+assignments; `(room_id, created_at)` on events for the history panel. No partial indexes (§2.2).
+
+**Backfill in Python, not SQL.** Select active `guest_room` units through a lightweight
+`sa.table()`, generate ids with `uuid4()` in Python, insert with `op.bulk_insert`. No
+`gen_random_uuid()` (Postgres-only) and no `INSERT … SELECT` id tricks. Timestamps written as
+naive UTC — `UTCDateTime`'s storage form.
+
+**Backfilled rooms start `inspected`, with `status_changed_at` = migration time.** Not `clean`:
+that means awaiting inspection (§2.1) and would put every production room in the inspection
+queue. The before-midnight rule (§3.1) then means a mid-shift deploy never floods the board — the
+first dirty wave is the next local midnight. A supervisor can mark rooms dirty sooner.
+
+**Staying in step afterwards.** The migration and the tick's ensure-rooms share one rule: a row
+per active guest-room unit. A unit added later gets its row within five minutes. Units are only
+ever deactivated, never deleted, so a deactivated unit keeps its row and history but leaves the
+board (which filters on `unit.active` and `kind`); reactivating it brings the same row back.
+
+**`downgrade()`** drops the four tables, children first. That truly reverses: the backfill wrote
+only into tables being dropped, and nothing pre-existing was altered.
+
+**Verification before merge** (CLAUDE.md), against a `postgres:18` container:
+
+1. `upgrade head` from a database at `0007` **that has units in it** — an empty one hides a
+   backfill bug;
+2. backfilled row count equals active guest-room unit count;
+3. `downgrade 0007`, then `upgrade head` again, counts unchanged;
+4. `dev_start.py` on Postgres end to end, so the seed (§6) runs the tick and domain — the
+   timezone-shaped code — on the real engine.
+
+**Deploy check:** the Railway log shows `==> alembic upgrade head` before gunicorn, `/api/health`
+is ok, and the board's room count equals production's guest-room count.
+
+---
+
+## 8. Testing
+
+TDD per plan task; these are the tests each task writes first. All run on SQLite in CI; Postgres
+is covered by §7's verification, per CLAUDE.md's deliberate split. Tests freeze the clock at
+2026-09-10 12:00 UTC (08:00 at HVH, New York; LSI is Chicago).
+
+### 8.1 Server
+
+- **`test_hk_models.py`** — the four tables in `EXPECTED_TABLES` (`test_models.py`); `unit_id`
+  unique; enums round-trip through `enum_type()`.
+- **`test_hk_transitions.py`** — the heart. §3.3 as a **parametrised matrix** of (from status,
+  action, role, assigned or not) → allowed plus side effects, or 409 / 403. Every combination not
+  in the table is asserted 409, so a new status cannot silently gain a transition. Fail without a
+  note → 422; fail returns the *same* row to `assigned` with `fail_count + 1`; rush cleared on
+  pass; OOO/OOS removes the open assignment; supervisor self-assign-start creates the assignment.
+- **`test_hk_tick.py`** — stayover and departure dirtying; **idempotency** (a second run changes
+  nothing and queues no event); a room cleaned at 07:00 local today is not re-dirtied; the
+  midnight boundary in **property-local** time, including a case where UTC and local disagree on
+  the date, and LSI against HVH to prove each property uses its own midnight; one case across the
+  2026-11-01 DST change; `dirty` / `in_progress` / OOO / OOS untouched; ensure-rooms creates a row
+  for a new guest-room unit and restores a reactivated one.
+- **`test_hk_assignments.py`** — bulk assign produces exactly one notification; reassign moves the
+  row and records the event; unassign → 409 once started; reorder rejects ids not belonging to
+  that housekeeper (422); engineering `dept_staff` as target → 422; a manager from another
+  department can assign; one open assignment per room per shift date.
+- **`test_hk_api.py`** — board occupancy derived from `stay`, including a departs-today room;
+  summary counts agree with the tiles; `my-rooms` is rush first then sequence and only the
+  caller's; front desk can mark dirty and rush but gets 403 on assign and inspect; photo upload
+  size cap and bytes-in-DB, reusing the work-order photo helpers; PMS `stay.checked_out` dirties
+  the room immediately.
+- **`test_hk_permissions.py`** — §4.2 pinned in the style of `test_pm_permissions.py`, including
+  admin on every capability.
+- **Realtime** — each mutation queues exactly one `housekeeping.rooms.changed` with the right
+  `ids`; a bulk assign queues one, not N.
+- **`test_isolation.py`** — no edit needed; it enumerates routes itself. The plan still runs it
+  once to see the new routes counted.
+- **`test_schema_export.py`, `test_seed.py`** — new models in the tuple; §6's counts, plus "the
+  seed produced every board status".
+
+### 8.2 Web
+
+- **`capabilities.test.ts`** — the mirrored capabilities; `landingPath` sends housekeeping
+  `dept_staff` to `/app/my-rooms` and leaves engineering `dept_staff` unchanged.
+- **`navModel.test.ts`** — the Housekeeping group; Room Inspection does not light Rooms.
+- **`ws.test.tsx`** — the event invalidates the four keys in §5.
+- **`features/housekeeping/*.test.tsx`** — RoomBoard (floor grouping, filters, multi-select →
+  assign, front desk sees only Mark dirty and Rush); MyRooms (the button walks Start → Mark ready,
+  rush pinned, failed-back note shown); RoomInspection (Fail requires a note).
+
+### 8.3 Definition of done
+
+`pytest`, `ruff`, `npm test`, `npm run lint`, `npm run build` all clean; generated types fresh;
+§7's Postgres verification run; after the push, the Railway deploy log shows the migration line
+and `/api/health` is ok.
