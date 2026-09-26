@@ -3975,6 +3975,17 @@
       "title": "LogFeedQuery",
       "type": "object"
     },
+    "LogFieldType": {
+      "enum": [
+        "short_text",
+        "long_text",
+        "integer",
+        "decimal",
+        "percent"
+      ],
+      "title": "LogFieldType",
+      "type": "string"
+    },
     "LogMentionOut": {
       "additionalProperties": false,
       "properties": {
@@ -4051,6 +4062,270 @@
         "name"
       ],
       "title": "LogPersonOut",
+      "type": "object"
+    },
+    "LogTemplateFieldIn": {
+      "additionalProperties": false,
+      "description": "`id` set = update that field in place; omitted = a new field. A saved field missing from\nthe list is soft-deleted, and its type never changes (log templates spec \u00a72.1).",
+      "properties": {
+        "fieldType": {
+          "$ref": "#/$defs/LogFieldType"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "label",
+        "fieldType"
+      ],
+      "title": "LogTemplateFieldIn",
+      "type": "object"
+    },
+    "LogTemplateFieldOut": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "fieldType": {
+          "$ref": "#/$defs/LogFieldType"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "position": {
+          "title": "Position",
+          "type": "integer"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "position",
+        "label",
+        "fieldType",
+        "required",
+        "active"
+      ],
+      "title": "LogTemplateFieldOut",
+      "type": "object"
+    },
+    "LogTemplateIn": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "default": true,
+          "title": "Active",
+          "type": "boolean"
+        },
+        "audience": {
+          "items": {
+            "$ref": "#/$defs/MentionRef"
+          },
+          "maxItems": 100,
+          "title": "Audience",
+          "type": "array"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/LogTemplateFieldIn"
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "title": "Fields",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "shift": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Shift"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "fields"
+      ],
+      "title": "LogTemplateIn",
+      "type": "object"
+    },
+    "LogTemplateOut": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "audience": {
+          "items": {
+            "$ref": "#/$defs/MentionRef"
+          },
+          "title": "Audience",
+          "type": "array"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/LogTemplateFieldOut"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "position": {
+          "title": "Position",
+          "type": "integer"
+        },
+        "shift": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Shift"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "usedCount": {
+          "title": "Usedcount",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "active",
+        "position",
+        "fields",
+        "audience",
+        "usedCount"
+      ],
+      "title": "LogTemplateOut",
+      "type": "object"
+    },
+    "LogTemplatePatch": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "audience": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/MentionRef"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Audience"
+        },
+        "fields": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/LogTemplateFieldIn"
+              },
+              "maxItems": 50,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fields"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "shift": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Shift"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "LogTemplatePatch",
       "type": "object"
     },
     "LoginRequest": {

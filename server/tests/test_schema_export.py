@@ -12,7 +12,7 @@ def test_export_contains_the_public_models():
                  "QuickReplyOut", "AssetOut", "CategoryOut",
                  "NotificationOut", "Overview", "AgentStats", "StaffUserOut", "DepartmentOut",
                  "SimGuest", "StaffConversationOut", "StaffMessageOut",
-                 "LogEntryOut", "LogFeedOut", "LogMentionableOut",
+                 "LogEntryOut", "LogFeedOut", "LogMentionableOut", "LogTemplateOut",
                  "UnitOut", "UnitImportOut", "TemplateOut", "SweepOut", "RunOut",
                  "InspectionRowOut", "CycleOut", "ComplianceOut",
                  "HkBoardOut", "HkRoomOut", "HkAssignmentOut", "HkRoomDetailOut",

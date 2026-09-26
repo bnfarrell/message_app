@@ -5,11 +5,12 @@ from typing import Any
 from pydantic import Field, model_validator
 
 from app.schemas.common import CamelModel
-from app.schemas.enums import MentionTargetType, Shift
+from app.schemas.enums import LogFieldType, MentionTargetType, Shift
 
 MAX_BODY = 4000
 MAX_MENTIONS = 100          # a hotel-sized bound on the per-id validation SELECTs
 FEED_PAGE_SIZE = 50
+MAX_TEMPLATE_FIELDS = 50
 
 
 class MentionRef(CamelModel):
@@ -110,3 +111,50 @@ class LogMentionableOut(CamelModel):
     id: str
     display_name: str
     subtitle: str | None = None
+
+
+class LogTemplateFieldIn(CamelModel):
+    """`id` set = update that field in place; omitted = a new field. A saved field missing from
+    the list is soft-deleted, and its type never changes (log templates spec §2.1)."""
+
+    id: str | None = None
+    label: str = Field(min_length=1, max_length=200)
+    field_type: LogFieldType
+    required: bool = True
+
+
+class LogTemplateFieldOut(CamelModel):
+    id: str
+    position: int
+    label: str
+    field_type: LogFieldType
+    required: bool
+    active: bool
+
+
+class LogTemplateIn(CamelModel):
+    name: str = Field(min_length=1, max_length=200)
+    shift: Shift | None = None
+    active: bool = True
+    fields: list[LogTemplateFieldIn] = Field(min_length=1, max_length=MAX_TEMPLATE_FIELDS)
+    audience: list[MentionRef] = Field(default_factory=list, max_length=MAX_MENTIONS)
+
+
+class LogTemplatePatch(CamelModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    shift: Shift | None = None
+    active: bool | None = None
+    fields: list[LogTemplateFieldIn] | None = Field(default=None, min_length=1,
+                                                    max_length=MAX_TEMPLATE_FIELDS)
+    audience: list[MentionRef] | None = Field(default=None, max_length=MAX_MENTIONS)
+
+
+class LogTemplateOut(CamelModel):
+    id: str
+    name: str
+    shift: Shift | None = None
+    active: bool
+    position: int
+    fields: list[LogTemplateFieldOut]
+    audience: list[MentionRef]
+    used_count: int
