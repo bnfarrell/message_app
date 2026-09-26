@@ -113,6 +113,37 @@ describe('ChecklistsPage', () => {
     expect(await screen.findByText('Housekeeping PM Linen Par')).toBeInTheDocument()
   })
 
+  it('shows an inline error when assigning fails', async () => {
+    const user = userEvent.setup()
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      calls.push({ url, method })
+      if (url.endsWith('/instances/i-am/assign')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ error: { code: 'VALIDATION_FAILED', message: 'Not on this shift' } }),
+            { status: 400 },
+          ),
+        )
+      }
+      const body = url.includes('/departments') ? [aDepartment()]
+        : url.includes('staff-directory') ? [
+            { userId: 'u-eli', firstName: 'Eli', lastName: 'Engineer', role: 'dept_staff',
+              departmentId: 'dept-eng' },
+          ]
+        : url.includes('/checklists/missed') ? MISSED
+        : url.includes('/checklists/templates') && method === 'GET' ? [ON_DEMAND]
+        : TODAY
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
+    })
+    mount('supervisor')
+    const am = (await screen.findByText('Engineering AM Rounds')).closest('li')!
+    await within(am).findByText('Eli Engineer')
+    await user.selectOptions(within(am).getByLabelText('Assign Engineering AM Rounds'), 'u-eli')
+    expect(await within(am).findByRole('alert')).toHaveTextContent('Not on this shift')
+  })
+
   it('starts an on-demand checklist from the menu', async () => {
     const user = userEvent.setup()
     mount('dept_staff')

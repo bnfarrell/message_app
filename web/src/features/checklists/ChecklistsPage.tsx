@@ -21,9 +21,16 @@ const SELECT =
 
 const SHIFT_ORDER: Shift[] = ['am', 'pm', 'overnight']
 
-function AssignSelect({ row, departmentId }: { row: ChecklistInstanceRowOut; departmentId: string }) {
+function AssignSelect({
+  row,
+  departmentId,
+  assign,
+}: {
+  row: ChecklistInstanceRowOut
+  departmentId: string
+  assign: ReturnType<typeof useAssignChecklist>
+}) {
   const { data: staff } = useStaffDirectory()
-  const assign = useAssignChecklist()
   const members = (staff ?? []).filter((s) => s.departmentId === departmentId)
   return (
     <select
@@ -48,6 +55,7 @@ function ChecklistCard({ row }: { row: ChecklistInstanceRowOut }) {
   const { can } = useSession()
   const navigate = useNavigate()
   const start = useStartChecklist()
+  const assign = useAssignChecklist()
 
   return (
     <li className="flex flex-col gap-2 rounded-card border border-border2 bg-surface p-3">
@@ -64,7 +72,7 @@ function ChecklistCard({ row }: { row: ChecklistInstanceRowOut }) {
         ) : null}
         <div className="ml-auto flex items-center gap-2">
           {can('manage_checklists') && (row.status === 'open' || row.status === 'in_progress') ? (
-            <AssignSelect row={row} departmentId={row.departmentId} />
+            <AssignSelect row={row} departmentId={row.departmentId} assign={assign} />
           ) : null}
           {row.status === 'open' && can('perform_checklists') ? (
             <Button
@@ -82,6 +90,7 @@ function ChecklistCard({ row }: { row: ChecklistInstanceRowOut }) {
         </div>
       </div>
       {start.error ? <p role="alert" className="text-sm text-dangerText">{start.error.message}</p> : null}
+      {assign.error ? <p role="alert" className="text-sm text-dangerText">{assign.error.message}</p> : null}
     </li>
   )
 }
