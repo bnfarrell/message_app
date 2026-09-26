@@ -12,16 +12,20 @@ const { mockCreateDm, mockCreateDmState, threadMounts } = vi.hoisted(() => ({
 }))
 
 vi.mock('./ConversationList', () => ({
-  ConversationList: ({ onSelect }: { onSelect: (id: string) => void }) => (
+  ConversationList: ({ onSelect, filter }: { onSelect: (id: string) => void; filter?: string }) => (
     <div>
+      <span>conversation-filter:{filter ?? ''}</span>
       <button onClick={() => onSelect('c1')}>pick c1</button>
       <button onClick={() => onSelect('g1')}>pick g1</button>
     </div>
   ),
 }))
 vi.mock('./NewConversationList', () => ({
-  NewConversationList: ({ onStart }: { onStart: (userId: string) => void }) => (
-    <button onClick={() => onStart('u9')}>start u9</button>
+  NewConversationList: ({ onStart, filter }: { onStart: (userId: string) => void; filter?: string }) => (
+    <div>
+      <span>directory-filter:{filter ?? ''}</span>
+      <button onClick={() => onStart('u9')}>start u9</button>
+    </div>
   ),
 }))
 vi.mock('./ThreadView', () => ({
@@ -119,6 +123,22 @@ describe('MessagesPage', () => {
     mockCreateDm.mockReset()
     mockCreateDmState.error = null
     threadMounts.count = 0
+  })
+
+  it('filters both lists by the name typed in the search box', async () => {
+    renderAt('/app/messages')
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Filter by name' }), 'eli')
+    expect(screen.getByText('conversation-filter:eli')).toBeInTheDocument()
+    expect(screen.getByText('directory-filter:eli')).toBeInTheDocument()
+  })
+
+  it('clears the filter with Escape', async () => {
+    renderAt('/app/messages')
+    const box = screen.getByRole('searchbox', { name: 'Filter by name' })
+    await userEvent.type(box, 'eli')
+    await userEvent.keyboard('{Escape}')
+    expect(box).toHaveValue('')
+    expect(screen.getByText('conversation-filter:')).toBeInTheDocument()
   })
 
   it('shows no thread until one is selected', () => {

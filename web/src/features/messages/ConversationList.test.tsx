@@ -20,6 +20,20 @@ vi.mock('../../api/hooks/staffMessages', () => ({
         updatedAt: '2026-09-19T12:00:00Z',
         name: null,
       },
+      {
+        id: 'g1',
+        kind: 'group',
+        displayName: 'Housekeeping Team',
+        avatarUrl: null,
+        otherUserId: null,
+        lastMessagePreview: null,
+        unread: false,
+        participants: [],
+        lastMessageAt: null,
+        createdAt: '2026-09-19T11:00:00Z',
+        updatedAt: '2026-09-19T11:00:00Z',
+        name: 'Housekeeping Team',
+      },
     ],
     isPending: false,
     error: null,
@@ -32,5 +46,17 @@ describe('ConversationList', () => {
     expect(screen.getByText('Eli Engineer')).toBeInTheDocument()
     expect(screen.getByText('AC is out')).toBeInTheDocument()
     expect(screen.getByTestId('unread-dot')).toBeInTheDocument()
+  })
+
+  it('shows only conversations whose name matches the filter', () => {
+    renderWithProviders(<ConversationList onSelect={() => {}} filter="housekeep" />)
+    expect(screen.getByText('Housekeeping Team')).toBeInTheDocument()
+    expect(screen.queryByText('Eli Engineer')).not.toBeInTheDocument()
+  })
+
+  it('says so when the filter matches no conversation', () => {
+    renderWithProviders(<ConversationList onSelect={() => {}} filter="zzz" />)
+    expect(screen.getByText('No conversations match')).toBeInTheDocument()
+    expect(screen.queryByText('Eli Engineer')).not.toBeInTheDocument()
   })
 })

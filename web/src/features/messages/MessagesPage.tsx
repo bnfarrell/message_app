@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useCreateStaffConversation, useStaffConversations } from '../../api/hooks/staffMessages'
-import { Button, EmptyState } from '../../components/ui'
+import { Button, EmptyState, Input } from '../../components/ui'
 import { ConversationList } from './ConversationList'
 import { GroupPanel } from './GroupPanel'
 import { NewConversationList } from './NewConversationList'
@@ -14,6 +14,7 @@ export function MessagesPage() {
   const createDm = useCreateStaffConversation()
   const [creatingGroup, setCreatingGroup] = useState(false)
   const [managingGroupId, setManagingGroupId] = useState<string | null>(null)
+  const [nameFilter, setNameFilter] = useState('')
 
   const dmPartnerIds = (conversations ?? [])
     .filter((conv) => conv.kind === 'dm' && conv.otherUserId)
@@ -41,6 +42,21 @@ export function MessagesPage() {
           <Button onClick={() => setCreatingGroup(true)}>+ Group</Button>
         </header>
 
+        {/* Spec §6: one plain client-side name filter over both lists below. */}
+        <div className="border-b border-border px-4 py-2">
+          <Input
+            type="search"
+            aria-label="Filter by name"
+            placeholder="Search by name"
+            value={nameFilter}
+            onChange={(event) => setNameFilter(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setNameFilter('')
+            }}
+            className="h-9"
+          />
+        </div>
+
         {createDm.error ? (
           <p
             role="alert"
@@ -57,11 +73,16 @@ export function MessagesPage() {
           <ConversationList
             selectedId={id}
             onSelect={(conversationId) => navigate(`/app/messages/${conversationId}`)}
+            filter={nameFilter}
           />
           <p className="px-4 pt-4 text-xs font-bold uppercase tracking-wide text-text3">
             New Conversations
           </p>
-          <NewConversationList excludeUserIds={dmPartnerIds} onStart={startDm} />
+          <NewConversationList
+            excludeUserIds={dmPartnerIds}
+            onStart={startDm}
+            filter={nameFilter}
+          />
         </div>
       </div>
 

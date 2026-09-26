@@ -1,6 +1,7 @@
 import { useStaffConversations } from '../../api/hooks/staffMessages'
 import { Avatar, EmptyState, Spinner } from '../../components/ui'
 import { cn } from '../../lib/cn'
+import { matchesName } from './matchesName'
 
 function relativeTime(iso: string | null): string {
   if (!iso) return ''
@@ -14,9 +15,11 @@ function relativeTime(iso: string | null): string {
 export function ConversationList({
   selectedId,
   onSelect,
+  filter = '',
 }: {
   selectedId?: string
   onSelect: (id: string) => void
+  filter?: string
 }) {
   const { data, isPending, error } = useStaffConversations()
 
@@ -31,10 +34,12 @@ export function ConversationList({
   if (!data || data.length === 0) {
     return <EmptyState title="No conversations yet" hint="Start one from the list below." />
   }
+  const rows = data.filter((conv) => matchesName(conv.displayName, filter))
+  if (rows.length === 0) return <EmptyState title="No conversations match" />
 
   return (
     <ul className="flex flex-col">
-      {data.map((conv) => (
+      {rows.map((conv) => (
         <li key={conv.id}>
           <button
             type="button"

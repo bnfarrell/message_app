@@ -1,5 +1,6 @@
 import { useStaffDirectory } from '../../api/hooks/staffMessages'
 import { Avatar, EmptyState, Spinner } from '../../components/ui'
+import { matchesName } from './matchesName'
 
 const ROLE_LABEL: Record<string, string> = {
   agent: 'Front Desk User',
@@ -13,9 +14,11 @@ const ROLE_LABEL: Record<string, string> = {
 export function NewConversationList({
   excludeUserIds,
   onStart,
+  filter = '',
 }: {
   excludeUserIds: string[]
   onStart: (userId: string) => void
+  filter?: string
 }) {
   const { data, isPending, error } = useStaffDirectory()
 
@@ -29,8 +32,13 @@ export function NewConversationList({
   if (error) return <EmptyState title="Could not load staff" hint={error.message} />
 
   const exclude = new Set(excludeUserIds)
-  const rows = (data ?? []).filter((entry) => !exclude.has(entry.userId))
-  if (rows.length === 0) return null
+  const rows = (data ?? []).filter(
+    (entry) =>
+      !exclude.has(entry.userId) && matchesName(`${entry.firstName} ${entry.lastName}`, filter),
+  )
+  // With nothing typed, an empty directory (everyone already has a DM) simply isn't shown; with
+  // a filter active, an empty result must say so rather than the section silently vanishing.
+  if (rows.length === 0) return filter.trim() ? <EmptyState title="No staff match" /> : null
 
   return (
     <ul className="flex flex-col">
