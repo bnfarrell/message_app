@@ -105,6 +105,7 @@ export const ADMIN_SECTIONS = [
   { to: '/app/admin/units', label: 'Maintainable units' },
   { to: '/app/admin/pm-templates', label: 'PM templates' },
   { to: '/app/admin/checklist-templates', label: 'Checklist templates' },
+  { to: '/app/admin/log-templates', label: 'Log templates' },
 ]
 
 /** Whether `pathname` is inside this item's section. Compared by whole path segments, so

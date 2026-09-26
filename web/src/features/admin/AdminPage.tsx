@@ -5,6 +5,7 @@ import { AssetsAdmin } from './AssetsAdmin'
 import { CategoriesAdmin } from './CategoriesAdmin'
 import { ChecklistTemplatesAdmin } from './ChecklistTemplatesAdmin'
 import { DepartmentsAdmin } from './DepartmentsAdmin'
+import { LogTemplatesAdmin } from './LogTemplatesAdmin'
 import { PmTemplatesAdmin } from './PmTemplatesAdmin'
 import { PropertySettingsAdmin } from './PropertySettingsAdmin'
 import { QuickRepliesAdmin } from './QuickRepliesAdmin'
@@ -64,6 +65,7 @@ export function AdminPage() {
         <Route path="units" element={<UnitsAdmin />} />
         <Route path="pm-templates" element={<PmTemplatesAdmin />} />
         <Route path="checklist-templates" element={<ChecklistTemplatesAdmin />} />
+        <Route path="log-templates" element={<LogTemplatesAdmin />} />
       </Routes>
     </div>
   )

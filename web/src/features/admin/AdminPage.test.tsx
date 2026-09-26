@@ -101,4 +101,16 @@ describe('AdminPage', () => {
     // offers a way in. What it does with it is DepartmentsAdmin.test.tsx's subject.
     expect(screen.getByRole('button', { name: /new department/i })).toBeInTheDocument()
   })
+
+  it('links Log templates after Checklist templates and routes to its screen', async () => {
+    vi.mocked(fetch).mockImplementation(() => Promise.resolve(
+      new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    mount('/app/admin/log-templates')
+
+    const link = await screen.findByRole('link', { name: 'Log templates' })
+    expect(link).toHaveAttribute('aria-current', 'page')
+    const rendered = screen.getAllByRole('link').map((l) => l.textContent)
+    expect(rendered.indexOf('Log templates')).toBe(rendered.indexOf('Checklist templates') + 1)
+    expect(await screen.findByRole('heading', { name: 'Log templates' })).toBeInTheDocument()
+  })
 })
