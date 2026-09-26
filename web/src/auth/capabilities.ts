@@ -1,4 +1,4 @@
-import type { Role } from '../api/types'
+import type { MembershipOut, Role } from '../api/types'
 
 export type Capability =
   | 'view_all_conversations'
@@ -56,12 +56,15 @@ export function hasCapability(role: Role, capability: Capability): boolean {
   return CAPABILITIES[capability].includes(role)
 }
 
-/** §5.2: /app redirects here. */
-export function landingPath(role: Role): string {
-  switch (role) {
+/** §5.2: /app redirects here. A housekeeper lands in their room list — docs/design.md calls it
+ *  the single decision that does most for adoption — which role alone cannot tell apart from an
+ *  engineer, hence the membership. */
+export function landingPath(membership: Pick<MembershipOut, 'role' | 'departmentType'>): string {
+  switch (membership.role) {
     case 'agent':
       return '/app/inbox'
     case 'dept_staff':
+      return membership.departmentType === 'housekeeping' ? '/app/my-rooms' : '/app/board?mine=1'
     case 'supervisor':
       return '/app/board?mine=1'
     case 'manager':

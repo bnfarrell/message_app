@@ -70,7 +70,7 @@ export function CommandPalette() {
           run: () => {
             setPropertyId(m.propertyId)
             // The new property's role may differ; land where it belongs.
-            navigate(landingPath(m.role), { replace: true })
+            navigate(landingPath(m), { replace: true })
           },
         })
       }

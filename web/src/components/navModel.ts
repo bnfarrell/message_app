@@ -37,6 +37,21 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    heading: 'Housekeeping',
+    items: [
+      { label: 'Rooms', to: '/app/housekeeping', icon: 'bed', needs: ['view_housekeeping'] },
+      { label: 'My Rooms', to: '/app/my-rooms', icon: 'log', needs: ['perform_housekeeping'] },
+      // A sibling of /app/housekeeping rather than a child, so Rooms does not light with it —
+      // the same reason PM Inspection is /app/inspection: two lit entries reads as a bug.
+      {
+        label: 'Room Inspection',
+        to: '/app/room-inspection',
+        icon: 'inspect',
+        needs: ['inspect_housekeeping'],
+      },
+    ],
+  },
+  {
     heading: 'Maintenance',
     items: [
       // Runs and the compliance tab live under /app/pm, so the prefix lights for all of them.

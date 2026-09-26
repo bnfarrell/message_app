@@ -94,7 +94,7 @@ export function AppShell({
                 close()
                 setPropertyId(m.propertyId)
                 // The new property's role may differ; land where it belongs.
-                navigate(landingPath(m.role), { replace: true })
+                navigate(landingPath(m), { replace: true })
               }}
             >
               <span className="font-mono text-xs text-roomNum">{m.propertyCode}</span>

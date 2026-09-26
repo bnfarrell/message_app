@@ -19,7 +19,7 @@ export function LoginPage() {
   // Already signed in (or just signed in): go where the role belongs, or back where we came from.
   if (isSuccess && session && session.memberships.length > 0) {
     const from = (location.state as { from?: string } | null)?.from
-    return <Navigate to={from ?? landingPath(session.memberships[0]!.role)} replace />
+    return <Navigate to={from ?? landingPath(session.memberships[0]!)} replace />
   }
 
   return (

@@ -20,8 +20,8 @@ import { InspectionPage } from './features/pm/InspectionPage'
 import { CompliancePage } from './features/pm/CompliancePage'
 
 function LandingRedirect() {
-  const { role } = useSession()
-  return <Navigate to={landingPath(role)} replace />
+  const { membership } = useSession()
+  return <Navigate to={landingPath(membership)} replace />
 }
 
 function RequireCapability({
@@ -31,8 +31,8 @@ function RequireCapability({
   capability: Capability
   children: JSX.Element
 }) {
-  const { can, role } = useSession()
-  if (!can(capability)) return <Navigate to={landingPath(role)} replace />
+  const { can, membership } = useSession()
+  if (!can(capability)) return <Navigate to={landingPath(membership)} replace />
   return children
 }
 

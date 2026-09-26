@@ -105,6 +105,7 @@ describe('CommandPalette', () => {
       'Alerts',
       'Messages',
       'Log',
+      'Rooms',
       'Preventative Maintenance',
       'Switch to light theme',
       'Sign out',

@@ -39,12 +39,19 @@ describe('hasCapability', () => {
 
 describe('landingPath', () => {
   it('sends each role where §5.2 says', () => {
-    expect(landingPath('agent')).toBe('/app/inbox')
-    expect(landingPath('dept_staff')).toBe('/app/board?mine=1')
-    expect(landingPath('supervisor')).toBe('/app/board?mine=1')
-    expect(landingPath('manager')).toBe('/app/analytics')
-    expect(landingPath('admin')).toBe('/app/analytics')
-    expect(landingPath('corporate')).toBe('/app/analytics')
+    expect(landingPath({ role: 'agent' })).toBe('/app/inbox')
+    expect(landingPath({ role: 'dept_staff' })).toBe('/app/board?mine=1')
+    expect(landingPath({ role: 'supervisor' })).toBe('/app/board?mine=1')
+    expect(landingPath({ role: 'manager' })).toBe('/app/analytics')
+    expect(landingPath({ role: 'admin' })).toBe('/app/analytics')
+    expect(landingPath({ role: 'corporate' })).toBe('/app/analytics')
+  })
+
+  it('lands a housekeeper on My Rooms and leaves engineering on the board', () => {
+    expect(landingPath({ role: 'dept_staff', departmentType: 'housekeeping' })).toBe('/app/my-rooms')
+    expect(landingPath({ role: 'dept_staff', departmentType: 'engineering' })).toBe('/app/board?mine=1')
+    expect(landingPath({ role: 'dept_staff', departmentType: null })).toBe('/app/board?mine=1')
+    expect(landingPath({ role: 'supervisor', departmentType: 'housekeeping' })).toBe('/app/board?mine=1')
   })
 })
 

@@ -2,10 +2,11 @@ import { cn } from '../lib/cn'
 
 export type IconName =
   | 'inbox' | 'board' | 'analytics' | 'alerts' | 'admin' | 'theme' | 'signout' | 'search' | 'log'
-  | 'wrench' | 'inspect'
+  | 'wrench' | 'inspect' | 'bed'
 
 const PATHS: Record<IconName, string> = {
   inbox: 'M3 12h5l2 3h4l2-3h5M3 12l2.5-7h13L21 12v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7Z',
+  bed: 'M3 18v-7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7M3 14h18M7 9V6h4v3M3 18v2M21 18v2',
   board: 'M4 4h5v16H4zM10 4h5v11h-5zM16 4h4v7h-4z',
   log: 'M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm3 0v18M12 8h4M12 12h4',
   analytics: 'M4 20V10M10 20V4M16 20v-7M22 20H2',

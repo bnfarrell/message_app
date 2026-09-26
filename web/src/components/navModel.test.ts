@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { hasCapability } from '../auth/capabilities'
 import { NAV_GROUPS, isNavItemActive, visibleNavGroups } from './navModel'
 
 const item = (label: string) =>
@@ -51,5 +52,22 @@ describe('maintenance group', () => {
     expect(isNavItemActive(pm, '/app/pm/compliance')).toBe(true)
     expect(isNavItemActive(pm, '/app/inspection')).toBe(false)
     expect(isNavItemActive(item('PM Inspection'), '/app/inspection')).toBe(true)
+  })
+})
+
+describe('housekeeping navigation', () => {
+  it('sits above Maintenance and keeps Room Inspection from lighting Rooms', () => {
+    const at = NAV_GROUPS.findIndex((g) => g.heading === 'Housekeeping')
+    expect(NAV_GROUPS[at + 1]!.heading).toBe('Maintenance')
+    const items = NAV_GROUPS[at]!.items
+    expect(items.map((i) => i.to)).toEqual(['/app/housekeeping', '/app/my-rooms', '/app/room-inspection'])
+    expect(isNavItemActive(items[0]!, '/app/room-inspection')).toBe(false)
+    expect(isNavItemActive(items[0]!, '/app/housekeeping')).toBe(true)
+  })
+
+  it('shows front desk the board only', () => {
+    const groups = visibleNavGroups((c) => hasCapability('agent', c))
+    const hk = groups.find((g) => g.heading === 'Housekeeping')!
+    expect(hk.items.map((i) => i.label)).toEqual(['Rooms'])
   })
 })
