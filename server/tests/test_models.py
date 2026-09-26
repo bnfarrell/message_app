@@ -23,7 +23,7 @@ EXPECTED_TABLES = {
     "pm_cycle", "pm_run", "pm_run_answer", "pm_run_photo",
     "room", "housekeeping_assignment", "room_event", "housekeeping_photo",
     "checklist_template", "checklist_template_item", "checklist_instance", "checklist_answer",
-    "checklist_photo",
+    "checklist_photo", "checklist_template_category",
     "log_template", "log_template_field", "log_template_audience", "log_entry_field_value",
 }
 

@@ -1030,7 +1030,8 @@
     "ChecklistSchedule": {
       "enum": [
         "weekly",
-        "on_demand"
+        "on_demand",
+        "unscheduled"
       ],
       "title": "ChecklistSchedule",
       "type": "string"

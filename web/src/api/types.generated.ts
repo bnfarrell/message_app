@@ -159,7 +159,7 @@ export type Days = number;
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "ChecklistSchedule".
  */
-export type ChecklistSchedule = 'weekly' | 'on_demand';
+export type ChecklistSchedule = 'weekly' | 'on_demand' | 'unscheduled';
 export type Active7 = boolean;
 export type Departmentid6 = string;
 /**

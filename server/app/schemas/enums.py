@@ -252,6 +252,7 @@ class HkOccupancy(StrEnum):
 class ChecklistSchedule(StrEnum):
     weekly = "weekly"
     on_demand = "on_demand"
+    unscheduled = "unscheduled"  # no shift or days yet; never generated (structure spec §1.2)
 
 
 class ChecklistStatus(StrEnum):
@@ -267,3 +268,9 @@ class LogFieldType(StrEnum):
     integer = "integer"
     decimal = "decimal"
     percent = "percent"
+
+
+class ChecklistKind(StrEnum):
+    """Drives a filter and a tag only — no behaviour differs (checklist structure spec §1.2)."""
+    normal = "normal"
+    readings = "readings"

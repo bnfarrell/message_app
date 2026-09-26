@@ -21,7 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base, UTCDateTime
 from app.models.core import TimestampMixin, enum_type
 from app.models.pm import READING
-from app.schemas.enums import ChecklistSchedule, ChecklistStatus, PmItemType, Shift
+from app.schemas.enums import ChecklistKind, ChecklistSchedule, ChecklistStatus, PmItemType, Shift
 
 
 class ChecklistTemplate(TimestampMixin, Base):
@@ -30,7 +30,7 @@ class ChecklistTemplate(TimestampMixin, Base):
         CheckConstraint(
             "(schedule = 'weekly' AND shift IS NOT NULL AND weekdays IS NOT NULL "
             "AND weekdays > 0) OR "
-            "(schedule = 'on_demand' AND shift IS NULL AND weekdays IS NULL)",
+            "(schedule IN ('on_demand', 'unscheduled') AND shift IS NULL AND weekdays IS NULL)",
             name="ck_checklist_template_schedule_fields",
         ),
     )
@@ -42,6 +42,24 @@ class ChecklistTemplate(TimestampMixin, Base):
     shift: Mapped[Shift | None] = mapped_column(enum_type(Shift))
     # Bit 0 = Monday … bit 6 = Sunday (date.weekday()); an integer, not JSON, for portability.
     weekdays: Mapped[int | None] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # server_default so the rows that predate migration 0011 read as normal.
+    kind: Mapped[ChecklistKind] = mapped_column(
+        enum_type(ChecklistKind), default=ChecklistKind.normal,
+        server_default=ChecklistKind.normal.value, nullable=False)
+
+
+class ChecklistTemplateCategory(TimestampMixin, Base):
+    """A named, ordered section of a checklist (checklist structure spec §2.1). Groups items
+    only; soft-deleted via `active`. An item's `category_id` is NULL or an active category of
+    its own template — `ck_templates` keeps that true."""
+
+    __tablename__ = "checklist_template_category"
+    template_id: Mapped[str] = mapped_column(ForeignKey("checklist_template.id"), nullable=False,
+                                             index=True)
+    property_id: Mapped[str] = mapped_column(ForeignKey("property.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
@@ -60,6 +78,7 @@ class ChecklistTemplateItem(TimestampMixin, Base):
     max_value: Mapped[float | None] = mapped_column(READING)
     required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    category_id: Mapped[str | None] = mapped_column(ForeignKey("checklist_template_category.id"))
 
 
 class ChecklistInstance(TimestampMixin, Base):

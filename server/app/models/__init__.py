@@ -3,6 +3,7 @@ from app.models.checklists import (
     ChecklistInstance,
     ChecklistPhoto,
     ChecklistTemplate,
+    ChecklistTemplateCategory,
     ChecklistTemplateItem,
 )
 from app.models.content import DigitalAsset, QuickReply
@@ -41,7 +42,8 @@ from app.models.work_orders import (
 
 __all__ = [
     "AuditLog", "ChecklistAnswer", "ChecklistInstance", "ChecklistPhoto", "ChecklistTemplate",
-    "ChecklistTemplateItem", "Conversation", "Department", "DigitalAsset", "DraftPrompt", "Guest",
+    "ChecklistTemplateCategory", "ChecklistTemplateItem", "Conversation", "Department",
+    "DigitalAsset", "DraftPrompt", "Guest",
     "HousekeepingAssignment", "HousekeepingPhoto", "InternalNote", "Job", "LogEntry",
     "LogEntryAck", "LogEntryFieldValue", "LogEntryMention", "LogEntryPhoto", "LogTemplate",
     "LogTemplateAudience", "LogTemplateField",
