@@ -2,6 +2,7 @@
 ## Design Document / Build Specification
 
 **Version 1.0 — 10 September 2026**
+**Revised 26 September 2026** — incumbent-parity additions from screenshots of the hotel's current Kipsu Exceed setup (`images/thumbnail*.png`): parity notes in §6.4–6.8, new modules §6.11–6.19, data model §5.7, build plan Phase 2b.
 **Name:** Relay
 
 This document is written to be handed directly to Claude (or any competent engineer) as a build specification. It is deliberately prescriptive about data model, states, and acceptance criteria, because those are the things that go wrong when a spec is vague. Sections marked **[CONFIRM]** are assumptions you should validate before build starts.
@@ -126,9 +127,14 @@ STAFF SURFACE (authenticated)
 ├── Maintenance     ← work orders, PM schedule
 ├── Checklists      ← shift checklists + readings
 ├── Log             ← the hotel log / shift handover feed
+├── Front office    ← cash drawers, key log, lost & found (§6.11–6.13)
+├── Complaints      ← guest complaint register (§6.14)
+├── Purchasing      ← purchase orders (§6.15)
 ├── Outreach        ← broadcast composer + history
 ├── Analytics       ← property and portfolio reporting        [default for managers]
-└── Admin           ← users, automations, quick replies, assets, tags, settings
+├── Resources       ← training material and help (§6.17)
+└── Admin           ← users, automations, quick replies, assets, tags, settings,
+                      property setup (§6.19)
 ```
 
 **Navigation defaults by role.** Do not show a housekeeper the Admin nav. The landing screen after login differs by role — agent lands in Inbox, housekeeper lands in their room list, GM lands in Analytics. This one decision does more for adoption than any amount of UI polish.
@@ -385,6 +391,40 @@ audit_log
   -- we'd comp their room" conversation
 ```
 
+### 5.7 Incumbent-parity additions (sketch)
+
+A sketch only. Each module's own spec fixes the columns. Enums go through `enum_type()`, and there's no JSON filtering (CLAUDE.md), so a list that must be queried is a table.
+
+```
+membership_department          -- §6.19: a member in several departments
+  membership_id, department_id, UNIQUE(membership_id, department_id)
+
+log_template                   -- §6.8
+  property_id, name, shift, active, position
+log_template_field
+  template_id, position, label, field_type enum(text, number, percent, date, time),
+  required, pms_source nullable            -- pre-fill once §8.1 is live
+log_template_audience          -- users/departments a template is shared with
+  template_id, user_id nullable, department_id nullable
+log_entry_field_value          -- a templated post's answers
+  log_entry_id, field_id, text_value, number_value
+
+ticket_type_routing            -- §6.4
+  property_id, work_order_type, primary_department_id nullable (null = all)
+ticket_type_secondary_department
+  routing_id, department_id
+
+cash_drawer, cash_denomination, cash_transaction_template,
+cash_session (open/close counts), cash_transaction, cash_count_line   -- §6.11
+key, key_checkout                                                     -- §6.12
+lost_item                                                             -- §6.13
+complaint_type, complaint                                             -- §6.14
+vendor, purchase_order, purchase_order_line, po_approval              -- §6.15
+checklist_category             -- §6.7: sections inside a checklist template
+content_translation            -- §6.18: (entity_type, entity_id, field, lang) → text
+asset_model                    -- §6.19: grouped assets with a quantity
+```
+
 ---
 
 ## 6. Feature specifications
@@ -488,6 +528,12 @@ open → assigned → in_progress → complete → verified
 
 That prompt is the highest-value twenty lines of code in this entire system. It is the thing Kipsu's split architecture cannot do cleanly.
 
+**Incumbent parity (Kipsu "Ticket Management" setup):**
+
+- **Default routing per ticket type.** Each type (Maintenance, Request, General) has a *primary assignee department* and any number of *secondary departments* that can also see and act on it. Observed defaults: Maintenance → Maintenance, secondary Front Desk + Housekeeping; Request → Housekeeping, secondary Front Desk + F&B; General → All. A new work order takes its type's primary department unless the creator overrides it.
+- **Actions setting** — which actions are available per ticket type. **[CONFIRM what Kipsu's "Actions Setting" controls — not visible in the screenshots]**
+- **Escalations per ticket type**, not only per department (today `department.escalation_minutes` is the only knob): minutes to first escalation, who is notified, and a second tier.
+
 ### 6.5 Housekeeping
 
 - **Room grid** — floor-by-floor colour-coded board: clean / dirty / in progress / inspected / OOO. Filter by status, floor, assignee.
@@ -497,11 +543,28 @@ That prompt is the highest-value twenty lines of code in this entire system. It 
 - **Deep clean checklists and projects** pushed into a specific assignment (window tracks, mattress rotation) rather than living in a separate module.
 - Room status syncs bidirectionally with the PMS where the API allows.
 
+**Incumbent parity (Kipsu "Housekeeping" setup):**
+
+- **Enable/disable housekeeping per property.**
+- **Add-on inspectors** — a named list of users who may inspect rooms in addition to the roles that can by default. Kipsu's list mixes housekeeping, front desk and maintenance managers and some line staff.
+- **Room status settings** — the set of room statuses and their colours is configurable per property. **[CONFIRM which statuses Kipsu offers beyond clean / dirty / inspected / OOO]**
+- **Cleaning services** — named service types (e.g. stayover, departure, deep clean, turndown) with credits/minutes, plus an "advanced" page. **[CONFIRM contents — not visible]**
+- **Import settings** — bulk import of rooms and housekeeping configuration.
+
 ### 6.6 Preventative maintenance
 
 - Templates with iCal RRULE recurrence attached to assets or locations.
 - Generates work orders on schedule into the engineering queue.
 - Compliance dashboard: percentage of PM completed on time, by asset category. This is what a brand inspector asks for.
+
+**Incumbent parity (Kipsu "Preventative Maintenance" setup):**
+
+- **Three checklist families:** guest room checklists, common & back-of-house area checklists, and equipment checklists.
+- **Guest room checklists per room type.** One checklist per room-type code (Kipsu lists KNGN, KWEN, KWHN, KWTN, TQNN, TWAN, TWGN, …), applied to every room of that type.
+- **Cycle-based frequency** with a **start month** (e.g. "once every 3 months (quarterly), starting January"), alongside RRULEs.
+- **Target inspection percent** — the share of rooms per cycle that must be inspected after PM; progress is shown against it.
+- **"Inspection open through cycle"** toggle — when off, an inspection is valid only for today and the next day after the PM shift. **[CONFIRM exact semantics]**
+- **Enable/disable inspections** per property, and a **language selector** on checklist content (see §6.18).
 
 ### 6.7 Shift checklists
 
@@ -509,6 +572,14 @@ That prompt is the highest-value twenty lines of code in this entire system. It 
 - Number-with-bounds is what makes pool chemistry and HVAC setpoints work. An out-of-range reading auto-creates a work order and alerts the supervisor.
 - Instances generate on schedule, are assignable, save progress continuously, and support comments for handover.
 - Missed checklists are visible on the manager dashboard, not silently forgotten.
+
+**Incumbent parity (Kipsu "Shift Checklists" setup):**
+
+- **Categories (sections) inside a checklist.** Kipsu's Night Audit has 7 categories, Front Desk (AM) 4, Front Desk (PM) 3. Items belong to a category; categories are ordered and shown as collapsible groups.
+- **Normal vs Readings checklists** — a checklist is either a task list or a readings log (pool, boiler, HVAC). Readings checklists show the latest value against its bounds. Relay's typed items already cover both. The distinction is a template property used for filtering and display.
+- **Import from library** — a shared library of starter checklists a property can copy and edit.
+- **Checklists saved without a schedule** ("Set Schedule" pending) are allowed; they neither generate instances nor appear as on-demand until scheduled or marked on-demand.
+- **Multilingual items** — a language selector on the checklist editor (see §6.18).
 
 ### 6.8 Hotel log
 
@@ -519,6 +590,15 @@ A chronological property-wide feed replacing the paper logbook.
 - Create a work order or link a conversation from any entry.
 - **Acknowledge** button — supervisors can see who has read a critical entry. Handover accountability.
 - Double-tap any post to translate. **[CONFIRM translation provider]**
+
+**Incumbent parity (Kipsu "Hotel Log" setup):**
+
+- **Log post templates** — structured posts staff fill in instead of free text, switchable on/off per property ("enable using templates during post creation"). The hotel's three templates, used 5–7 times each:
+  - **AM Checklist** (shift 7AM–2PM), **PM Checklist** (2PM–9PM), **Night Audit** (9PM–7AM)
+  - Fields: Name · Date · Shift time · Number of enrollments · Arrivals left · Arrivals actual · Departures actual · Departures left · Walk-ins · Occupancy % · Max occupied · Min available tonight · Notes
+  - Each template is shared with specific users and/or departments (e.g. "3 users, 1 department") and shows a usage count.
+  - Several fields (arrivals, departures, occupancy) are PMS data; once §8.1 is live they pre-fill, and staff confirm or correct them.
+- **Team engagement** — a Log setup page in Kipsu. **[CONFIRM what it configures — not visible]**
 
 ### 6.9 Analytics
 
@@ -552,6 +632,92 @@ A chronological property-wide feed replacing the paper logbook.
 - If a push fails and the message is still unread after 3 minutes, fall back to SMS for on-duty staff.
 - Per-user quiet hours and per-category mute, with an override for urgent.
 - Test-notification button in settings so staff can prove theirs works.
+
+### 6.11 Cash drawers and cash log
+
+Front-desk cash accountability, replacing the paper drawer count. This is internal cash control, not guest payments or folio settlement — §1.4's non-goal stands.
+
+- **Drawers** — named cash drawers per property (e.g. FD1, FD2, safe). Only users on the property's **drawer access list** can open, count or close them.
+- **Denominations** — the property's configured bills and coins; counts are entered per denomination and totalled.
+- **Transaction templates** — reusable transaction types (float issued, paid-out, drop to safe, change order), each with a sign and required fields.
+- **Cash log** — open with a counted float, record transactions, close with a count. The expected-vs-counted variance is stored, and a variance over a threshold alerts the front office manager.
+- Every count and transaction is attributed and audited; nothing is edited in place — a correction is a new, linked entry.
+
+**[CONFIRM variance threshold, whether a drawer can be shared across shifts, and whether a second person must witness counts]**
+
+### 6.12 Key log
+
+A daily log of physical keys (master keys, BOH keys, vehicle keys), replacing the key sign-out sheet. Kipsu's screen is "Key Log for Today" with columns Key · Details · Activity.
+
+- **Key management (setup)** — the property's key register: name, what it opens, and who may sign it out.
+- **Sign out / sign in** with who, when, and to whom. Keys still out at end of shift are flagged, and at end of day they're listed for the duty manager.
+- A key missing past a configured time raises a log entry (§6.8) and notifies the duty manager.
+
+### 6.13 Lost and found
+
+- **Item register** — description, category, photo, where found, found by, date. Optionally linked to a room and a stay, so the guest can be identified from the PMS record.
+- **Status:** found → stored → claimed / returned (shipped, with carrier and tracking) / disposed or donated after a retention period.
+- **Match to a guest enquiry** — a guest asking by SMS about a lost item can be linked to a register entry from the conversation. Notifying the guest follows the same closed-loop prompt pattern as §6.4.
+- Retention period per category, with a disposal list when it expires. **[CONFIRM retention periods and whether valuables need a second-person witness]**
+
+### 6.14 Guest complaints
+
+A complaint register, shown in Kipsu's nav with an open-count badge. It's distinct from a work order: a complaint is about the guest's experience, and it may or may not need physical work.
+
+- **Complaint types** — configurable per property (setup page). Examples: noise, cleanliness, maintenance, staff, billing.
+- **Fields:** guest and stay, type, description, severity, owner, and the **service recovery** offered (points, rate adjustment, amenity), with its value.
+- **Status:** open → in progress → resolved, with a required resolution note.
+- Created manually, from a conversation, or from a log entry. Can raise a work order and link to it. Once sentiment detection exists (§8.3), a complaint can be suggested from a negative message.
+- The open count feeds the nav badge and the duty manager's dashboard. Complaints are the input to the ROI report in §6.9.
+
+### 6.15 Purchase orders
+
+Already implied by §3.2 ("Approve purchase order", with thresholds) and §6.10 ("PO awaiting your approval"). This section specifies it.
+
+- **PO:** vendor, department, line items (description, qty, unit price), total, requested by, and needed-by date.
+- **Status:** draft → submitted → approved / rejected → ordered → received (partial or full) → closed.
+- **Approval by threshold** — approvers per department and amount band. A PO over the requester's limit routes up.
+- Can be raised from a work order (a part needed for a repair) and linked back to it.
+
+**[CONFIRM approval thresholds, and whether vendors are a managed list]**
+
+### 6.16 Health screening
+
+Kipsu offers a staff health-screening check-in, likely COVID-era. **[CONFIRM whether the hotel still uses it before building anything]** If it's still needed: a configurable question set answered at shift start; a failed screen notifies the department manager. Answers are health data — store the minimum, restrict visibility to managers, and keep a short retention period.
+
+### 6.17 Training and resources
+
+Kipsu has **Training**, **Manager Training** and **Help** entries. For Relay:
+
+- A **resources** area of admin-managed links and documents, split into staff-facing and manager-facing sections. It reuses the digital-asset model (§5.5) rather than adding a new one.
+- Help links into this app's own guidance.
+
+**[CONFIRM whether the hotel uses Kipsu's training content or only needs somewhere to host its own]**
+
+### 6.18 Multilingual staff UI and content
+
+Promoted from Phase 3 because the hotel's current team list already includes Spanish-speaking staff (assumption A6).
+
+- **Per-user language** (Kipsu shows a Language column per team member). It drives the staff UI strings and the default translation target.
+- **Content in several languages** — checklist items, PM checklists and log templates carry a language selector in the editor, with a translation per language. Staff see their own language and fall back to the original.
+- **"Original / translated" toggle** in the header, as Kipsu has, for user-generated text (log posts, notes, messages). It's backed by the translation provider in §8.3 and cached by content hash.
+- **Translations setup page** for admin-managed overrides of machine translations.
+
+### 6.19 Property setup and team administration
+
+Parity with Kipsu's "My Property" and "Asset Management" setup.
+
+- **Team:**
+  - A member can belong to **several departments** (Kipsu: "Department(s)"). Today `property_membership.department_id` is single-valued, so this needs a join table (see §5.7). The capability rules in the shipped modules treat "member of the department" as membership of any of them.
+  - **Import members** in bulk (CSV) and add a member individually.
+  - An active/inactive filter, a username, the per-user **language** (§6.18) and an optional **birthday**, which can feed a log reminder on the day. **[CONFIRM birthday is wanted]**
+  - An **"Other" role** exists in Kipsu alongside User and Manager. **[CONFIRM how it maps onto §3.2's roles]**
+- **Permissions page** — Kipsu lets a property edit permissions. Relay's §3.2 matrix is fixed in code by design. **[CONFIRM whether per-property overrides are needed. If so, restrict them to granting within the fixed ceiling, never beyond it, so the property-isolation tests keep holding.]**
+- **Guest rooms, room items, and common & BOH areas and items.** Rooms, and the items in each room (TV, mini-fridge, safe), feed PM room checklists and housekeeping. Common and back-of-house areas and their items, likewise.
+- **Amenities** — the property's amenity list (for guest requests and the guest surface). **Complaint types** are covered in §6.14.
+- **Asset management** — equipment and non-equipment assets grouped by **type and model with a quantity** (Kipsu: "Mini-Refrigerator × 100, Mini Fridge Model"), as well as individually tracked units. PM can target a model group.
+- **General import** — CSV import for rooms, items, areas and team.
+- **Escalations setup** — property-wide escalation rules (see §6.4, per ticket type).
 
 ---
 
@@ -831,12 +997,25 @@ The thinnest thing that is genuinely useful at one property.
 - Outreach with tag-based audiences
 - Real PMS integration replacing the mock
 
+### Phase 2b — Incumbent parity
+
+What the hotel uses today in Kipsu Exceed (§6.4–6.8 parity notes and §6.11–6.19). Closing these gaps is what lets the property switch over. Ordered by how often the screens are used:
+
+1. **Hotel log post templates** — AM / PM / Night Audit structured posts (§6.8)
+2. **Checklist categories, readings vs normal, library import** (§6.7) and **multilingual content and per-user language** (§6.18)
+3. **Ticket routing per type** with secondary departments and escalations (§6.4)
+4. **Team administration** — multiple departments per member, bulk import, and the permissions question (§6.19)
+5. **Cash drawers and cash log** (§6.11), **key log** (§6.12)
+6. **Guest complaints** (§6.14), **lost and found** (§6.13)
+7. **PM per room type, cycle frequency and target inspection %** (§6.6); **housekeeping setup** — add-on inspectors, room statuses, cleaning services (§6.5)
+8. **Property setup** — room items, areas, amenities, grouped assets, import (§6.19)
+9. **Purchase orders** (§6.15), **training and resources** (§6.17), **health screening** only if confirmed (§6.16)
+
 ### Phase 3 — Depth (~8 weeks)
 
 - Multi-property, portfolio analytics, cross-property QA review
 - WhatsApp channel
-- Translation across log, chat, and staff UI
-- Purchase orders and key log
+- Translation across chat (log, checklist and staff-UI translation moved to Phase 2b, §6.18)
 - F&B ordering with menus and status
 - Sentiment detection and negative-feedback alerting
 - Review request flow, conditional on sentiment
@@ -918,7 +1097,7 @@ Practical notes, since that's the stated intent.
 
 **Guest:** chat · requests · request confirmation · order menu · cart · order status · explore/assets · asset viewer · my stay · express checkout confirmation · opted-out notice
 
-**Staff:** login · MFA · inbox (queue/conversation/context) · conversation search · guest profile · outreach composer · outreach history · work order board · work order detail · work order create modal · housekeeping room grid · housekeeper task list · inspection view · PM schedule · PM template editor · checklist instance · checklist template editor · hotel log feed · log composer · purchase order list/detail/approval · key log · analytics dashboards (agent/property/portfolio) · QA review queue · notification centre · admin: users · roles · departments · automations list · automation builder · quick replies · digital assets · tags · resolution categories · integrations · blocked numbers · audit log · property settings
+**Staff:** login · MFA · inbox (queue/conversation/context) · conversation search · guest profile · outreach composer · outreach history · work order board · work order detail · work order create modal · housekeeping room grid · housekeeper task list · inspection view · PM schedule · PM template editor · checklist instance · checklist template editor · hotel log feed · log composer · log template picker/form · purchase order list/detail/approval · key log · key register · cash drawer open/count/close · cash log · lost & found register · complaint register/detail · health screening check-in · resources · analytics dashboards (agent/property/portfolio) · QA review queue · notification centre · admin: users · roles · departments · automations list · automation builder · quick replies · digital assets · tags · resolution categories · integrations · blocked numbers · audit log · property settings · log templates · ticket routing · escalations · cash drawers/denominations/transaction templates · complaint types · amenities · rooms/room items/areas · asset models · housekeeping setup (inspectors, room statuses, cleaning services) · translations · bulk import
 
 ## Appendix B — Glossary
 
