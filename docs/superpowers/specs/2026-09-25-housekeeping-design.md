@@ -184,8 +184,9 @@ shape. Every route `@require_auth` + `@require_property` + a capability.
 
 | route | capability | purpose |
 |---|---|---|
-| `GET /board` | `view_housekeeping` | every active room with unit info, `hkStatus`, `serviceType`, `rush`, derived occupancy, guest name and departure when occupied, today's assignment; plus summary counts in the same payload |
+| `GET /board` | `view_housekeeping` | every active room with unit info, `hkStatus`, `serviceType`, `rush`, derived occupancy, guest name and departure when occupied, today's assignment; plus summary counts and the housekeeping roster (for the Assign picker) in the same payload |
 | `GET /my-rooms` | `perform_housekeeping` | the caller's assignments for today, in sequence, rush first |
+| `GET /inspections` | `inspect_housekeeping` | rooms awaiting inspection, oldest first, with who cleaned each and their photos |
 | `GET /rooms/<id>` | `view_housekeeping` | board row + today's assignment + last 30 `room_event`s + photos |
 | `POST /rooms/<id>/mark-dirty` | `mark_room_dirty` | `{ note? }` |
 | `POST /rooms/<id>/rush`, `DELETE /rooms/<id>/rush` | `mark_room_dirty` | |
@@ -229,9 +230,9 @@ A new `Housekeeping` nav group in `web/src/components/navModel.ts`, above Mainte
 
 - **Rooms** → `/app/housekeeping`, needs `view_housekeeping`
 - **My Rooms** → `/app/my-rooms`, needs `perform_housekeeping`
-- **Room Inspection** → `/app/housekeeping/inspection`, needs `inspect_housekeeping` —
-  deliberately outside the board's `match` prefix, for the same reason PM Inspection is a sibling
-  of `/app/pm`: two lit rail entries reads as a bug.
+- **Room Inspection** → `/app/room-inspection`, needs `inspect_housekeeping` — a sibling of
+  `/app/housekeeping`, not a child, so it stays outside the board's prefix match, for the same
+  reason PM Inspection is `/app/inspection`: two lit rail entries reads as a bug.
 
 **`/app/housekeeping` — `RoomBoardPage`** (supervisor and front desk). Summary strip across the
 top (dirty · in progress · awaiting inspection · inspected · OOO), then floor-by-floor sections of
@@ -248,7 +249,7 @@ big button, a photo capture control, and the supervisor's note if it was failed 
 line at the top ("3 of 11 done"). Nothing else on the screen — `docs/design.md` §6.5 is more
 prescriptive about this view than any other.
 
-**`/app/housekeeping/inspection` — `RoomInspectionPage`** (supervisor). The queue of rooms
+**`/app/room-inspection` — `RoomInspectionPage`** (supervisor). The queue of rooms
 awaiting inspection, oldest first, with who cleaned each and their photos. Pass, or Fail which
 opens a required note box. Mirrors `InspectionPage` so supervisors meet one pattern twice.
 
