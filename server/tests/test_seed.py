@@ -9,6 +9,7 @@ from app.models import (
     DigitalAsset,
     DraftPrompt,
     Guest,
+    HousekeepingAssignment,
     LogEntry,
     MaintainableUnit,
     Message,
@@ -18,6 +19,7 @@ from app.models import (
     PropertyMembership,
     QuickReply,
     ResolutionCategory,
+    Room,
     Stay,
     UserAccount,
     WorkOrder,
@@ -25,6 +27,8 @@ from app.models import (
 from app.schemas.enums import (
     ConversationStatus,
     DeliveryStatus,
+    HkAssignmentStatus,
+    HkStatus,
     PmRunStatus,
     SmsConsentStatus,
     StayStatus,
@@ -85,6 +89,22 @@ def test_seed_matches_spec_counts(tmp_path):
         assert summary.maintainable_units == 138
         assert summary.pm_templates == 3
         assert summary.pm_runs == count(PmRun)
+        # housekeeping (spec §6): seeded through the real domain code
+        assert count(Room, Room.property_id == hvh.id) == 120
+        assert count(Room, Room.property_id == lsi.id) == 0
+        assert set(db.scalars(select(Room.hk_status).where(Room.property_id == hvh.id))) \
+            == set(HkStatus)  # every board status is on screen
+        by_status = lambda s: count(HousekeepingAssignment,  # noqa: E731
+                                    HousekeepingAssignment.status == s)
+        assert count(HousekeepingAssignment) == 28
+        assert by_status(HkAssignmentStatus.passed) == 8
+        assert by_status(HkAssignmentStatus.done) == 4
+        assert by_status(HkAssignmentStatus.in_progress) == 2
+        assert by_status(HkAssignmentStatus.assigned) == 14
+        assert count(HousekeepingAssignment, HousekeepingAssignment.fail_count == 1) == 2
+        assert count(Room, Room.rush.is_(True)) == 1
+        assert count(Room, Room.hk_status == HkStatus.out_of_order) == 2
+        assert count(Room, Room.hk_status == HkStatus.out_of_service) == 1
         # SeedSummary must match real rows, not an in-memory counter that a rewire can desync
         # (the showcase conversation's messages are deleted and re-added after being counted).
         assert summary.properties == count(Property)
@@ -95,6 +115,7 @@ def test_seed_matches_spec_counts(tmp_path):
         assert summary.messages == count(Message)
         assert summary.work_orders == count(WorkOrder)
         assert summary.log_entries == count(LogEntry)
+        assert (summary.rooms, summary.hk_assignments) == (120, 28)
     db_.engine.dispose()
     assert summary.conversations == 35
     assert summary.guests == 110 and summary.stays == 113

@@ -23,7 +23,15 @@ from sqlalchemy import func, select
 from app import clock
 from app.auth.passwords import hash_password
 from app.db import Database, run_migrations
-from app.domain import pm_cycles, staff_messages
+from app.domain import (
+    hk_assignments,
+    hk_photos,
+    hk_rooms,
+    hk_tick,
+    hk_transitions,
+    pm_cycles,
+    staff_messages,
+)
 from app.domain.assets import new_short_code
 from app.domain.log import shift_for
 from app.models import (
@@ -32,6 +40,7 @@ from app.models import (
     DigitalAsset,
     DraftPrompt,
     Guest,
+    HousekeepingAssignment,
     InternalNote,
     LogEntry,
     LogEntryMention,
@@ -48,6 +57,7 @@ from app.models import (
     PropertyMembership,
     QuickReply,
     ResolutionCategory,
+    Room,
     Stay,
     UserAccount,
     WorkOrder,
@@ -63,6 +73,8 @@ from app.schemas.enums import (
     DepartmentType,
     Direction,
     DraftPromptStatus,
+    HkServiceType,
+    HkStatus,
     LocationType,
     MentionTargetType,
     PmCadence,
@@ -105,6 +117,8 @@ class SeedSummary:
     maintainable_units: int
     pm_templates: int
     pm_runs: int
+    rooms: int
+    hk_assignments: int
 
 
 def _phone(rng: random.Random, used: set[str]) -> str:
@@ -821,8 +835,54 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
                          created_at=due, updated_at=due))
         db.flush()
 
+        # ---- housekeeping (spec §6). Through the domain, never around it: stage "last night",
+        # run the real tick, then a mid-shift morning as the seeded users — so a broken
+        # transition rule fails the seed loudly instead of seeding an impossible board. Last in
+        # the file so the rng draws above it are unchanged.
+        hk_rooms.ensure_rooms(db, hvh.id)
+        last_night = datetime.combine(pm_cycles.local_today(hvh) - timedelta(days=1), time(18, 0),
+                                      tzinfo=ZoneInfo(hvh.timezone))
+        for room, _ in hk_rooms.active_rooms(db, hvh.id):
+            room.status_changed_at = last_night
+        db.flush()
+        hk_tick.tick(db)  # dirties the stayovers and today's departures by the real rules
+
+        grace, hana, rosa = staff["hk_sup"], staff["hana"], staff["rosa"]
+        dirty = [r for r, _ in hk_rooms.active_rooms(db, hvh.id) if r.hk_status == HkStatus.dirty]
+        rng.shuffle(dirty)
+        by_keeper = {}
+        for keeper, batch in ((hana, dirty[:14]), (rosa, dirty[14:28])):
+            assigned = hk_assignments.assign(db, hvh.id, grace.id, [r.id for r in batch],
+                                             keeper.id)
+            by_keeper[keeper.id] = assigned
+            # per housekeeper: 0-3 passed, 4-5 done, 6 in progress, 7 failed back, 8-13 assigned
+            for i, a in enumerate(assigned[:8]):
+                hk_transitions.start(db, hvh.id, keeper.id, Role.dept_staff, a.id)
+                if i == 0:
+                    hk_photos.attach(db, hvh.id, keeper.id, Role.dept_staff, a.id,
+                                     data=TINY_PNG)
+                if i == 6:
+                    continue
+                hk_transitions.complete(db, hvh.id, keeper.id, Role.dept_staff, a.id)
+                if i <= 3:
+                    hk_transitions.inspect(db, hvh.id, grace.id, a.id, "pass", None)
+                elif i == 7:
+                    hk_transitions.inspect(db, hvh.id, grace.id, a.id, "fail",
+                                           "Hair in the bathroom sink.")
+        waiting = by_keeper[rosa.id][8:]
+        rush = next((a for a in waiting if a.type == HkServiceType.departure), waiting[0])
+        hk_transitions.set_rush(db, hvh.id, staff["marcus"].id, rush.room_id, True)
+        worked = {a.room_id for batch in by_keeper.values() for a in batch}
+        vacant = [r for r, _ in hk_rooms.active_rooms(db, hvh.id)
+                  if r.hk_status == HkStatus.inspected and r.id not in worked][:3]
+        for room, status, note in ((vacant[0], HkStatus.out_of_order, "AC unit leaking, WO open"),
+                                   (vacant[1], HkStatus.out_of_order, "AC unit leaking, WO open"),
+                                   (vacant[2], HkStatus.out_of_service, "Carpet replacement")):
+            hk_transitions.set_room_status(db, hvh.id, grace.id, room.id, status, note)
+        db.flush()
+
         # ---- recurring jobs
-        for job_type in ("sla.sweep", "snooze.wake", "pms.tick", "pm.tick"):
+        for job_type in ("sla.sweep", "snooze.wake", "pms.tick", "pm.tick", "housekeeping.tick"):
             jobs.ensure_recurring(db, job_type)
 
         # Derive every count from the database rather than in-memory counters/lists: the showcase
@@ -841,6 +901,8 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
             maintainable_units=db.scalar(select(func.count()).select_from(MaintainableUnit)),
             pm_templates=db.scalar(select(func.count()).select_from(PmTemplate)),
             pm_runs=db.scalar(select(func.count()).select_from(PmRun)),
+            rooms=db.scalar(select(func.count()).select_from(Room)),
+            hk_assignments=db.scalar(select(func.count()).select_from(HousekeepingAssignment)),
         )
     database.engine.dispose()
     return summary
