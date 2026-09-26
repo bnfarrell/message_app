@@ -5,8 +5,36 @@ from datetime import date, datetime
 from pydantic import Field
 
 from app.schemas.common import CamelModel
-from app.schemas.enums import ChecklistSchedule, ChecklistStatus, Shift
+from app.schemas.enums import ChecklistKind, ChecklistSchedule, ChecklistStatus, Shift
 from app.schemas.pm import RunAnswerOut, RunPhotoOut, TemplateItemIn, TemplateItemOut
+
+MAX_CATEGORIES = 30
+
+
+class ChecklistItemIn(TemplateItemIn):
+    """PM's item plus the category it sits under, named by a `key` from the same request's
+    `categories` (checklist structure spec §3.2). PM's own TemplateItemIn is unchanged."""
+
+    category_key: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class ChecklistCategoryIn(CamelModel):
+    """`key` is the client's handle for this category within one request; `id` names a saved
+    category to update in place. A saved category missing from the list is soft-deleted."""
+
+    key: str = Field(min_length=1, max_length=64)
+    id: str | None = None
+    name: str = Field(min_length=1, max_length=120)
+
+
+class ChecklistItemOut(TemplateItemOut):
+    category_id: str | None = None
+
+
+class ChecklistCategoryOut(CamelModel):
+    id: str
+    name: str
+    position: int
 
 
 class ChecklistTemplateIn(CamelModel):
@@ -16,7 +44,10 @@ class ChecklistTemplateIn(CamelModel):
     shift: Shift | None = None
     weekdays: int | None = Field(default=None, ge=1, le=127)
     active: bool = True
-    items: list[TemplateItemIn] = Field(min_length=1, max_length=100)
+    kind: ChecklistKind = ChecklistKind.normal
+    categories: list[ChecklistCategoryIn] = Field(default_factory=list,
+                                                  max_length=MAX_CATEGORIES)
+    items: list[ChecklistItemIn] = Field(min_length=1, max_length=100)
 
 
 class ChecklistTemplatePatch(CamelModel):
@@ -26,7 +57,9 @@ class ChecklistTemplatePatch(CamelModel):
     shift: Shift | None = None
     weekdays: int | None = Field(default=None, ge=1, le=127)
     active: bool | None = None
-    items: list[TemplateItemIn] | None = Field(default=None, min_length=1, max_length=100)
+    kind: ChecklistKind | None = None
+    categories: list[ChecklistCategoryIn] | None = Field(default=None, max_length=MAX_CATEGORIES)
+    items: list[ChecklistItemIn] | None = Field(default=None, min_length=1, max_length=100)
 
 
 class ChecklistTemplateOut(CamelModel):
@@ -38,7 +71,9 @@ class ChecklistTemplateOut(CamelModel):
     shift: Shift | None = None
     weekdays: int | None = None
     active: bool
-    items: list[TemplateItemOut]
+    kind: ChecklistKind
+    categories: list[ChecklistCategoryOut]
+    items: list[ChecklistItemOut]
 
 
 class ChecklistInstanceRowOut(CamelModel):

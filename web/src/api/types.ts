@@ -9,6 +9,7 @@ export type {
   ChecklistAssignRequest, ChecklistCommentPatch, ChecklistInstanceOut, ChecklistInstanceQuery,
   ChecklistInstanceRowOut, ChecklistMissedQuery, ChecklistSchedule, ChecklistStatus,
   ChecklistTemplateIn, ChecklistTemplateOut, ChecklistTemplatePatch,
+  ChecklistCategoryIn, ChecklistCategoryOut, ChecklistItemIn, ChecklistItemOut, ChecklistKind,
   ComplianceCycleOut, ComplianceOut,
   ComplianceRunsOut, ComplianceTemplateOut, ConversationDetail,
   ConversationPatch, ConversationStatus, ConversationSummary,

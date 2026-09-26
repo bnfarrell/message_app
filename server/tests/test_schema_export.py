@@ -21,7 +21,9 @@ def test_export_contains_the_public_models():
                  "HkInspectionRowOut", "HkAssignRequest", "HkReorderRequest",
                  "HkInspectRequest", "HkStatusRequest", "HkMarkDirtyRequest",
                  "ChecklistTemplateIn", "ChecklistTemplateOut", "ChecklistInstanceRowOut",
-                 "ChecklistInstanceOut", "ChecklistAssignRequest"):
+                 "ChecklistInstanceOut", "ChecklistAssignRequest",
+                 "ChecklistItemIn", "ChecklistItemOut", "ChecklistCategoryIn",
+                 "ChecklistCategoryOut", "ChecklistTemplatePatch"):
         assert name in defs, name
     assert defs["GuestThread"]["additionalProperties"] is False
     assert "notes" not in defs["GuestThread"]["properties"]

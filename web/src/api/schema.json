@@ -660,6 +660,66 @@
       "title": "ChecklistAssignRequest",
       "type": "object"
     },
+    "ChecklistCategoryIn": {
+      "additionalProperties": false,
+      "description": "`key` is the client's handle for this category within one request; `id` names a saved\ncategory to update in place. A saved category missing from the list is soft-deleted.",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "key": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "name"
+      ],
+      "title": "ChecklistCategoryIn",
+      "type": "object"
+    },
+    "ChecklistCategoryOut": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "position": {
+          "title": "Position",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "position"
+      ],
+      "title": "ChecklistCategoryOut",
+      "type": "object"
+    },
     "ChecklistCommentPatch": {
       "additionalProperties": false,
       "properties": {
@@ -1013,6 +1073,190 @@
       "title": "ChecklistInstanceRowOut",
       "type": "object"
     },
+    "ChecklistItemIn": {
+      "additionalProperties": false,
+      "description": "PM's item plus the category it sits under, named by a `key` from the same request's\n`categories` (checklist structure spec \u00a73.2). PM's own TemplateItemIn is unchanged.",
+      "properties": {
+        "categoryKey": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Categorykey"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "itemType": {
+          "$ref": "#/$defs/PmItemType"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "maxValue": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxvalue"
+        },
+        "minValue": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minvalue"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "label",
+        "itemType"
+      ],
+      "title": "ChecklistItemIn",
+      "type": "object"
+    },
+    "ChecklistItemOut": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "categoryId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Categoryid"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "itemType": {
+          "$ref": "#/$defs/PmItemType"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "maxValue": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxvalue"
+        },
+        "minValue": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minvalue"
+        },
+        "position": {
+          "title": "Position",
+          "type": "integer"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "id",
+        "position",
+        "label",
+        "itemType",
+        "required",
+        "active"
+      ],
+      "title": "ChecklistItemOut",
+      "type": "object"
+    },
+    "ChecklistKind": {
+      "description": "Drives a filter and a tag only \u2014 no behaviour differs (checklist structure spec \u00a71.2).",
+      "enum": [
+        "normal",
+        "readings"
+      ],
+      "title": "ChecklistKind",
+      "type": "string"
+    },
     "ChecklistMissedQuery": {
       "additionalProperties": false,
       "properties": {
@@ -1054,18 +1298,30 @@
           "title": "Active",
           "type": "boolean"
         },
+        "categories": {
+          "items": {
+            "$ref": "#/$defs/ChecklistCategoryIn"
+          },
+          "maxItems": 30,
+          "title": "Categories",
+          "type": "array"
+        },
         "departmentId": {
           "title": "Departmentid",
           "type": "string"
         },
         "items": {
           "items": {
-            "$ref": "#/$defs/TemplateItemIn"
+            "$ref": "#/$defs/ChecklistItemIn"
           },
           "maxItems": 100,
           "minItems": 1,
           "title": "Items",
           "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ChecklistKind",
+          "default": "normal"
         },
         "name": {
           "maxLength": 200,
@@ -1118,6 +1374,13 @@
           "title": "Active",
           "type": "boolean"
         },
+        "categories": {
+          "items": {
+            "$ref": "#/$defs/ChecklistCategoryOut"
+          },
+          "title": "Categories",
+          "type": "array"
+        },
         "departmentId": {
           "title": "Departmentid",
           "type": "string"
@@ -1132,10 +1395,13 @@
         },
         "items": {
           "items": {
-            "$ref": "#/$defs/TemplateItemOut"
+            "$ref": "#/$defs/ChecklistItemOut"
           },
           "title": "Items",
           "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ChecklistKind"
         },
         "name": {
           "title": "Name",
@@ -1175,6 +1441,8 @@
         "departmentName",
         "schedule",
         "active",
+        "kind",
+        "categories",
         "items"
       ],
       "title": "ChecklistTemplateOut",
@@ -1195,6 +1463,22 @@
           "default": null,
           "title": "Active"
         },
+        "categories": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ChecklistCategoryIn"
+              },
+              "maxItems": 30,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Categories"
+        },
         "departmentId": {
           "anyOf": [
             {
@@ -1211,7 +1495,7 @@
           "anyOf": [
             {
               "items": {
-                "$ref": "#/$defs/TemplateItemIn"
+                "$ref": "#/$defs/ChecklistItemIn"
               },
               "maxItems": 100,
               "minItems": 1,
@@ -1223,6 +1507,17 @@
           ],
           "default": null,
           "title": "Items"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChecklistKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "name": {
           "anyOf": [

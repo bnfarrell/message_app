@@ -25,7 +25,8 @@ const TODAY = [
 ]
 const ON_DEMAND: ChecklistTemplateOut = {
   id: 't-out', name: 'Power Outage', departmentId: 'dept-eng', departmentName: 'Engineering',
-  schedule: 'on_demand', shift: null, weekdays: null, active: true, items: [],
+  schedule: 'on_demand', shift: null, weekdays: null, active: true, kind: 'normal',
+  categories: [], items: [],
 }
 const MISSED = [row({ id: 'i-old', dueDate: '2026-09-09', status: 'missed',
                       templateName: 'Housekeeping PM Linen Par' })]
