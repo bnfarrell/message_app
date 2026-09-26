@@ -1,9 +1,11 @@
 import { useRef, useState, type FormEvent } from 'react'
-import { useCreateLogEntry, useLogMentionables } from '../../api/hooks/log'
+import { fieldErrors } from '../../api/fieldErrors'
+import { useCreateLogEntry, useLogMentionables, useLogTemplates } from '../../api/hooks/log'
 import { useDepartments } from '../../api/hooks/users'
-import type { LogEntryOut } from '../../api/types'
-import { Button } from '../../components/ui'
+import type { LogEntryOut, LogFieldValueIn, LogTemplateFieldOut, LogTemplateOut } from '../../api/types'
+import { Button, Input, Textarea } from '../../components/ui'
 import { MentionInput, TOKEN_RE, type MentionRef } from './MentionInput'
+import { NUMERIC_FIELD_TYPES } from './templates'
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp']
 const FIELD = 'mb-1 block text-xs font-bold uppercase tracking-widest text-text3'
@@ -24,9 +26,60 @@ function pruneMentions(text: string, mentions: MentionRef[]): MentionRef[] {
   return mentions.filter((m) => present.has(`${m.type}:${m.id}`))
 }
 
+/** Answers by field id, exactly as typed; blank means unanswered, as on the server. */
+type Answers = Record<string, string>
+
+function answered(answers: Answers, field: LogTemplateFieldOut): boolean {
+  return (answers[field.id] ?? '').trim() !== ''
+}
+
+/** A number that parses goes over as a JSON number; anything else goes over as typed, so the
+ *  server can name what is wrong with it (`not_a_number`) rather than the client guessing. */
+function toFieldValues(template: LogTemplateOut, answers: Answers): LogFieldValueIn[] {
+  return template.fields.filter((f) => answered(answers, f)).map((f) => {
+    const raw = answers[f.id]!.trim()
+    const number = Number(raw)
+    return { fieldId: f.id, value: NUMERIC_FIELD_TYPES.has(f.fieldType) && Number.isFinite(number) ? number : raw }
+  })
+}
+
+function TemplateField({ field, value, error, onChange }: {
+  field: LogTemplateFieldOut
+  value: string
+  error?: string
+  onChange: (value: string) => void
+}) {
+  const id = `log-field-${field.id}`
+  const common = { id, value, 'aria-required': field.required, 'aria-invalid': Boolean(error) }
+  return (
+    <div>
+      <label className={FIELD} htmlFor={id}>
+        {field.label}
+        {field.required ? <span aria-hidden="true"> *</span> : null}
+      </label>
+      {field.fieldType === 'long_text' ? (
+        <Textarea {...common} rows={3} onChange={(e) => onChange(e.target.value)} />
+      ) : field.fieldType === 'short_text' ? (
+        <Input {...common} maxLength={200} onChange={(e) => onChange(e.target.value)} />
+      ) : (
+        <div className="flex items-center gap-2">
+          <Input
+            {...common}
+            inputMode={field.fieldType === 'integer' ? 'numeric' : 'decimal'}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          {field.fieldType === 'percent' ? <span className="text-sm text-text3">%</span> : null}
+        </div>
+      )}
+      {error ? <p className="mt-1 text-xs text-dangerText">{error}</p> : null}
+    </div>
+  )
+}
+
 export function LogComposer({ onPosted }: { onPosted?: (entry: LogEntryOut) => void }) {
   const { data: mentionables } = useLogMentionables()
   const { data: departments } = useDepartments()
+  const { data: templates } = useLogTemplates()
   const create = useCreateLogEntry()
 
   const [body, setBody] = useState('')
@@ -36,7 +89,17 @@ export function LogComposer({ onPosted }: { onPosted?: (entry: LogEntryOut) => v
   const [requiresAck, setRequiresAck] = useState(false)
   const [audienceText, setAudienceText] = useState('')
   const [audienceMentions, setAudienceMentions] = useState<MentionRef[]>([])
+  const [templateId, setTemplateId] = useState('')
+  const [answers, setAnswers] = useState<Answers>({})
   const fileInput = useRef<HTMLInputElement>(null)
+
+  const available = templates ?? []
+  const template = available.find((t) => t.id === templateId)
+  const fields = fieldErrors(create.error)
+  const ready = template
+    ? template.fields.every((f) => !f.required || answered(answers, f))
+      && (template.fields.some((f) => answered(answers, f)) || body.trim() !== '')
+    : body.trim() !== ''
 
   function toggleRequiresAck(checked: boolean) {
     setRequiresAck(checked)
@@ -46,6 +109,13 @@ export function LogComposer({ onPosted }: { onPosted?: (entry: LogEntryOut) => v
       setAudienceText('')
       setAudienceMentions([])
     }
+  }
+
+  function chooseTemplate(id: string) {
+    // "No template" clears the form; switching templates starts the new one blank.
+    setTemplateId(id)
+    setAnswers({})
+    create.reset()
   }
 
   function clearPhoto() {
@@ -61,11 +131,13 @@ export function LogComposer({ onPosted }: { onPosted?: (entry: LogEntryOut) => v
     setRequiresAck(false)
     setAudienceText('')
     setAudienceMentions([])
+    setTemplateId('')
+    setAnswers({})
   }
 
   function submit(event: FormEvent) {
     event.preventDefault()
-    if (!body.trim() || create.isPending) return
+    if (!ready || create.isPending) return
     create.mutate(
       {
         body,
@@ -74,6 +146,7 @@ export function LogComposer({ onPosted }: { onPosted?: (entry: LogEntryOut) => v
         requiresAck,
         ackAudience: requiresAck ? pruneMentions(audienceText, audienceMentions) : undefined,
         photo: photo ?? undefined,
+        ...(template ? { templateId: template.id, fieldValues: toFieldValues(template, answers) } : {}),
       },
       { onSuccess: (entry) => { reset(); onPosted?.(entry) } },
     )
@@ -87,7 +160,41 @@ export function LogComposer({ onPosted }: { onPosted?: (entry: LogEntryOut) => v
         </p>
       ) : null}
 
+      {available.length > 0 ? (
+        <div>
+          <label className={FIELD} htmlFor="log-template">Use a template</label>
+          <select
+            id="log-template"
+            className={SELECT}
+            value={templateId}
+            onChange={(event) => chooseTemplate(event.target.value)}
+          >
+            <option value="">No template</option>
+            {available.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
+      {template ? (
+        <div className="grid grid-cols-2 gap-3">
+          {template.fields.map((field) => (
+            <div key={field.id} className={field.fieldType === 'long_text' ? 'col-span-2' : undefined}>
+              <TemplateField
+                field={field}
+                value={answers[field.id] ?? ''}
+                error={fields[field.id]}
+                onChange={(value) => setAnswers({ ...answers, [field.id]: value })}
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {template ? <label className={FIELD} htmlFor="log-body">Notes (optional)</label> : null}
       <MentionInput
+        id="log-body"
         value={body}
         mentions={mentions}
         options={mentionables ?? []}
@@ -156,7 +263,7 @@ export function LogComposer({ onPosted }: { onPosted?: (entry: LogEntryOut) => v
         variant="primary"
         className="self-end"
         loading={create.isPending}
-        disabled={create.isPending || !body.trim()}
+        disabled={create.isPending || !ready}
       >
         Post
       </Button>

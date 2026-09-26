@@ -32,7 +32,7 @@ function jsonResponse(body: unknown) {
 function serve(feed: LogFeedOut = { entries: [], pinned: [] }) {
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
     const url = String(input)
-    if (url.includes('mentionables')) return jsonResponse([])
+    if (url.includes('mentionables') || url.includes('log-entries/templates')) return jsonResponse([])
     if (url.includes('/departments')) return jsonResponse(DEPARTMENTS)
     if (url.includes('log-entries')) return jsonResponse(feed)
     return jsonResponse([])
@@ -55,7 +55,7 @@ function servePages(pages: LogFeedOut[]) {
   let next = 0
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
     const url = String(input)
-    if (url.includes('mentionables')) return jsonResponse([])
+    if (url.includes('mentionables') || url.includes('log-entries/templates')) return jsonResponse([])
     if (url.includes('/departments')) return jsonResponse(DEPARTMENTS)
     if (url.includes('log-entries')) {
       const page = pages[Math.min(next, pages.length - 1)]!
@@ -72,11 +72,12 @@ function servePages(pages: LogFeedOut[]) {
   )
 }
 
-// Excludes the mentionables fetch, which also contains the substring "log-entries".
+// Excludes the mentionables and templates fetches, which also contain the substring "log-entries".
 function feedCalls() {
   return vi
     .mocked(fetch)
-    .mock.calls.filter(([input]) => String(input).includes('log-entries') && !String(input).includes('mentionables'))
+    .mock.calls.filter(([input]) => String(input).includes('log-entries')
+      && !String(input).includes('mentionables') && !String(input).includes('log-entries/templates'))
 }
 
 describe('LogPage', () => {

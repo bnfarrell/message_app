@@ -30,7 +30,8 @@ describe('fieldErrors', () => {
   describe('reason codes become copy (D93)', () => {
     // Every code server/app/ raises today. Grepped, not guessed: `details={` outside
     // `e.errors(...)` appears in _patch.py, guests.py and properties.py and nowhere else.
-    const SERVER_CODES = ['required', 'invalid_phone_number', 'invalid_timezone']
+    const SERVER_CODES = ['required', 'invalid_phone_number', 'invalid_timezone',
+      'not_a_number', 'not_whole', 'out_of_range', 'too_long', 'unknown_field', 'duplicate']
 
     it.each(SERVER_CODES)('words %s as a sentence rather than leaving the code on screen', (code) => {
       const shown = fieldErrors(failure({ smsNumber: code })).smsNumber!

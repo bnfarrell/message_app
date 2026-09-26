@@ -25,6 +25,13 @@ const REASON_COPY: Record<string, string> = {
   invalid_timezone: 'Not a recognised IANA time zone.',
   file_too_large: 'That photo is over 8 MB. Choose a smaller one.',
   unsupported_image_type: 'Only JPEG, PNG or WebP photos are accepted.',
+  // A templated log post's answers (log templates spec §2.3), keyed by field id.
+  not_a_number: 'Enter a number.',
+  not_whole: 'Enter a whole number.',
+  out_of_range: 'That value is out of range.',
+  too_long: 'That is too long.',
+  unknown_field: 'This field is no longer on the template.',
+  duplicate: 'This field was answered twice.',
 }
 
 /**
