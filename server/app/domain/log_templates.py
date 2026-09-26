@@ -7,6 +7,8 @@ mean something else.
 """
 from __future__ import annotations
 
+import math
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -15,13 +17,16 @@ from app.errors import Forbidden, NotFound, ValidationFailed
 from app.models import (
     Department,
     LogEntry,
+    LogEntryFieldValue,
     LogTemplate,
     LogTemplateAudience,
     LogTemplateField,
     PropertyMembership,
 )
-from app.schemas.enums import MentionTargetType, Role
+from app.schemas.enums import LogFieldType, MentionTargetType, Role
 from app.schemas.log import (
+    MAX_BODY,
+    LogFieldValueIn,
     LogTemplateFieldIn,
     LogTemplateFieldOut,
     LogTemplateIn,
@@ -221,3 +226,94 @@ def patch(db: Session, property_id: str, actor_id: str, template_id: str,
     audit.record(db, property_id, actor_id, "log_template.updated", "log_template", t.id,
                  after={"fields": sorted(provided)})
     return t
+
+
+# ---- posting with a template (spec §2.2, §2.3) -------------------------------------------------
+
+MAX_SHORT_TEXT = 200
+# log_entry_field_value.number_value is Numeric(10, 2): anything at or past 10**8 overflows it,
+# which PostgreSQL refuses with a 500 and SQLite silently accepts. Refuse it here as a 400.
+NUMBER_LIMIT = 100_000_000
+NUMERIC_TYPES = {LogFieldType.integer, LogFieldType.decimal, LogFieldType.percent}
+
+
+def _coerce(field_type: LogFieldType, raw: object) -> tuple[str | None, float | None, str | None]:
+    """(text_value, number_value, failure reason). Both values None = unanswered."""
+    if raw is None:
+        return None, None, None
+    if field_type not in NUMERIC_TYPES:
+        text = str(raw).strip()
+        if not text:
+            return None, None, None
+        limit = MAX_SHORT_TEXT if field_type == LogFieldType.short_text else MAX_BODY
+        return (None, None, "too_long") if len(text) > limit else (text, None, None)
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if not raw:
+            return None, None, None
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return None, None, "not_a_number"
+    if not math.isfinite(number):  # float("nan") and float("inf") both parse
+        return None, None, "not_a_number"
+    if field_type == LogFieldType.integer and not number.is_integer():
+        return None, None, "not_whole"
+    if field_type == LogFieldType.percent and not 0 <= number <= 100:
+        return None, None, "out_of_range"
+    if abs(number) >= NUMBER_LIMIT:
+        return None, None, "out_of_range"
+    return None, round(number, 2), None
+
+
+def check_values(db: Session, template: LogTemplate,
+                 values: list[LogFieldValueIn]) -> list[LogEntryFieldValue]:
+    """Validate a post's answers against the template's active fields. Returns one unsaved value
+    row per answered field, in field order, with the label and type snapshotted; the caller sets
+    `log_entry_id` once the entry exists. Every failure is collected into one 400 whose details
+    map each field id to its reason."""
+    fields = active_fields(db, template.id)
+    by_id = {f.id: f for f in fields}
+    errors: dict[str, str] = {}
+    given: dict[str, object] = {}
+    for v in values:
+        if v.field_id in given:
+            errors[v.field_id] = "duplicate"
+            continue
+        given[v.field_id] = v.value
+        if v.field_id not in by_id:
+            errors[v.field_id] = "unknown_field"  # another template's, or soft-deleted
+    rows: list[LogEntryFieldValue] = []
+    for position, f in enumerate(fields):
+        if f.id in errors:
+            continue
+        text, number, reason = _coerce(f.field_type, given.get(f.id))
+        if reason:
+            errors[f.id] = reason
+        elif text is None and number is None:
+            if f.required:
+                errors[f.id] = "required"
+        else:
+            rows.append(LogEntryFieldValue(property_id=template.property_id, field_id=f.id,
+                                           position=position, label=f.label,
+                                           field_type=f.field_type, text_value=text,
+                                           number_value=number))
+    if errors:
+        raise ValidationFailed("Some template fields need attention", details=errors)
+    return rows
+
+
+def format_value(field_type: LogFieldType, text_value: str | None,
+                 number_value: float | None) -> str:
+    if number_value is None:
+        return text_value or ""
+    shown = f"{number_value:.2f}".rstrip("0").rstrip(".")
+    return f"{shown}%" if field_type == LogFieldType.percent else shown
+
+
+def summary(values: list) -> str:
+    """The generated half of a templated post's body: one `Label: value` line per answered
+    field in position order. Duck-typed over value rows (label, field_type, text_value,
+    number_value), so the read side rebuilds exactly the text the write side stored."""
+    return "\n".join(f"{v.label}: {format_value(v.field_type, v.text_value, v.number_value)}"
+                     for v in values)

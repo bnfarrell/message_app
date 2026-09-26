@@ -352,6 +352,12 @@ export type MentionTargetType = 'user' | 'department';
 export type Ackaudience = MentionRef[];
 export type Body3 = string;
 export type Departmentid10 = string | null;
+export type Fieldid = string;
+export type Value = string | number | null;
+/**
+ * @maxItems 50
+ */
+export type Fieldvalues = LogFieldValueIn[];
 export type Linkedconversationid = string | null;
 export type Linkedworkorderid = string | null;
 /**
@@ -359,6 +365,7 @@ export type Linkedworkorderid = string | null;
  */
 export type Mentions1 = MentionRef[];
 export type Requiresack = boolean;
+export type Templateid2 = string | null;
 export type Body4 = string;
 export type Kind = 'dm' | 'group';
 export type Name11 = string | null;
@@ -393,7 +400,7 @@ export type Missed1 = number;
 export type Ordinal1 = number;
 export type Passed2 = number;
 export type Startson1 = string;
-export type Templateid2 = string;
+export type Templateid3 = string;
 export type Total3 = number;
 export type Count = number;
 export type Day1 = string;
@@ -753,7 +760,7 @@ export type Photos3 = RunPhotoOut[];
 export type Startedat2 = string | null;
 export type Startedbyname1 = string | null;
 export type Startedbyuserid = string | null;
-export type Templateid3 = string;
+export type Templateid4 = string;
 export type Templatename3 = string;
 export type Unitcode1 = string;
 export type Unitid2 = string;
@@ -837,7 +844,7 @@ export type Firstname5 = string;
 export type Id40 = string;
 export type Lastname5 = string;
 export type Status2 = string;
-export type Templateid4 = string;
+export type Templateid5 = string;
 export type Unitid3 = string;
 export type Completed = number;
 export type Remaining = number;
@@ -1503,19 +1510,22 @@ export interface ConversationSummary {
 }
 /**
  * The non-file half of the body; a `photo` file part may arrive alongside it, exactly
- * like SendStaffMessageRequest.
+ * like SendStaffMessageRequest. With `template_id`, `body` is the author's optional notes and
+ * the domain generates the stored body (log templates spec §2.2).
  *
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "CreateLogEntryRequest".
  */
 export interface CreateLogEntryRequest {
   ackAudience?: Ackaudience;
-  body: Body3;
+  body?: Body3;
   departmentId?: Departmentid10;
+  fieldValues?: Fieldvalues;
   linkedConversationId?: Linkedconversationid;
   linkedWorkOrderId?: Linkedworkorderid;
   mentions?: Mentions1;
   requiresAck?: Requiresack;
+  templateId?: Templateid2;
 }
 /**
  * One @mention or one member of an acknowledgement audience.
@@ -1526,6 +1536,17 @@ export interface CreateLogEntryRequest {
 export interface MentionRef {
   id: Id18;
   type: MentionTargetType;
+}
+/**
+ * One answer on a templated post. A JSON number or a numeric string (the multipart path
+ * sends strings); the domain validates it against the field's type (log templates spec §2.3).
+ *
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "LogFieldValueIn".
+ */
+export interface LogFieldValueIn {
+  fieldId: Fieldid;
+  value?: Value;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1591,7 +1612,7 @@ export interface CycleOut {
   passed: Passed2;
   startsOn: Startson1;
   status: PmCycleStatus;
-  templateId: Templateid2;
+  templateId: Templateid3;
   total: Total3;
 }
 /**
@@ -2243,7 +2264,7 @@ export interface RunOut {
   startedByName?: Startedbyname1;
   startedByUserId?: Startedbyuserid;
   status: PmRunStatus;
-  templateId: Templateid3;
+  templateId: Templateid4;
   templateName: Templatename3;
   unitCode: Unitcode1;
   unitId: Unitid2;
@@ -2435,7 +2456,7 @@ export interface StaffUserOut {
  * via the `definition` "StartRunRequest".
  */
 export interface StartRunRequest {
-  templateId: Templateid4;
+  templateId: Templateid5;
   unitId: Unitid3;
 }
 /**

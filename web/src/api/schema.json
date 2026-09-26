@@ -1854,7 +1854,7 @@
     },
     "CreateLogEntryRequest": {
       "additionalProperties": false,
-      "description": "The non-file half of the body; a `photo` file part may arrive alongside it, exactly\nlike SendStaffMessageRequest.",
+      "description": "The non-file half of the body; a `photo` file part may arrive alongside it, exactly\nlike SendStaffMessageRequest. With `template_id`, `body` is the author's optional notes and\nthe domain generates the stored body (log templates spec \u00a72.2).",
       "properties": {
         "ackAudience": {
           "items": {
@@ -1865,8 +1865,8 @@
           "type": "array"
         },
         "body": {
+          "default": "",
           "maxLength": 4000,
-          "minLength": 1,
           "title": "Body",
           "type": "string"
         },
@@ -1881,6 +1881,14 @@
           ],
           "default": null,
           "title": "Departmentid"
+        },
+        "fieldValues": {
+          "items": {
+            "$ref": "#/$defs/LogFieldValueIn"
+          },
+          "maxItems": 50,
+          "title": "Fieldvalues",
+          "type": "array"
         },
         "linkedConversationId": {
           "anyOf": [
@@ -1918,11 +1926,20 @@
           "default": false,
           "title": "Requiresack",
           "type": "boolean"
+        },
+        "templateId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Templateid"
         }
       },
-      "required": [
-        "body"
-      ],
       "title": "CreateLogEntryRequest",
       "type": "object"
     },
@@ -3985,6 +4002,39 @@
       ],
       "title": "LogFieldType",
       "type": "string"
+    },
+    "LogFieldValueIn": {
+      "additionalProperties": false,
+      "description": "One answer on a templated post. A JSON number or a numeric string (the multipart path\nsends strings); the domain validates it against the field's type (log templates spec \u00a72.3).",
+      "properties": {
+        "fieldId": {
+          "title": "Fieldid",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "fieldId"
+      ],
+      "title": "LogFieldValueIn",
+      "type": "object"
     },
     "LogMentionOut": {
       "additionalProperties": false,

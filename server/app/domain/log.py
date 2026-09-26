@@ -8,7 +8,7 @@ from sqlalchemy import and_, or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.domain import audit, notifications
+from app.domain import audit, log_templates, notifications
 from app.domain.shifts import boundary
 from app.domain.users import active_members_of_department
 from app.errors import Forbidden, NotFound, ValidationFailed
@@ -17,6 +17,7 @@ from app.models import (
     Department,
     LogEntry,
     LogEntryAck,
+    LogEntryFieldValue,
     LogEntryMention,
     LogEntryPhoto,
     Property,
@@ -28,6 +29,7 @@ from app.realtime.broadcast import queue_event
 from app.schemas.enums import MentionTargetType, Shift, UserStatus
 from app.schemas.log import (
     FEED_PAGE_SIZE,
+    MAX_BODY,
     CreateLogEntryRequest,
     LogAckOut,
     LogEntryOut,
@@ -126,9 +128,28 @@ def create(db: Session, property_id: str, author_user_id: str,
             Conversation.property_id == property_id)):
         raise ValidationFailed("That conversation is not part of this property")
 
-    body = data.body.strip()
+    template = None
+    values: list[LogEntryFieldValue] = []
+    if data.template_id:
+        template = log_templates.get(db, property_id, data.template_id)  # 404 if not here
+        if not template.active:
+            raise ValidationFailed("That template is no longer in use",
+                                   details={"templateId": "inactive"})
+        log_templates.assert_can_use(db, property_id, author_user_id, template)  # 403
+        values = log_templates.check_values(db, template, data.field_values)
+    elif data.field_values:
+        raise ValidationFailed("Field values need a template",
+                               details={"fieldValues": "no_template"})
+
+    # A templated post's body is generated: the field summary, a blank line, then the notes
+    # (log templates spec §2.2). Notification snippets, search and @mentions keep working on it.
+    body = "\n\n".join(part for part in (log_templates.summary(values), data.body.strip())
+                       if part)
     if not body:
         raise ValidationFailed("A log entry needs a body")
+    if len(body) > MAX_BODY:
+        raise ValidationFailed(f"A post must be {MAX_BODY} characters or fewer, fields included",
+                               details={"body": "too_long"})
 
     expected = [uid for uid in resolve_audience(db, property_id, data.ack_audience)
                 if uid != author_user_id] if data.requires_ack else []
@@ -145,9 +166,14 @@ def create(db: Session, property_id: str, author_user_id: str,
         ack_expected=expected,
         linked_work_order_id=data.linked_work_order_id,
         linked_conversation_id=data.linked_conversation_id,
+        template_id=template.id if template else None,
     )
     db.add(entry)
     db.flush()
+
+    for value in values:
+        value.log_entry_id = entry.id
+        db.add(value)
 
     for position, ref in enumerate(data.mentions):
         db.add(LogEntryMention(log_entry_id=entry.id, property_id=property_id,
@@ -175,7 +201,8 @@ def create(db: Session, property_id: str, author_user_id: str,
         body=_plain_text(entry.body)[:140], entity_type="log_entry", entity_id=entry.id)
 
     audit.record(db, property_id, author_user_id, "log_entry.created", "log_entry", entry.id,
-                 after={"shift": entry.shift.value, "requires_ack": entry.requires_ack})
+                 after={"shift": entry.shift.value, "requires_ack": entry.requires_ack,
+                        "template_id": entry.template_id})
     queue_event(db, property_id, "log.entry.created", {"id": entry.id})
     return entry
 

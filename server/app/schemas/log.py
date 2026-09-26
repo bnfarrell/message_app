@@ -20,17 +20,29 @@ class MentionRef(CamelModel):
     id: str
 
 
+class LogFieldValueIn(CamelModel):
+    """One answer on a templated post. A JSON number or a numeric string (the multipart path
+    sends strings); the domain validates it against the field's type (log templates spec §2.3)."""
+
+    field_id: str
+    value: str | float | int | None = None
+
+
 class CreateLogEntryRequest(CamelModel):
     """The non-file half of the body; a `photo` file part may arrive alongside it, exactly
-    like SendStaffMessageRequest."""
+    like SendStaffMessageRequest. With `template_id`, `body` is the author's optional notes and
+    the domain generates the stored body (log templates spec §2.2)."""
 
-    body: str = Field(min_length=1, max_length=MAX_BODY)
+    body: str = Field(default="", max_length=MAX_BODY)
     department_id: str | None = None
     mentions: list[MentionRef] = Field(default_factory=list, max_length=MAX_MENTIONS)
     requires_ack: bool = False
     ack_audience: list[MentionRef] = Field(default_factory=list, max_length=MAX_MENTIONS)
     linked_work_order_id: str | None = None
     linked_conversation_id: str | None = None
+    template_id: str | None = None
+    field_values: list[LogFieldValueIn] = Field(default_factory=list,
+                                                max_length=MAX_TEMPLATE_FIELDS)
 
     @model_validator(mode="before")
     @classmethod
@@ -40,7 +52,7 @@ class CreateLogEntryRequest(CamelModel):
         the string case (the multipart path) needs decoding."""
         if not isinstance(data, dict):
             return data
-        for field in ("mentions", "ackAudience"):
+        for field in ("mentions", "ackAudience", "fieldValues"):
             value = data.get(field)
             if isinstance(value, str):
                 data[field] = json.loads(value)

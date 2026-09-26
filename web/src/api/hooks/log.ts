@@ -82,7 +82,7 @@ export function useCreateLogEntry() {
       // Multipart: the server reads scalars from request.form and the file from request.files,
       // so arrays go over as JSON strings. Matches SendStaffMessageRequest's handling.
       const form = new FormData()
-      form.set('body', rest.body)
+      form.set('body', rest.body ?? '')
       if (rest.departmentId) form.set('departmentId', rest.departmentId)
       if (rest.mentions?.length) form.set('mentions', JSON.stringify(rest.mentions))
       if (rest.requiresAck) form.set('requiresAck', 'true')
