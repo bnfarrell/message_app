@@ -5,7 +5,11 @@
  */
 export type {
   AddParticipantsRequest, AgentStats, AnswerPatch, AssetIn, AssetOut, AssetPatch, AssetType, AuthorType,
-  CategoryIn, CategoryOut, CategoryPatch, Channel, ComplianceCycleOut, ComplianceOut,
+  CategoryIn, CategoryOut, CategoryPatch, Channel,
+  ChecklistAssignRequest, ChecklistCommentPatch, ChecklistInstanceOut, ChecklistInstanceQuery,
+  ChecklistInstanceRowOut, ChecklistMissedQuery, ChecklistSchedule, ChecklistStatus,
+  ChecklistTemplateIn, ChecklistTemplateOut, ChecklistTemplatePatch,
+  ComplianceCycleOut, ComplianceOut,
   ComplianceRunsOut, ComplianceTemplateOut, ConversationDetail,
   ConversationPatch, ConversationStatus, ConversationSummary,
   CreateLogEntryRequest, CreateNoteRequest, CreateStaffConversationRequest, CreateStaffRequest, CreateWorkOrder, CycleOut, DayBucket,
@@ -22,7 +26,8 @@ export type {
   PropertySettingsOut, PropertySettingsPatch, QuickReplyIn, QuickReplyOut,
   QuickReplyPatch, RenderRequest, RenderedQuickReply, ResponseBucket, Role, RoomEventType,
   RunAnswerOut, RunOut, RunPhotoOut,
-  SendMessageRequest, SendStaffMessageRequest, SessionOut, SimEvent, SimGuest, SmsConsentStatus,
+  SendMessageRequest, SendStaffMessageRequest, SessionOut, Shift, SimEvent, SimGuest,
+  SmsConsentStatus,
   StaffConversationDetail, StaffConversationKind, StaffConversationOut, StaffDirectoryEntryOut,
   StaffMessageOut, StaffParticipantOut, StaffPatch, StaffUserOut, StartRunRequest, StayOut, StayStatus,
   SweepCounts, SweepCycleOut, SweepOut, SweepRunBrief, SweepTemplateOut, SweepUnitOut,

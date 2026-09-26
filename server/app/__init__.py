@@ -47,6 +47,7 @@ def create_app(config: Config | None = None) -> Flask:
         assets,
         auth,
         categories,
+        checklists,
         conversations,
         departments,
         guests,
@@ -86,6 +87,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(maintainable_units.bp)
     app.register_blueprint(pm.bp)
     app.register_blueprint(housekeeping.bp)
+    app.register_blueprint(checklists.bp)
 
     @app.after_request
     def _cors(resp):

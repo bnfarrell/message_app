@@ -12,6 +12,7 @@ from pydantic.json_schema import models_json_schema
 from app.schemas import (
     analytics,
     auth,
+    checklists,
     content,
     conversations,
     dev,
@@ -26,7 +27,7 @@ from app.schemas import (
 )
 
 MODULES = (auth, users, conversations, work_orders, content, notifications, analytics,
-           properties, staff_messages, log, pm, housekeeping, dev)
+           properties, staff_messages, log, pm, housekeeping, checklists, dev)
 DEFAULT_OUT = str(Path(__file__).resolve().parents[3] / "web" / "src" / "api" / "schema.json")
 
 

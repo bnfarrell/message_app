@@ -641,6 +641,642 @@
       "title": "Channel",
       "type": "string"
     },
+    "ChecklistAssignRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "userId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Userid"
+        }
+      },
+      "title": "ChecklistAssignRequest",
+      "type": "object"
+    },
+    "ChecklistCommentPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "comment": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment"
+        }
+      },
+      "title": "ChecklistCommentPatch",
+      "type": "object"
+    },
+    "ChecklistInstanceOut": {
+      "additionalProperties": false,
+      "properties": {
+        "answers": {
+          "items": {
+            "$ref": "#/$defs/RunAnswerOut"
+          },
+          "title": "Answers",
+          "type": "array"
+        },
+        "assignedName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assignedname"
+        },
+        "assignedUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneduserid"
+        },
+        "comment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment"
+        },
+        "completedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completedat"
+        },
+        "completedByName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completedbyname"
+        },
+        "departmentId": {
+          "title": "Departmentid",
+          "type": "string"
+        },
+        "departmentName": {
+          "title": "Departmentname",
+          "type": "string"
+        },
+        "done": {
+          "title": "Done",
+          "type": "integer"
+        },
+        "dueDate": {
+          "format": "date",
+          "title": "Duedate",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/TemplateItemOut"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "missingRequired": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missingrequired",
+          "type": "array"
+        },
+        "onDemand": {
+          "title": "Ondemand",
+          "type": "boolean"
+        },
+        "outOfRangeCount": {
+          "title": "Outofrangecount",
+          "type": "integer"
+        },
+        "photos": {
+          "items": {
+            "$ref": "#/$defs/RunPhotoOut"
+          },
+          "title": "Photos",
+          "type": "array"
+        },
+        "shift": {
+          "$ref": "#/$defs/Shift"
+        },
+        "startedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Startedat"
+        },
+        "startedByName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Startedbyname"
+        },
+        "status": {
+          "$ref": "#/$defs/ChecklistStatus"
+        },
+        "templateId": {
+          "title": "Templateid",
+          "type": "string"
+        },
+        "templateName": {
+          "title": "Templatename",
+          "type": "string"
+        },
+        "total": {
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "templateId",
+        "templateName",
+        "departmentId",
+        "departmentName",
+        "dueDate",
+        "shift",
+        "onDemand",
+        "status",
+        "done",
+        "total",
+        "outOfRangeCount",
+        "items",
+        "answers",
+        "photos",
+        "missingRequired"
+      ],
+      "title": "ChecklistInstanceOut",
+      "type": "object"
+    },
+    "ChecklistInstanceQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "day": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Day"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChecklistStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ChecklistInstanceQuery",
+      "type": "object"
+    },
+    "ChecklistInstanceRowOut": {
+      "additionalProperties": false,
+      "properties": {
+        "assignedName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assignedname"
+        },
+        "assignedUserId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigneduserid"
+        },
+        "completedByName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completedbyname"
+        },
+        "departmentId": {
+          "title": "Departmentid",
+          "type": "string"
+        },
+        "departmentName": {
+          "title": "Departmentname",
+          "type": "string"
+        },
+        "done": {
+          "title": "Done",
+          "type": "integer"
+        },
+        "dueDate": {
+          "format": "date",
+          "title": "Duedate",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "onDemand": {
+          "title": "Ondemand",
+          "type": "boolean"
+        },
+        "outOfRangeCount": {
+          "title": "Outofrangecount",
+          "type": "integer"
+        },
+        "shift": {
+          "$ref": "#/$defs/Shift"
+        },
+        "status": {
+          "$ref": "#/$defs/ChecklistStatus"
+        },
+        "templateId": {
+          "title": "Templateid",
+          "type": "string"
+        },
+        "templateName": {
+          "title": "Templatename",
+          "type": "string"
+        },
+        "total": {
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "templateId",
+        "templateName",
+        "departmentId",
+        "departmentName",
+        "dueDate",
+        "shift",
+        "onDemand",
+        "status",
+        "done",
+        "total",
+        "outOfRangeCount"
+      ],
+      "title": "ChecklistInstanceRowOut",
+      "type": "object"
+    },
+    "ChecklistMissedQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "default": 7,
+          "maximum": 90,
+          "minimum": 1,
+          "title": "Days",
+          "type": "integer"
+        }
+      },
+      "title": "ChecklistMissedQuery",
+      "type": "object"
+    },
+    "ChecklistSchedule": {
+      "enum": [
+        "weekly",
+        "on_demand"
+      ],
+      "title": "ChecklistSchedule",
+      "type": "string"
+    },
+    "ChecklistStatus": {
+      "enum": [
+        "open",
+        "in_progress",
+        "complete",
+        "missed"
+      ],
+      "title": "ChecklistStatus",
+      "type": "string"
+    },
+    "ChecklistTemplateIn": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "default": true,
+          "title": "Active",
+          "type": "boolean"
+        },
+        "departmentId": {
+          "title": "Departmentid",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/TemplateItemIn"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "schedule": {
+          "$ref": "#/$defs/ChecklistSchedule"
+        },
+        "shift": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Shift"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "weekdays": {
+          "anyOf": [
+            {
+              "maximum": 127,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weekdays"
+        }
+      },
+      "required": [
+        "name",
+        "departmentId",
+        "schedule",
+        "items"
+      ],
+      "title": "ChecklistTemplateIn",
+      "type": "object"
+    },
+    "ChecklistTemplateOut": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "departmentId": {
+          "title": "Departmentid",
+          "type": "string"
+        },
+        "departmentName": {
+          "title": "Departmentname",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/TemplateItemOut"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "schedule": {
+          "$ref": "#/$defs/ChecklistSchedule"
+        },
+        "shift": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Shift"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "weekdays": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weekdays"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "departmentId",
+        "departmentName",
+        "schedule",
+        "active",
+        "items"
+      ],
+      "title": "ChecklistTemplateOut",
+      "type": "object"
+    },
+    "ChecklistTemplatePatch": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "departmentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departmentid"
+        },
+        "items": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TemplateItemIn"
+              },
+              "maxItems": 100,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Items"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "schedule": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChecklistSchedule"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shift": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Shift"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "weekdays": {
+          "anyOf": [
+            {
+              "maximum": 127,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weekdays"
+        }
+      },
+      "title": "ChecklistTemplatePatch",
+      "type": "object"
+    },
     "ComplianceCycleOut": {
       "additionalProperties": false,
       "properties": {
