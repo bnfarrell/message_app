@@ -10,6 +10,7 @@ import { AdminTable, type Column } from './AdminTable'
 import { CategoryListEditor, type CategoryDraft } from './CategoryListEditor'
 import { EditPanel } from './EditPanel'
 import { FieldError, ItemListEditor, itemDraftFrom, orderByCategory, toItemIn, type ItemDraft } from './ItemListEditor'
+import { LibraryImportDialog } from './LibraryImportDialog'
 
 type Draft = {
   id?: string
@@ -59,6 +60,7 @@ export function ChecklistTemplatesAdmin() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [selected, setSelected] = useState<ChecklistTemplateOut | null>(null)
   const [kindFilter, setKindFilter] = useState<ChecklistKind | null>(null)
+  const [importing, setImporting] = useState(false)
 
   const all = data ?? []
   const rows = kindFilter ? all.filter((r) => r.kind === kindFilter) : all
@@ -161,9 +163,11 @@ export function ChecklistTemplatesAdmin() {
               </button>
             ))}
           </div>
+          <Button className="ml-auto" onClick={() => setImporting(true)}>
+            Import from library
+          </Button>
           <Button
             variant="primary"
-            className="ml-auto"
             onClick={() => {
               clearFailures()
               setSelected(null)
@@ -187,6 +191,15 @@ export function ChecklistTemplatesAdmin() {
           )}
         </div>
       </div>
+
+      <LibraryImportDialog
+        open={importing}
+        onClose={() => setImporting(false)}
+        onImported={(template) => {
+          setImporting(false)
+          open(template)
+        }}
+      />
 
       {draft ? (
         <EditPanel
