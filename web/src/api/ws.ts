@@ -116,6 +116,18 @@ export function invalidationsFor(event: ServerEvent, propertyId: string): readon
       }
       break
     }
+    case 'checklist.instances.changed': {
+      keys.push([...qk.ckInstancesAll(propertyId)])
+      keys.push([...qk.ckMissedAll(propertyId)])
+      const ids = event.payload['ids']
+      if (Array.isArray(ids)) {
+        for (const value of ids) {
+          const instanceId = str(value)
+          if (instanceId) keys.push([...qk.ckInstance(propertyId, instanceId)])
+        }
+      }
+      break
+    }
     default:
       break
   }

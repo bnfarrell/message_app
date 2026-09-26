@@ -266,6 +266,11 @@ describe('invalidationsFor', () => {
       ['hk', 'prop-a', 'room', 'r-2'],
     ])
   })
+
+  it('refreshes the checklist list, the missed view and each instance for checklist.instances.changed', () => {
+    expect(invalidationsFor({ ...base, type: 'checklist.instances.changed', payload: { ids: ['i-1'] } }, 'prop-a'))
+      .toEqual([['ck', 'prop-a', 'instances'], ['ck', 'prop-a', 'missed'], ['ck', 'prop-a', 'instance', 'i-1']])
+  })
 })
 
 describe('RealtimeProvider', () => {

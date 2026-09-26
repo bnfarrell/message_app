@@ -62,6 +62,14 @@ export const qk = {
   pmCompliance: (propertyId: string, from: string, to: string) =>
     ['pm', propertyId, 'compliance', from, to] as const,
 
+  ckAll: (propertyId: string) => ['ck', propertyId] as const,
+  ckTemplates: (propertyId: string) => ['ck', propertyId, 'templates'] as const,
+  ckInstances: (propertyId: string, params: Record<string, string | null>) =>
+    ['ck', propertyId, 'instances', params] as const,
+  ckInstancesAll: (propertyId: string) => ['ck', propertyId, 'instances'] as const,
+  ckInstance: (propertyId: string, id: string) => ['ck', propertyId, 'instance', id] as const,
+  ckMissedAll: (propertyId: string) => ['ck', propertyId, 'missed'] as const,
+
   hkAll: (propertyId: string) => ['hk', propertyId] as const,
   hkBoardAll: (propertyId: string) => ['hk', propertyId, 'board'] as const,
   hkMyRoomsAll: (propertyId: string) => ['hk', propertyId, 'my-rooms'] as const,
