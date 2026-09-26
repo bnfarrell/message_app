@@ -172,7 +172,7 @@ export function LogComposer({ onPosted }: { onPosted?: (entry: LogEntryOut) => v
         </p>
       ) : null}
 
-      {available.length > 0 ? (
+      {available.length > 0 || templateVanished ? (
         <div>
           <label className={FIELD} htmlFor="log-template">Use a template</label>
           <select
@@ -182,6 +182,10 @@ export function LogComposer({ onPosted }: { onPosted?: (entry: LogEntryOut) => v
             onChange={(event) => chooseTemplate(event.target.value)}
           >
             <option value="">No template</option>
+            {/* Keeps the controlled value matched to a real option: without this, a vanished
+                id matches nothing, so the browser shows "No template" as selected even though
+                templateId (and so templateVanished) still points at the old one. */}
+            {templateVanished ? <option value={templateId} disabled>(no longer available)</option> : null}
             {available.map((t) => (
               <option key={t.id} value={t.id}>{t.name}</option>
             ))}

@@ -228,6 +228,17 @@ const NIGHT_AUDIT: LogTemplateOut = {
   ],
 }
 
+const GENERAL: LogTemplateOut = {
+  id: 't-general',
+  name: 'General',
+  shift: null,
+  active: true,
+  position: 1,
+  usedCount: 0,
+  audience: [],
+  fields: [],
+}
+
 function serveTemplates(templates: LogTemplateOut[], post?: { status: number; body: unknown }) {
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -381,5 +392,94 @@ describe('LogComposer with templates', () => {
     // would otherwise be posted under silently, as a plain post.
     await userEvent.type(screen.getByPlaceholderText('Add to the log…'), 'Quiet night anyway')
     expect(screen.getByRole('button', { name: 'Post' })).toBeDisabled()
+  })
+
+  it('keeps the picker with a disabled placeholder when the only template vanishes, and lets a free-form post through once "No template" is chosen', async () => {
+    // Scoped re-review, round 2: the picker used to disappear entirely once `available` went
+    // empty (`available.length > 0` gated it), stranding Post disabled with no way out of the
+    // vanished selection until remount.
+    let vanished = false
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const reply = (body: unknown, status = 200) =>
+        Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
+      if (init?.method === 'POST') {
+        if (!vanished) {
+          vanished = true
+          return reply(
+            { error: { code: 'VALIDATION_FAILED', message: 'That template is no longer in use',
+                      details: { templateId: 'inactive' } } },
+            400,
+          )
+        }
+        return reply(CREATED, 201)
+      }
+      if (url.includes('/log-entries/templates')) return reply(vanished ? [] : [NIGHT_AUDIT])
+      if (url.includes('mentionables')) return reply(MENTIONABLES)
+      if (url.includes('/departments')) return reply(DEPARTMENTS)
+      return reply([])
+    })
+    const onPosted = mount()
+    await userEvent.selectOptions(await screen.findByLabelText('Use a template'), 't-night')
+    await userEvent.type(screen.getByLabelText(/^Arrivals actual/), '38')
+    await userEvent.type(screen.getByLabelText(/^Occupancy/), '87')
+    await userEvent.click(screen.getByRole('button', { name: 'Post' }))
+
+    await screen.findByText('This template is no longer available — pick another or post without one')
+    const picker = await waitFor(() => {
+      const el = screen.getByLabelText('Use a template')
+      expect(within(el).getByText('(no longer available)')).toBeInTheDocument()
+      return el
+    })
+    expect(picker).toHaveValue('t-night') // the vanished id, still the shown selection
+
+    await userEvent.selectOptions(picker, '')
+    expect(
+      screen.queryByText('This template is no longer available — pick another or post without one'),
+    ).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByPlaceholderText('Add to the log…'), 'Quiet night anyway')
+    await userEvent.click(screen.getByRole('button', { name: 'Post' }))
+
+    await waitFor(() => expect(onPosted).toHaveBeenCalledWith(CREATED))
+    const [, init] = postCalls()[1]!
+    const sent = JSON.parse(String(init!.body))
+    expect(sent.templateId).toBeUndefined()
+    expect(sent.body).toBe('Quiet night anyway')
+  })
+
+  it('clears the vanished-template alert when another still-usable template is chosen instead', async () => {
+    let vanished = false
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const reply = (body: unknown, status = 200) =>
+        Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
+      if (init?.method === 'POST') {
+        vanished = true
+        return reply(
+          { error: { code: 'VALIDATION_FAILED', message: 'That template is no longer in use',
+                    details: { templateId: 'inactive' } } },
+          400,
+        )
+      }
+      if (url.includes('/log-entries/templates')) {
+        return reply(vanished ? [GENERAL] : [NIGHT_AUDIT, GENERAL])
+      }
+      if (url.includes('mentionables')) return reply(MENTIONABLES)
+      if (url.includes('/departments')) return reply(DEPARTMENTS)
+      return reply([])
+    })
+    mount()
+    await userEvent.selectOptions(await screen.findByLabelText('Use a template'), 't-night')
+    await userEvent.type(screen.getByLabelText(/^Arrivals actual/), '38')
+    await userEvent.type(screen.getByLabelText(/^Occupancy/), '87')
+    await userEvent.click(screen.getByRole('button', { name: 'Post' }))
+
+    await screen.findByText('This template is no longer available — pick another or post without one')
+
+    await userEvent.selectOptions(await screen.findByLabelText('Use a template'), 't-general')
+    expect(
+      screen.queryByText('This template is no longer available — pick another or post without one'),
+    ).not.toBeInTheDocument()
   })
 })

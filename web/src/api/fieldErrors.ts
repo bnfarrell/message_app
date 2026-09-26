@@ -12,12 +12,13 @@ type PydanticError = { loc?: unknown[]; msg?: string }
  * does not. Mapping here rather than in each screen means every current and future form gets the
  * same wording for the same failure, and a new form gets it for free.
  *
- * These are every code `server/app/` raises today — `app/domain/_patch.py` (`required`),
- * `app/domain/guests.py` (`invalid_phone_number`), `app/domain/properties.py`
- * (`invalid_timezone`), and `app/api/work_orders.py`'s photo upload (`file_too_large`,
- * `unsupported_image_type`). An unlisted code falls through **verbatim** rather than being
- * swallowed or replaced by a generic apology: a code on screen is ugly but actionable, and it
- * names the gap.
+ * Kept in step with every code `server/app/` actually raises, not just the ones this comment
+ * happened to name first — `app/domain/_patch.py` (`required`), `app/domain/guests.py`
+ * (`invalid_phone_number`), `app/domain/properties.py` (`invalid_timezone`),
+ * `app/api/work_orders.py`'s photo upload (`file_too_large`, `unsupported_image_type`), and
+ * log templates' `app/domain/log_templates.py` / `app/domain/log.py` (the rest of the map
+ * below). An unlisted code falls through **verbatim** rather than being swallowed or replaced
+ * by a generic apology: a code on screen is ugly but actionable, and it names the gap.
  */
 const REASON_COPY: Record<string, string> = {
   required: 'This field is required.',
