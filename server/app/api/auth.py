@@ -9,7 +9,7 @@ from app.auth.passwords import verify_password
 from app.auth.sessions import COOKIE_NAME, SESSION_HOURS, create_session, revoke_session
 from app.domain import audit
 from app.errors import Unauthorized
-from app.models import Property, PropertyMembership, UserAccount
+from app.models import Department, Property, PropertyMembership, UserAccount
 from app.ratelimit import login_limiter, rate_limited
 from app.schemas.auth import LoginRequest, MembershipOut, PrefsPatch, SessionOut, UserOut
 from app.schemas.enums import UserStatus
@@ -19,8 +19,9 @@ bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 def _session_out(db, user: UserAccount) -> SessionOut:
     rows = db.execute(
-        select(PropertyMembership, Property)
+        select(PropertyMembership, Property, Department.type)
         .join(Property, Property.id == PropertyMembership.property_id)
+        .outerjoin(Department, Department.id == PropertyMembership.department_id)
         .where(PropertyMembership.user_id == user.id)
         .order_by(Property.name)
     ).all()
@@ -28,8 +29,8 @@ def _session_out(db, user: UserAccount) -> SessionOut:
         user=UserOut.model_validate(user),
         memberships=[
             MembershipOut(property_id=p.id, property_name=p.name, property_code=p.code,
-                          role=m.role, department_id=m.department_id)
-            for m, p in rows
+                          role=m.role, department_id=m.department_id, department_type=dept_type)
+            for m, p, dept_type in rows
         ],
     )
 

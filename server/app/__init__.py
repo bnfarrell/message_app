@@ -52,6 +52,7 @@ def create_app(config: Config | None = None) -> Flask:
         guests,
         health,
         hooks,
+        housekeeping,
         log,
         maintainable_units,
         notifications,
@@ -84,6 +85,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(log.bp)
     app.register_blueprint(maintainable_units.bp)
     app.register_blueprint(pm.bp)
+    app.register_blueprint(housekeeping.bp)
 
     @app.after_request
     def _cors(resp):

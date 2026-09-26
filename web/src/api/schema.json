@@ -2093,6 +2093,704 @@
       "title": "GuestThreadMessage",
       "type": "object"
     },
+    "HkAssignRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "housekeeperUserId": {
+          "title": "Housekeeperuserid",
+          "type": "string"
+        },
+        "roomIds": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 500,
+          "minItems": 1,
+          "title": "Roomids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "roomIds",
+        "housekeeperUserId"
+      ],
+      "title": "HkAssignRequest",
+      "type": "object"
+    },
+    "HkAssignmentOut": {
+      "additionalProperties": false,
+      "properties": {
+        "completedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completedat"
+        },
+        "failCount": {
+          "title": "Failcount",
+          "type": "integer"
+        },
+        "housekeeperName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Housekeepername"
+        },
+        "housekeeperUserId": {
+          "title": "Housekeeperuserid",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "inspectedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inspectedat"
+        },
+        "inspectedByName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inspectedbyname"
+        },
+        "inspectionNote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inspectionnote"
+        },
+        "roomId": {
+          "title": "Roomid",
+          "type": "string"
+        },
+        "sequence": {
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "shiftDate": {
+          "format": "date",
+          "title": "Shiftdate",
+          "type": "string"
+        },
+        "startedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Startedat"
+        },
+        "status": {
+          "$ref": "#/$defs/HkAssignmentStatus"
+        },
+        "type": {
+          "$ref": "#/$defs/HkServiceType"
+        }
+      },
+      "required": [
+        "id",
+        "roomId",
+        "housekeeperUserId",
+        "shiftDate",
+        "sequence",
+        "type",
+        "status",
+        "failCount"
+      ],
+      "title": "HkAssignmentOut",
+      "type": "object"
+    },
+    "HkAssignmentStatus": {
+      "enum": [
+        "assigned",
+        "in_progress",
+        "done",
+        "passed"
+      ],
+      "title": "HkAssignmentStatus",
+      "type": "string"
+    },
+    "HkBoardOut": {
+      "additionalProperties": false,
+      "properties": {
+        "housekeepers": {
+          "items": {
+            "$ref": "#/$defs/HkHousekeeperOut"
+          },
+          "title": "Housekeepers",
+          "type": "array"
+        },
+        "rooms": {
+          "items": {
+            "$ref": "#/$defs/HkRoomOut"
+          },
+          "title": "Rooms",
+          "type": "array"
+        },
+        "summary": {
+          "$ref": "#/$defs/HkSummaryOut"
+        }
+      },
+      "required": [
+        "rooms",
+        "summary",
+        "housekeepers"
+      ],
+      "title": "HkBoardOut",
+      "type": "object"
+    },
+    "HkEventOut": {
+      "additionalProperties": false,
+      "properties": {
+        "comment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "fromValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fromvalue"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "toValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tovalue"
+        },
+        "type": {
+          "$ref": "#/$defs/RoomEventType"
+        },
+        "userName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Username"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "createdAt"
+      ],
+      "title": "HkEventOut",
+      "type": "object"
+    },
+    "HkHousekeeperOut": {
+      "additionalProperties": false,
+      "properties": {
+        "assigned": {
+          "title": "Assigned",
+          "type": "integer"
+        },
+        "done": {
+          "title": "Done",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "userId": {
+          "title": "Userid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "assigned",
+        "done"
+      ],
+      "title": "HkHousekeeperOut",
+      "type": "object"
+    },
+    "HkInspectRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "result": {
+          "enum": [
+            "pass",
+            "fail"
+          ],
+          "title": "Result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "HkInspectRequest",
+      "type": "object"
+    },
+    "HkInspectionRowOut": {
+      "additionalProperties": false,
+      "properties": {
+        "photos": {
+          "items": {
+            "$ref": "#/$defs/HkPhotoOut"
+          },
+          "title": "Photos",
+          "type": "array"
+        },
+        "room": {
+          "$ref": "#/$defs/HkRoomOut"
+        }
+      },
+      "required": [
+        "room",
+        "photos"
+      ],
+      "title": "HkInspectionRowOut",
+      "type": "object"
+    },
+    "HkMarkDirtyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "title": "HkMarkDirtyRequest",
+      "type": "object"
+    },
+    "HkOccupancy": {
+      "description": "Derived per request from `stay`, never stored (spec \u00a72.1).",
+      "enum": [
+        "vacant",
+        "arrival",
+        "stayover",
+        "departure"
+      ],
+      "title": "HkOccupancy",
+      "type": "string"
+    },
+    "HkPhotoOut": {
+      "additionalProperties": false,
+      "properties": {
+        "byteSize": {
+          "title": "Bytesize",
+          "type": "integer"
+        },
+        "contentType": {
+          "title": "Contenttype",
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "title": "Createdat",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "contentType",
+        "byteSize",
+        "url",
+        "createdAt"
+      ],
+      "title": "HkPhotoOut",
+      "type": "object"
+    },
+    "HkReorderRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "assignmentIds": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 500,
+          "minItems": 1,
+          "title": "Assignmentids",
+          "type": "array"
+        },
+        "housekeeperUserId": {
+          "title": "Housekeeperuserid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "housekeeperUserId",
+        "assignmentIds"
+      ],
+      "title": "HkReorderRequest",
+      "type": "object"
+    },
+    "HkRoomDetailOut": {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "items": {
+            "$ref": "#/$defs/HkEventOut"
+          },
+          "title": "Events",
+          "type": "array"
+        },
+        "photos": {
+          "items": {
+            "$ref": "#/$defs/HkPhotoOut"
+          },
+          "title": "Photos",
+          "type": "array"
+        },
+        "room": {
+          "$ref": "#/$defs/HkRoomOut"
+        }
+      },
+      "required": [
+        "room",
+        "events",
+        "photos"
+      ],
+      "title": "HkRoomDetailOut",
+      "type": "object"
+    },
+    "HkRoomOut": {
+      "additionalProperties": false,
+      "properties": {
+        "assignment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HkAssignmentOut"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "departureDate": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Departuredate"
+        },
+        "floor": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor"
+        },
+        "guestName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guestname"
+        },
+        "hkStatus": {
+          "$ref": "#/$defs/HkStatus"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lastCleanedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastcleanedat"
+        },
+        "lastInspectedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastinspectedat"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "occupancy": {
+          "$ref": "#/$defs/HkOccupancy"
+        },
+        "roomType": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roomtype"
+        },
+        "rush": {
+          "title": "Rush",
+          "type": "boolean"
+        },
+        "serviceType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HkServiceType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "statusChangedAt": {
+          "format": "date-time",
+          "title": "Statuschangedat",
+          "type": "string"
+        },
+        "unitId": {
+          "title": "Unitid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "unitId",
+        "code",
+        "hkStatus",
+        "rush",
+        "occupancy",
+        "statusChangedAt"
+      ],
+      "title": "HkRoomOut",
+      "type": "object"
+    },
+    "HkServiceType": {
+      "enum": [
+        "departure",
+        "stayover",
+        "touch_up"
+      ],
+      "title": "HkServiceType",
+      "type": "string"
+    },
+    "HkStatus": {
+      "description": "`clean` = the housekeeper finished and it awaits inspection; `inspected` = a supervisor\npassed it (spec \u00a72.1).",
+      "enum": [
+        "clean",
+        "dirty",
+        "in_progress",
+        "inspected",
+        "out_of_order",
+        "out_of_service"
+      ],
+      "title": "HkStatus",
+      "type": "string"
+    },
+    "HkStatusRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "status": {
+          "enum": [
+            "out_of_order",
+            "out_of_service",
+            "dirty"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "HkStatusRequest",
+      "type": "object"
+    },
+    "HkSummaryOut": {
+      "additionalProperties": false,
+      "properties": {
+        "awaitingInspection": {
+          "title": "Awaitinginspection",
+          "type": "integer"
+        },
+        "dirty": {
+          "title": "Dirty",
+          "type": "integer"
+        },
+        "inProgress": {
+          "title": "Inprogress",
+          "type": "integer"
+        },
+        "inspected": {
+          "title": "Inspected",
+          "type": "integer"
+        },
+        "outOfOrder": {
+          "title": "Outoforder",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dirty",
+        "inProgress",
+        "awaitingInspection",
+        "inspected",
+        "outOfOrder"
+      ],
+      "title": "HkSummaryOut",
+      "type": "object"
+    },
     "HourBucket": {
       "additionalProperties": false,
       "properties": {
@@ -2755,6 +3453,17 @@
           ],
           "default": null,
           "title": "Departmentid"
+        },
+        "departmentType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DepartmentType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "propertyCode": {
           "title": "Propertycode",
@@ -3902,6 +4611,23 @@
         "corporate"
       ],
       "title": "Role",
+      "type": "string"
+    },
+    "RoomEventType": {
+      "enum": [
+        "status_changed",
+        "assigned",
+        "reassigned",
+        "unassigned",
+        "started",
+        "completed",
+        "inspection_passed",
+        "inspection_failed",
+        "marked_dirty",
+        "rush_set",
+        "rush_cleared"
+      ],
+      "title": "RoomEventType",
       "type": "string"
     },
     "RunAnswerOut": {

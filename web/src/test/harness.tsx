@@ -3,13 +3,14 @@ import { type RenderResult, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { qk } from '../api/queryKeys'
-import type { MembershipOut, Role, SessionOut } from '../api/types'
+import type { DepartmentType, MembershipOut, Role, SessionOut } from '../api/types'
 
 export function sessionFixture(opts: {
   role?: Role
   withSecondProperty?: boolean
   secondRole?: Role
   departmentId?: string | null
+  departmentType?: DepartmentType | null
   prefs?: Record<string, unknown>
 } = {}): SessionOut {
   const memberships: MembershipOut[] = [
@@ -19,6 +20,7 @@ export function sessionFixture(opts: {
       propertyCode: 'HVH',
       role: opts.role ?? 'agent',
       departmentId: opts.departmentId ?? null,
+      departmentType: opts.departmentType ?? null,
     },
   ]
   if (opts.withSecondProperty) {
@@ -28,6 +30,7 @@ export function sessionFixture(opts: {
       propertyCode: 'LSI',
       role: opts.secondRole ?? opts.role ?? 'agent',
       departmentId: null,
+      departmentType: null,
     })
   }
   return {

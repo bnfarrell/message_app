@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import EmailStr, Field
 
 from app.schemas.common import CamelModel
-from app.schemas.enums import Role
+from app.schemas.enums import DepartmentType, Role
 
 
 class LoginRequest(CamelModel):
@@ -33,6 +33,9 @@ class MembershipOut(CamelModel):
     property_code: str
     role: Role
     department_id: str | None = None
+    # Lets the client land a housekeeping dept_staff on My Rooms (spec §4.3) — role alone cannot
+    # tell a housekeeper from an engineer.
+    department_type: DepartmentType | None = None
 
 
 class SessionOut(CamelModel):
