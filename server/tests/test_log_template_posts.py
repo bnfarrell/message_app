@@ -114,6 +114,20 @@ def test_a_number_too_big_for_the_column_is_a_400_not_a_postgres_overflow(databa
         assert "ADR: 99999999.99" in ok.body
 
 
+def test_a_value_that_only_overflows_after_rounding_is_still_refused(database, fx):
+    """Fix round 1, review focus 1: 99999999.996 rounds to 100000000.0, which overflows
+    Numeric(10, 2) on PostgreSQL. The limit must be checked against the rounded value, not
+    the raw one, on both sides of zero."""
+    with database.session() as db:
+        t = make_template(db, fx)
+        ids = field_ids(db, t)
+        for raw in ("99999999.996", "-99999999.996"):
+            assert _failure(db, fx, t, {"Arrivals actual": 1, "Occupancy": 5, "ADR": raw}) == {
+                ids["ADR"]: "out_of_range"}
+        ok = _post(db, fx, t, {"Arrivals actual": 1, "Occupancy": 5, "ADR": "99999999.99"})
+        assert "ADR: 99999999.99" in ok.body
+
+
 def test_a_decimal_is_rounded_to_what_the_column_keeps(database, fx):
     with database.session() as db:
         t = make_template(db, fx)

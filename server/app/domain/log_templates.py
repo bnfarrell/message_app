@@ -261,9 +261,10 @@ def _coerce(field_type: LogFieldType, raw: object) -> tuple[str | None, float | 
         return None, None, "not_whole"
     if field_type == LogFieldType.percent and not 0 <= number <= 100:
         return None, None, "out_of_range"
-    if abs(number) >= NUMBER_LIMIT:
+    number = round(number, 2)  # round before the limit check: a value that only overflows
+    if abs(number) >= NUMBER_LIMIT:  # after rounding (e.g. 99999999.996) must still be refused
         return None, None, "out_of_range"
-    return None, round(number, 2), None
+    return None, number, None
 
 
 def check_values(db: Session, template: LogTemplate,
