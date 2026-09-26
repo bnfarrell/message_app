@@ -222,6 +222,21 @@ def names_for(db: Session, user_ids: list[str | None]) -> dict[str, str]:
     return {uid: f"{first} {last}" for uid, first, last in rows}
 
 
+def dirty_for_departure(db: Session, room: Room, comment: str) -> None:
+    """A checkout that dirties a room whose open assignment for today is already `done` (a
+    stayover cleaned today, then the guest checked out before inspection) reopens that
+    assignment to `assigned` — otherwise the room goes dirty but can't be reassigned or
+    started (controller ruling). Does not emit; callers emit."""
+    room.service_type = HkServiceType.departure
+    assignment = open_assignment(db, room, today(db, room.property_id))
+    if assignment is not None and assignment.status == HkAssignmentStatus.done:
+        assignment.status = HkAssignmentStatus.assigned
+        assignment.started_at = None
+        assignment.completed_at = None
+        assignment.type = HkServiceType.departure
+    set_status(db, room, HkStatus.dirty, None, comment=comment)
+
+
 def dirty_on_checkout(db: Session, property_id: str, room_number: str | None) -> None:
     """PMS `stay.checked_out` (spec §3.2): the room appears dirty at checkout, not at the next
     tick. A room number with no unit is ignored — the stay itself is still processed."""
@@ -234,6 +249,5 @@ def dirty_on_checkout(db: Session, property_id: str, room_number: str | None) ->
                MaintainableUnit.active.is_(True)))
     if room is None or room.hk_status not in (HkStatus.clean, HkStatus.inspected):
         return
-    room.service_type = HkServiceType.departure
-    set_status(db, room, HkStatus.dirty, None, comment="Guest checked out")
+    dirty_for_departure(db, room, "Guest checked out")
     emit(db, property_id, [room.id])

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 Handler = Callable[[Session, dict], None]
 HANDLERS: dict[str, Handler] = {}
 
-MODULES = ("outbound", "mock_delivery", "sla", "snooze", "pms", "pm")
+MODULES = ("outbound", "mock_delivery", "sla", "snooze", "pms", "pm", "housekeeping")
 
 
 def handler(job_type: str):

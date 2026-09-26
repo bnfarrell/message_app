@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.domain import audit, guests
+from app.domain import audit, guests, hk_rooms
 from app.models import PmsEvent as PmsEventRow
 from app.models import Stay
 from app.pms.base import PmsEvent
@@ -89,6 +89,10 @@ def handle_event(db: Session, event: PmsEvent, integration_key: str = "mock") ->
     if stay.status == StayStatus.checked_out and stay.actual_checkout_at is None:
         stay.actual_checkout_at = now
     db.flush()
+    if event.type == "stay.checked_out":
+        # Spec §3.2: a 9am checkout appears on the housekeeping board at 9am, not at the next
+        # tick. check-in and room change do not touch status — occupancy is derived.
+        hk_rooms.dirty_on_checkout(db, event.property_id, stay.room_number)
     row.processed_at = now
     audit.record(db, event.property_id, None, f"pms.{event.type}", "stay", stay.id,
                  after={"external_id": event.external_id, "room": stay.room_number})
