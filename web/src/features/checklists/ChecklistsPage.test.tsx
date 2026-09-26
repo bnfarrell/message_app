@@ -12,7 +12,7 @@ function row(over: Partial<ChecklistInstanceRowOut>): ChecklistInstanceRowOut {
   return {
     id: 'i-am', templateId: 't-am', templateName: 'Engineering AM Rounds',
     departmentId: 'dept-eng', departmentName: 'Engineering', dueDate: '2026-09-10', shift: 'am',
-    onDemand: false, status: 'open', assignedUserId: null, assignedName: null,
+    onDemand: false, status: 'open', kind: 'normal', assignedUserId: null, assignedName: null,
     completedByName: null, done: 0, total: 3, outOfRangeCount: 0, ...over,
   }
 }

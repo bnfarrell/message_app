@@ -18,13 +18,15 @@ from app.models import (
     Property,
 )
 from app.schemas.checklists import (
+    ChecklistCategoryProgressOut,
     ChecklistInstanceOut,
     ChecklistInstanceQuery,
     ChecklistInstanceRowOut,
+    ChecklistItemOut,
     ChecklistMissedQuery,
 )
 from app.schemas.enums import ChecklistStatus, Shift
-from app.schemas.pm import RunAnswerOut, RunPhotoOut, TemplateItemOut
+from app.schemas.pm import RunAnswerOut, RunPhotoOut
 
 SHIFT_ORDER = {Shift.am: 0, Shift.pm: 1, Shift.overnight: 2}
 
@@ -53,7 +55,7 @@ def _row_fields(db: Session, inst, template, dept, names) -> dict:
     return dict(
         id=inst.id, template_id=template.id, template_name=template.name,
         department_id=dept.id, department_name=dept.name, due_date=inst.due_date,
-        shift=inst.shift, on_demand=inst.slot is None, status=inst.status,
+        shift=inst.shift, on_demand=inst.slot is None, status=inst.status, kind=template.kind,
         assigned_user_id=inst.assigned_user_id,
         assigned_name=names.get(inst.assigned_user_id or ""),
         completed_by_name=names.get(inst.completed_by_user_id or ""),
@@ -97,6 +99,25 @@ def missed(db: Session, property_id: str,
     return _rows(db, triples)
 
 
+def _category_progress(db: Session, template: ChecklistTemplate, items, rows,
+                       photographed: set[str]) -> list[ChecklistCategoryProgressOut]:
+    """One heading per active category that holds any of this checklist's items, in category
+    order (checklist structure spec §2.2). Ungrouped items belong to no heading. An unstarted
+    checklist has no answers yet, so everything counts as not done."""
+    answer_for = {item.id: answer for answer, item in rows}
+    out = []
+    for category in ck_templates.active_categories(db, template.id):
+        members = [i for i in items if i.category_id == category.id]
+        if not members:
+            continue
+        done = sum(1 for i in members if i.id in answer_for
+                   and typed_items.is_answered(i, answer_for[i.id], photographed))
+        out.append(ChecklistCategoryProgressOut(id=category.id, name=category.name,
+                                                position=category.position, done=done,
+                                                total=len(members)))
+    return out
+
+
 def detail(db: Session, property_id: str, instance_id: str) -> ChecklistInstanceOut:
     inst = ck_instances.get(db, property_id, instance_id)
     template = db.get(ChecklistTemplate, inst.template_id)
@@ -106,11 +127,13 @@ def detail(db: Session, property_id: str, instance_id: str) -> ChecklistInstance
     rows = _answered_rows(db, inst)
     items = [item for _, item in rows] or ck_templates.active_items(db, template.id)
     photos = ck_photos.photos_for(db, inst.id)
+    photographed = {p.item_id for p in photos if p.item_id}
     return ChecklistInstanceOut(
         **_row_fields(db, inst, template, dept, names),
         started_by_name=names.get(inst.started_by_user_id or ""), started_at=inst.started_at,
         completed_at=inst.completed_at, comment=inst.comment,
-        items=[TemplateItemOut.model_validate(i, from_attributes=True) for i in items],
+        categories=_category_progress(db, template, items, rows, photographed),
+        items=[ChecklistItemOut.model_validate(i, from_attributes=True) for i in items],
         answers=[RunAnswerOut.model_validate(a, from_attributes=True) for a, _ in rows],
         photos=[RunPhotoOut(id=p.id, item_id=p.item_id, content_type=p.content_type,
                             byte_size=p.byte_size, uploaded_by_user_id=p.uploaded_by_user_id,

@@ -76,6 +76,13 @@ class ChecklistTemplateOut(CamelModel):
     items: list[ChecklistItemOut]
 
 
+class ChecklistCategoryProgressOut(ChecklistCategoryOut):
+    """A category heading on the checklist page: `done / total` over its items."""
+
+    done: int
+    total: int
+
+
 class ChecklistInstanceRowOut(CamelModel):
     id: str
     template_id: str
@@ -86,6 +93,7 @@ class ChecklistInstanceRowOut(CamelModel):
     shift: Shift
     on_demand: bool
     status: ChecklistStatus
+    kind: ChecklistKind
     assigned_user_id: str | None = None
     assigned_name: str | None = None
     completed_by_name: str | None = None
@@ -99,7 +107,8 @@ class ChecklistInstanceOut(ChecklistInstanceRowOut):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     comment: str | None = None
-    items: list[TemplateItemOut]
+    categories: list[ChecklistCategoryProgressOut]
+    items: list[ChecklistItemOut]
     answers: list[RunAnswerOut]
     photos: list[RunPhotoOut]
     missing_required: list[str]

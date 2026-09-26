@@ -86,10 +86,15 @@ export type Name7 = string;
 export type Id3 = string;
 export type Name8 = string;
 export type Position = number;
+export type Done = number;
+export type Id4 = string;
+export type Name9 = string;
+export type Position1 = number;
+export type Total = number;
 export type Comment = string | null;
 export type Answeredat = string | null;
 export type Boolvalue1 = boolean | null;
-export type Id4 = string;
+export type Id5 = string;
 export type Itemid = string;
 export type Numbervalue1 = number | null;
 export type Outofrange = boolean;
@@ -97,16 +102,18 @@ export type Textvalue1 = string | null;
 export type Answers = RunAnswerOut[];
 export type Assignedname = string | null;
 export type Assigneduserid = string | null;
+export type Categories = ChecklistCategoryProgressOut[];
 export type Comment1 = string | null;
 export type Completedat = string | null;
 export type Completedbyname = string | null;
 export type Departmentid3 = string;
 export type Departmentname = string;
-export type Done = number;
+export type Done1 = number;
 export type Duedate = string;
-export type Id5 = string;
-export type Active6 = boolean;
 export type Id6 = string;
+export type Active6 = boolean;
+export type Categoryid = string | null;
+export type Id7 = string;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "PmItemType".
@@ -115,17 +122,24 @@ export type PmItemType = 'checkbox' | 'text' | 'number' | 'photo';
 export type Label = string;
 export type Maxvalue = number | null;
 export type Minvalue = number | null;
-export type Position1 = number;
+export type Position2 = number;
 export type Required = boolean;
 export type Unit = string | null;
-export type Items = TemplateItemOut[];
+export type Items = ChecklistItemOut[];
+/**
+ * Drives a filter and a tag only — no behaviour differs (checklist structure spec §1.2).
+ *
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "ChecklistKind".
+ */
+export type ChecklistKind = 'normal' | 'readings';
 export type Missingrequired = string[];
 export type Ondemand = boolean;
 export type Outofrangecount = number;
 export type Bytesize = number;
 export type Contenttype = string;
 export type Createdat = string;
-export type Id7 = string;
+export type Id8 = string;
 export type Itemid1 = string | null;
 export type Uploadedbyuserid = string | null;
 export type Url3 = string;
@@ -144,7 +158,7 @@ export type Startedbyname = string | null;
 export type ChecklistStatus = 'open' | 'in_progress' | 'complete' | 'missed';
 export type Templateid = string;
 export type Templatename = string;
-export type Total = number;
+export type Total1 = number;
 export type Day = string | null;
 export type Departmentid4 = string | null;
 export type Assignedname1 = string | null;
@@ -152,48 +166,32 @@ export type Assigneduserid1 = string | null;
 export type Completedbyname1 = string | null;
 export type Departmentid5 = string;
 export type Departmentname1 = string;
-export type Done1 = number;
+export type Done2 = number;
 export type Duedate1 = string;
-export type Id8 = string;
+export type Id9 = string;
 export type Ondemand1 = boolean;
 export type Outofrangecount1 = number;
 export type Templateid1 = string;
 export type Templatename1 = string;
-export type Total1 = number;
+export type Total2 = number;
 export type Categorykey = string | null;
-export type Id9 = string | null;
+export type Id10 = string | null;
 export type Label1 = string;
 export type Maxvalue1 = number | null;
 export type Minvalue1 = number | null;
 export type Required1 = boolean;
 export type Unit1 = string | null;
-export type Active7 = boolean;
-export type Categoryid = string | null;
-export type Id10 = string;
-export type Label2 = string;
-export type Maxvalue2 = number | null;
-export type Minvalue2 = number | null;
-export type Position2 = number;
-export type Required2 = boolean;
-export type Unit2 = string | null;
-/**
- * Drives a filter and a tag only — no behaviour differs (checklist structure spec §1.2).
- *
- * This interface was referenced by `RelayAPI`'s JSON-Schema
- * via the `definition` "ChecklistKind".
- */
-export type ChecklistKind = 'normal' | 'readings';
 export type Days = number;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "ChecklistSchedule".
  */
 export type ChecklistSchedule = 'weekly' | 'on_demand' | 'unscheduled';
-export type Active8 = boolean;
+export type Active7 = boolean;
 /**
  * @maxItems 30
  */
-export type Categories = ChecklistCategoryIn[];
+export type Categories1 = ChecklistCategoryIn[];
 export type Departmentid6 = string;
 /**
  * @minItems 1
@@ -204,21 +202,21 @@ export type Items1 = [ChecklistItemIn, ...ChecklistItemIn[]];
  * Drives a filter and a tag only — no behaviour differs (checklist structure spec §1.2).
  */
 export type ChecklistKind1 = 'normal' | 'readings';
-export type Name9 = string;
+export type Name10 = string;
 export type Weekdays = number | null;
-export type Active9 = boolean;
-export type Categories1 = ChecklistCategoryOut[];
+export type Active8 = boolean;
+export type Categories2 = ChecklistCategoryOut[];
 export type Departmentid7 = string;
 export type Departmentname2 = string;
 export type Id11 = string;
 export type Items2 = ChecklistItemOut[];
-export type Name10 = string;
+export type Name11 = string;
 export type Weekdays1 = number | null;
-export type Active10 = boolean | null;
-export type Categories2 = ChecklistCategoryIn[] | null;
+export type Active9 = boolean | null;
+export type Categories3 = ChecklistCategoryIn[] | null;
 export type Departmentid8 = string | null;
 export type Items3 = [ChecklistItemIn, ...ChecklistItemIn[]] | null;
-export type Name11 = string | null;
+export type Name12 = string | null;
 export type Weekdays2 = number | null;
 export type Endson = string;
 export type Missed = number;
@@ -231,7 +229,7 @@ export type Startson = string;
  * via the `definition` "PmCycleStatus".
  */
 export type PmCycleStatus = 'open' | 'closed';
-export type Total2 = number;
+export type Total3 = number;
 export type Cycles = ComplianceCycleOut[];
 export type Id12 = string;
 export type Inspectionpassrate = number | null;
@@ -240,7 +238,7 @@ export type Inspectionpassrate = number | null;
  * via the `definition` "PmTemplateMode".
  */
 export type PmTemplateMode = 'sweep' | 'scheduled';
-export type Name12 = string;
+export type Name13 = string;
 export type Due = number;
 export type Failed = number;
 export type Overdue = number;
@@ -401,7 +399,7 @@ export type Requiresack = boolean;
 export type Templateid2 = string | null;
 export type Body4 = string;
 export type Kind = 'dm' | 'group';
-export type Name13 = string | null;
+export type Name14 = string | null;
 export type Userid2 = string | null;
 export type Userids1 = string[] | null;
 export type Departmentid11 = string | null;
@@ -434,31 +432,31 @@ export type Ordinal1 = number;
 export type Passed2 = number;
 export type Startson1 = string;
 export type Templateid3 = string;
-export type Total3 = number;
+export type Total4 = number;
 export type Count = number;
 export type Day1 = string;
 export type Closed = number;
 export type Departmentid13 = string | null;
 export type Departmentname3 = string;
 export type Meantimetoresolveseconds = number | null;
-export type Active11 = boolean;
+export type Active10 = boolean;
 export type Escalationminutes = number;
-export type Name14 = string;
+export type Name15 = string;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "DepartmentType".
  */
 export type DepartmentType =
   'front_desk' | 'housekeeping' | 'engineering' | 'food_beverage' | 'spa' | 'security' | 'valet' | 'other';
-export type Active12 = boolean;
+export type Active11 = boolean;
 export type Escalationminutes1 = number;
 export type Id23 = string;
-export type Name15 = string;
-export type Active13 = boolean | null;
+export type Name16 = string;
+export type Active12 = boolean | null;
 export type Escalationminutes2 = number | null;
-export type Name16 = string | null;
-export type Avatarurl = string | null;
 export type Name17 = string | null;
+export type Avatarurl = string | null;
+export type Name18 = string | null;
 export type Conversationids = string[];
 export type Stays = StayOut[];
 export type Body5 = string;
@@ -496,8 +494,8 @@ export type HkAssignmentStatus = 'assigned' | 'in_progress' | 'done' | 'passed';
  */
 export type HkServiceType = 'departure' | 'stayover' | 'touch_up';
 export type Assigned = number;
-export type Done2 = number;
-export type Name18 = string;
+export type Done3 = number;
+export type Name19 = string;
 export type Userid3 = string;
 export type Housekeepers = HkHousekeeperOut[];
 export type Code = string;
@@ -605,7 +603,7 @@ export type Offset = number;
  */
 export type LocationType1 = 'room' | 'public_area' | 'equipment' | 'other';
 export type Acknowledgedat = string;
-export type Name19 = string;
+export type Name20 = string;
 export type Userid4 = string;
 export type Ackexpectedcount = number;
 export type Ackedbyme = boolean;
@@ -624,7 +622,7 @@ export type Fieldid1 = string;
  * via the `definition` "LogFieldType".
  */
 export type LogFieldType = 'short_text' | 'long_text' | 'integer' | 'decimal' | 'percent';
-export type Label3 = string;
+export type Label2 = string;
 export type Numbervalue2 = number | null;
 export type Textvalue2 = string | null;
 export type Fieldvalues1 = LogFieldValueOut[];
@@ -635,7 +633,7 @@ export type Displayname = string;
 export type Id30 = string;
 export type Mentions2 = LogMentionOut[];
 export type Notes2 = string | null;
-export type Name20 = string;
+export type Name21 = string;
 export type Userid5 = string;
 export type Outstanding = LogPersonOut[];
 export type Photourl = string | null;
@@ -644,7 +642,7 @@ export type Pinnedat = string | null;
 export type Pinnedbyuserid = string | null;
 export type Requiresack1 = boolean;
 export type Id31 = string;
-export type Name21 = string;
+export type Name22 = string;
 export type Entries = LogEntryOut[];
 export type Nextcursor = string | null;
 export type Pinned1 = LogEntryOut[];
@@ -657,14 +655,14 @@ export type Displayname1 = string;
 export type Id32 = string;
 export type Subtitle = string | null;
 export type Id33 = string | null;
+export type Label3 = string;
+export type Required2 = boolean;
+export type Active13 = boolean;
+export type Id34 = string;
 export type Label4 = string;
+export type Position3 = number;
 export type Required3 = boolean;
 export type Active14 = boolean;
-export type Id34 = string;
-export type Label5 = string;
-export type Position3 = number;
-export type Required4 = boolean;
-export type Active15 = boolean;
 /**
  * @maxItems 100
  */
@@ -674,18 +672,18 @@ export type Audience = MentionRef[];
  * @maxItems 50
  */
 export type Fields = [LogTemplateFieldIn, ...LogTemplateFieldIn[]];
-export type Name22 = string;
-export type Active16 = boolean;
+export type Name23 = string;
+export type Active15 = boolean;
 export type Audience1 = MentionRef[];
 export type Fields1 = LogTemplateFieldOut[];
 export type Id35 = string;
-export type Name23 = string;
+export type Name24 = string;
 export type Position4 = number;
 export type Usedcount = number;
-export type Active17 = boolean | null;
+export type Active16 = boolean | null;
 export type Audience2 = MentionRef[] | null;
 export type Fields2 = [LogTemplateFieldIn, ...LogTemplateFieldIn[]] | null;
-export type Name24 = string | null;
+export type Name25 = string | null;
 export type Email2 = string;
 export type Password1 = string;
 export type Departmentid16 = string | null;
@@ -702,7 +700,7 @@ export type Title2 = string;
 export type Type = string;
 export type Conversations = number;
 export type Count2 = number;
-export type Label6 = string;
+export type Label5 = string;
 export type Share = number;
 export type Firstresponsedistribution = ResponseBucket[];
 export type Firstresponsep50Seconds1 = number | null;
@@ -741,7 +739,7 @@ export type Currency = string;
 export type Helptext = string | null;
 export type Id37 = string;
 export type Logourl = string | null;
-export type Name25 = string;
+export type Name26 = string;
 export type Phone2 = string | null;
 export type Primarycolor = string | null;
 export type Slaminutes = number;
@@ -753,20 +751,20 @@ export type Brand1 = string | null;
 export type Currency1 = string | null;
 export type Helptext1 = string | null;
 export type Logourl1 = string | null;
-export type Name26 = string | null;
+export type Name27 = string | null;
 export type Phone3 = string | null;
 export type Primarycolor1 = string | null;
 export type Slaminutes1 = number | null;
 export type Smsnumber1 = string | null;
 export type Timezone1 = string | null;
-export type Active18 = boolean;
+export type Active17 = boolean;
 export type Body9 = string;
 export type Category3 = string | null;
 export type Departmentid17 = string | null;
 export type Locale = string;
 export type Shortcut = string;
 export type Title3 = string;
-export type Active19 = boolean;
+export type Active18 = boolean;
 export type Body10 = string;
 export type Category4 = string | null;
 export type Departmentid18 = string | null;
@@ -775,7 +773,7 @@ export type Locale1 = string;
 export type Shortcut1 = string;
 export type Title4 = string;
 export type Usagecount = number;
-export type Active20 = boolean | null;
+export type Active19 = boolean | null;
 export type Body11 = string | null;
 export type Category5 = string | null;
 export type Departmentid19 = string | null;
@@ -795,6 +793,14 @@ export type Inspectedat2 = string | null;
 export type Inspectedbyname2 = string | null;
 export type Inspectedbyuserid = string | null;
 export type Inspectionnote1 = string | null;
+export type Active20 = boolean;
+export type Id40 = string;
+export type Label6 = string;
+export type Maxvalue2 = number | null;
+export type Minvalue2 = number | null;
+export type Position5 = number;
+export type Required4 = boolean;
+export type Unit2 = string | null;
 export type Items4 = TemplateItemOut[];
 export type Missingrequired1 = string[];
 export type Photos3 = RunPhotoOut[];
@@ -815,7 +821,7 @@ export type Memberships = MembershipOut[];
 export type Avatarurl1 = string | null;
 export type Email3 = string;
 export type Firstname2 = string;
-export type Id40 = string;
+export type Id41 = string;
 export type Lastname2 = string;
 export type Locale3 = string;
 export type At = string;
@@ -823,7 +829,7 @@ export type Propertyid1 = string;
 export type Type1 = string;
 export type Guestid = string;
 export type Inhouse = boolean;
-export type Name27 = string;
+export type Name28 = string;
 export type Phone4 = string;
 export type Propertyid2 = string;
 export type Propertyname2 = string;
@@ -834,7 +840,7 @@ export type Willfail = boolean;
 export type Avatarurl2 = string | null;
 export type Createdat8 = string;
 export type Displayname2 = string;
-export type Id41 = string;
+export type Id42 = string;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "StaffConversationKind".
@@ -847,10 +853,10 @@ export type Authoruserid3 = string;
 export type Body15 = string | null;
 export type Conversationid3 = string;
 export type Createdat9 = string;
-export type Id42 = string;
+export type Id43 = string;
 export type Photourl1 = string | null;
 export type Messages2 = StaffMessageOut[];
-export type Name28 = string | null;
+export type Name29 = string | null;
 export type Otheruserid = string | null;
 export type Avatarurl3 = string | null;
 export type Departmentid20 = string | null;
@@ -863,10 +869,10 @@ export type Updatedat = string;
 export type Avatarurl4 = string | null;
 export type Createdat10 = string;
 export type Displayname3 = string;
-export type Id43 = string;
+export type Id44 = string;
 export type Lastmessageat1 = string | null;
 export type Lastmessagepreview2 = string | null;
-export type Name29 = string | null;
+export type Name30 = string | null;
 export type Otheruserid1 = string | null;
 export type Participants1 = StaffParticipantOut[];
 export type Unread1 = boolean;
@@ -882,30 +888,30 @@ export type Avatarurl6 = string | null;
 export type Departmentid23 = string | null;
 export type Email4 = string;
 export type Firstname5 = string;
-export type Id44 = string;
+export type Id45 = string;
 export type Lastname5 = string;
 export type Status2 = string;
 export type Templateid5 = string;
 export type Unitid3 = string;
 export type Completed = number;
 export type Remaining = number;
-export type Total4 = number;
+export type Total5 = number;
 export type Daysleft1 = number;
 export type Endson2 = string;
-export type Id45 = string;
+export type Id46 = string;
 export type Ordinal2 = number;
 export type Startson2 = string;
-export type Id46 = string;
-export type Name30 = string;
-export type Code2 = string;
 export type Id47 = string;
+export type Name31 = string;
+export type Code2 = string;
+export type Id48 = string;
 export type Startedbyname2 = string | null;
 export type Startedbyuserid1 = string | null;
 export type Floor1 = number | null;
-export type Id48 = string;
+export type Id49 = string;
 export type Lastpassedat = string | null;
 export type Lastpassedbyname = string | null;
-export type Name31 = string;
+export type Name32 = string;
 export type Passedthiscycle = boolean;
 export type Roomtype2 = string | null;
 export type Units = SweepUnitOut[];
@@ -914,7 +920,7 @@ export type Sort1 = 'code' | 'floor' | 'days_since_last_pm';
 export type Status3 = ('remaining' | 'completed') | null;
 export type Active21 = boolean;
 export type Departmentid24 = string | null;
-export type Id49 = string | null;
+export type Id50 = string | null;
 export type Label7 = string;
 export type Maxvalue3 = number | null;
 export type Minvalue3 = number | null;
@@ -924,7 +930,7 @@ export type Unit3 = string | null;
  * @maxItems 100
  */
 export type Items5 = TemplateItemIn[];
-export type Name32 = string;
+export type Name33 = string;
 export type Rrule = string | null;
 export type Rruledtstart = string | null;
 /**
@@ -935,17 +941,17 @@ export type Active22 = boolean;
 export type Createdat11 = string;
 export type Departmentid25 = string | null;
 export type Hasruns = boolean;
-export type Id50 = string;
+export type Id51 = string;
 export type Items6 = TemplateItemOut[];
 export type Lastfiredat = string | null;
-export type Name33 = string;
+export type Name34 = string;
 export type Rrule1 = string | null;
 export type Rruledtstart1 = string | null;
 export type Unitids1 = string[];
 export type Active23 = boolean | null;
 export type Departmentid26 = string | null;
 export type Items7 = TemplateItemIn[] | null;
-export type Name34 = string | null;
+export type Name35 = string | null;
 export type Rrule2 = string | null;
 export type Rruledtstart2 = string | null;
 export type Unitids2 = string[] | null;
@@ -958,7 +964,7 @@ export type Updated = number;
 export type Code3 = string;
 export type Externalid = string | null;
 export type Floor2 = number | null;
-export type Name35 = string;
+export type Name36 = string;
 export type Notes3 = string | null;
 export type Roomtype3 = string | null;
 export type Active24 = boolean | null;
@@ -968,15 +974,15 @@ export type Code4 = string;
 export type Createdat12 = string;
 export type Externalid1 = string | null;
 export type Floor3 = number | null;
-export type Id51 = string;
-export type Name36 = string;
+export type Id52 = string;
+export type Name37 = string;
 export type Notes4 = string | null;
 export type Roomtype4 = string | null;
 export type Active26 = boolean | null;
 export type Code5 = string | null;
 export type Externalid2 = string | null;
 export type Floor4 = number | null;
-export type Name37 = string | null;
+export type Name38 = string | null;
 export type Notes5 = string | null;
 export type Roomtype5 = string | null;
 export type Count3 = number;
@@ -990,7 +996,7 @@ export type Dueat2 = string | null;
 export type Comment3 = string | null;
 export type Createdat14 = string;
 export type Fromvalue1 = string | null;
-export type Id52 = string;
+export type Id53 = string;
 export type Tovalue1 = string | null;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1003,12 +1009,12 @@ export type Username1 = string | null;
 export type Events1 = WorkOrderEventOut[];
 export type Guestname1 = string | null;
 export type Guestnotifiedat1 = string | null;
-export type Id53 = string;
+export type Id54 = string;
 export type Locationref1 = string | null;
 export type Bytesize2 = number;
 export type Contenttype2 = string;
 export type Createdat15 = string;
-export type Id54 = string;
+export type Id55 = string;
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "WorkOrderPhotoKind".
@@ -1041,7 +1047,7 @@ export type Departmentid28 = string | null;
 export type Description5 = string | null;
 export type Dueat3 = string | null;
 export type Guestnotifiedat2 = string | null;
-export type Id55 = string;
+export type Id56 = string;
 export type Locationref2 = string | null;
 export type Reportedbyuserid1 = string | null;
 export type Sourceconversationid2 = string | null;
@@ -1207,6 +1213,19 @@ export interface ChecklistCategoryOut {
   position: Position;
 }
 /**
+ * A category heading on the checklist page: `done / total` over its items.
+ *
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "ChecklistCategoryProgressOut".
+ */
+export interface ChecklistCategoryProgressOut {
+  done: Done;
+  id: Id4;
+  name: Name9;
+  position: Position1;
+  total: Total;
+}
+/**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "ChecklistCommentPatch".
  */
@@ -1221,15 +1240,17 @@ export interface ChecklistInstanceOut {
   answers: Answers;
   assignedName?: Assignedname;
   assignedUserId?: Assigneduserid;
+  categories: Categories;
   comment?: Comment1;
   completedAt?: Completedat;
   completedByName?: Completedbyname;
   departmentId: Departmentid3;
   departmentName: Departmentname;
-  done: Done;
+  done: Done1;
   dueDate: Duedate;
-  id: Id5;
+  id: Id6;
   items: Items;
+  kind: ChecklistKind;
   missingRequired: Missingrequired;
   onDemand: Ondemand;
   outOfRangeCount: Outofrangecount;
@@ -1240,7 +1261,7 @@ export interface ChecklistInstanceOut {
   status: ChecklistStatus;
   templateId: Templateid;
   templateName: Templatename;
-  total: Total;
+  total: Total1;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1249,7 +1270,7 @@ export interface ChecklistInstanceOut {
 export interface RunAnswerOut {
   answeredAt?: Answeredat;
   boolValue?: Boolvalue1;
-  id: Id4;
+  id: Id5;
   itemId: Itemid;
   numberValue?: Numbervalue1;
   outOfRange: Outofrange;
@@ -1257,16 +1278,17 @@ export interface RunAnswerOut {
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
- * via the `definition` "TemplateItemOut".
+ * via the `definition` "ChecklistItemOut".
  */
-export interface TemplateItemOut {
+export interface ChecklistItemOut {
   active: Active6;
-  id: Id6;
+  categoryId?: Categoryid;
+  id: Id7;
   itemType: PmItemType;
   label: Label;
   maxValue?: Maxvalue;
   minValue?: Minvalue;
-  position: Position1;
+  position: Position2;
   required: Required;
   unit?: Unit;
 }
@@ -1278,7 +1300,7 @@ export interface RunPhotoOut {
   byteSize: Bytesize;
   contentType: Contenttype;
   createdAt: Createdat;
-  id: Id7;
+  id: Id8;
   itemId?: Itemid1;
   uploadedByUserId?: Uploadedbyuserid;
   url: Url3;
@@ -1302,16 +1324,17 @@ export interface ChecklistInstanceRowOut {
   completedByName?: Completedbyname1;
   departmentId: Departmentid5;
   departmentName: Departmentname1;
-  done: Done1;
+  done: Done2;
   dueDate: Duedate1;
-  id: Id8;
+  id: Id9;
+  kind: ChecklistKind;
   onDemand: Ondemand1;
   outOfRangeCount: Outofrangecount1;
   shift: Shift;
   status: ChecklistStatus;
   templateId: Templateid1;
   templateName: Templatename1;
-  total: Total1;
+  total: Total2;
 }
 /**
  * PM's item plus the category it sits under, named by a `key` from the same request's
@@ -1322,29 +1345,13 @@ export interface ChecklistInstanceRowOut {
  */
 export interface ChecklistItemIn {
   categoryKey?: Categorykey;
-  id?: Id9;
+  id?: Id10;
   itemType: PmItemType;
   label: Label1;
   maxValue?: Maxvalue1;
   minValue?: Minvalue1;
   required?: Required1;
   unit?: Unit1;
-}
-/**
- * This interface was referenced by `RelayAPI`'s JSON-Schema
- * via the `definition` "ChecklistItemOut".
- */
-export interface ChecklistItemOut {
-  active: Active7;
-  categoryId?: Categoryid;
-  id: Id10;
-  itemType: PmItemType;
-  label: Label2;
-  maxValue?: Maxvalue2;
-  minValue?: Minvalue2;
-  position: Position2;
-  required: Required2;
-  unit?: Unit2;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1358,12 +1365,12 @@ export interface ChecklistMissedQuery {
  * via the `definition` "ChecklistTemplateIn".
  */
 export interface ChecklistTemplateIn {
-  active?: Active8;
-  categories?: Categories;
+  active?: Active7;
+  categories?: Categories1;
   departmentId: Departmentid6;
   items: Items1;
   kind?: ChecklistKind1;
-  name: Name9;
+  name: Name10;
   schedule: ChecklistSchedule;
   shift?: Shift | null;
   weekdays?: Weekdays;
@@ -1373,14 +1380,14 @@ export interface ChecklistTemplateIn {
  * via the `definition` "ChecklistTemplateOut".
  */
 export interface ChecklistTemplateOut {
-  active: Active9;
-  categories: Categories1;
+  active: Active8;
+  categories: Categories2;
   departmentId: Departmentid7;
   departmentName: Departmentname2;
   id: Id11;
   items: Items2;
   kind: ChecklistKind;
-  name: Name10;
+  name: Name11;
   schedule: ChecklistSchedule;
   shift?: Shift | null;
   weekdays?: Weekdays1;
@@ -1390,12 +1397,12 @@ export interface ChecklistTemplateOut {
  * via the `definition` "ChecklistTemplatePatch".
  */
 export interface ChecklistTemplatePatch {
-  active?: Active10;
-  categories?: Categories2;
+  active?: Active9;
+  categories?: Categories3;
   departmentId?: Departmentid8;
   items?: Items3;
   kind?: ChecklistKind | null;
-  name?: Name11;
+  name?: Name12;
   schedule?: ChecklistSchedule | null;
   shift?: Shift | null;
   weekdays?: Weekdays2;
@@ -1412,7 +1419,7 @@ export interface ComplianceCycleOut {
   passed: Passed;
   startsOn: Startson;
   status: PmCycleStatus;
-  total: Total2;
+  total: Total3;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1430,7 +1437,7 @@ export interface ComplianceTemplateOut {
   id: Id12;
   inspectionPassRate?: Inspectionpassrate;
   mode: PmTemplateMode;
-  name: Name12;
+  name: Name13;
   runs?: ComplianceRunsOut | null;
   unitKind?: PmUnitKind | null;
 }
@@ -1656,7 +1663,7 @@ export interface CreateNoteRequest {
  */
 export interface CreateStaffConversationRequest {
   kind: Kind;
-  name?: Name13;
+  name?: Name14;
   userId?: Userid2;
   userIds?: Userids1;
 }
@@ -1704,7 +1711,7 @@ export interface CycleOut {
   startsOn: Startson1;
   status: PmCycleStatus;
   templateId: Templateid3;
-  total: Total3;
+  total: Total4;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1729,9 +1736,9 @@ export interface DepartmentBucket {
  * via the `definition` "DepartmentIn".
  */
 export interface DepartmentIn {
-  active?: Active11;
+  active?: Active10;
   escalationMinutes?: Escalationminutes;
-  name: Name14;
+  name: Name15;
   type: DepartmentType;
 }
 /**
@@ -1739,10 +1746,10 @@ export interface DepartmentIn {
  * via the `definition` "DepartmentOut".
  */
 export interface DepartmentOut {
-  active: Active12;
+  active: Active11;
   escalationMinutes: Escalationminutes1;
   id: Id23;
-  name: Name15;
+  name: Name16;
   type: DepartmentType;
 }
 /**
@@ -1750,9 +1757,9 @@ export interface DepartmentOut {
  * via the `definition` "DepartmentPatch".
  */
 export interface DepartmentPatch {
-  active?: Active13;
+  active?: Active12;
   escalationMinutes?: Escalationminutes2;
-  name?: Name16;
+  name?: Name17;
   type?: DepartmentType | null;
 }
 /**
@@ -1761,7 +1768,7 @@ export interface DepartmentPatch {
  */
 export interface GroupPatch {
   avatarUrl?: Avatarurl;
-  name?: Name17;
+  name?: Name18;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -1837,8 +1844,8 @@ export interface HkBoardOut {
  */
 export interface HkHousekeeperOut {
   assigned: Assigned;
-  done: Done2;
-  name: Name18;
+  done: Done3;
+  name: Name19;
   userId: Userid3;
 }
 /**
@@ -2005,7 +2012,7 @@ export interface ListQuery {
  */
 export interface LogAckOut {
   acknowledgedAt: Acknowledgedat;
-  name: Name19;
+  name: Name20;
   userId: Userid4;
 }
 /**
@@ -2046,7 +2053,7 @@ export interface LogEntryOut {
 export interface LogFieldValueOut {
   fieldId: Fieldid1;
   fieldType: LogFieldType;
-  label: Label3;
+  label: Label2;
   numberValue?: Numbervalue2;
   textValue?: Textvalue2;
 }
@@ -2064,7 +2071,7 @@ export interface LogMentionOut {
  * via the `definition` "LogPersonOut".
  */
 export interface LogPersonOut {
-  name: Name20;
+  name: Name21;
   userId: Userid5;
 }
 /**
@@ -2073,7 +2080,7 @@ export interface LogPersonOut {
  */
 export interface LogTemplateRef {
   id: Id31;
-  name: Name21;
+  name: Name22;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -2118,30 +2125,30 @@ export interface LogMentionableOut {
 export interface LogTemplateFieldIn {
   fieldType: LogFieldType;
   id?: Id33;
-  label: Label4;
-  required?: Required3;
+  label: Label3;
+  required?: Required2;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "LogTemplateFieldOut".
  */
 export interface LogTemplateFieldOut {
-  active: Active14;
+  active: Active13;
   fieldType: LogFieldType;
   id: Id34;
-  label: Label5;
+  label: Label4;
   position: Position3;
-  required: Required4;
+  required: Required3;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "LogTemplateIn".
  */
 export interface LogTemplateIn {
-  active?: Active15;
+  active?: Active14;
   audience?: Audience;
   fields: Fields;
-  name: Name22;
+  name: Name23;
   shift?: Shift | null;
 }
 /**
@@ -2149,11 +2156,11 @@ export interface LogTemplateIn {
  * via the `definition` "LogTemplateOut".
  */
 export interface LogTemplateOut {
-  active: Active16;
+  active: Active15;
   audience: Audience1;
   fields: Fields1;
   id: Id35;
-  name: Name23;
+  name: Name24;
   position: Position4;
   shift?: Shift | null;
   usedCount: Usedcount;
@@ -2163,10 +2170,10 @@ export interface LogTemplateOut {
  * via the `definition` "LogTemplatePatch".
  */
 export interface LogTemplatePatch {
-  active?: Active17;
+  active?: Active16;
   audience?: Audience2;
   fields?: Fields2;
-  name?: Name24;
+  name?: Name25;
   shift?: Shift | null;
 }
 /**
@@ -2232,7 +2239,7 @@ export interface Overview {
  */
 export interface ResponseBucket {
   count: Count2;
-  label: Label6;
+  label: Label5;
   share: Share;
 }
 /**
@@ -2267,7 +2274,7 @@ export interface PropertySettingsOut {
   helpText?: Helptext;
   id: Id37;
   logoUrl?: Logourl;
-  name: Name25;
+  name: Name26;
   phone?: Phone2;
   primaryColor?: Primarycolor;
   slaMinutes: Slaminutes;
@@ -2292,7 +2299,7 @@ export interface PropertySettingsPatch {
   currency?: Currency1;
   helpText?: Helptext1;
   logoUrl?: Logourl1;
-  name?: Name26;
+  name?: Name27;
   phone?: Phone3;
   primaryColor?: Primarycolor1;
   slaMinutes?: Slaminutes1;
@@ -2304,7 +2311,7 @@ export interface PropertySettingsPatch {
  * via the `definition` "QuickReplyIn".
  */
 export interface QuickReplyIn {
-  active?: Active18;
+  active?: Active17;
   body: Body9;
   category?: Category3;
   departmentId?: Departmentid17;
@@ -2317,7 +2324,7 @@ export interface QuickReplyIn {
  * via the `definition` "QuickReplyOut".
  */
 export interface QuickReplyOut {
-  active: Active19;
+  active: Active18;
   body: Body10;
   category?: Category4;
   departmentId?: Departmentid18;
@@ -2332,7 +2339,7 @@ export interface QuickReplyOut {
  * via the `definition` "QuickReplyPatch".
  */
 export interface QuickReplyPatch {
-  active?: Active20;
+  active?: Active19;
   body?: Body11;
   category?: Category5;
   departmentId?: Departmentid19;
@@ -2387,6 +2394,21 @@ export interface RunOut {
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
+ * via the `definition` "TemplateItemOut".
+ */
+export interface TemplateItemOut {
+  active: Active20;
+  id: Id40;
+  itemType: PmItemType;
+  label: Label6;
+  maxValue?: Maxvalue2;
+  minValue?: Minvalue2;
+  position: Position5;
+  required: Required4;
+  unit?: Unit2;
+}
+/**
+ * This interface was referenced by `RelayAPI`'s JSON-Schema
  * via the `definition` "SendMessageRequest".
  */
 export interface SendMessageRequest {
@@ -2420,7 +2442,7 @@ export interface UserOut {
   avatarUrl?: Avatarurl1;
   email: Email3;
   firstName: Firstname2;
-  id: Id40;
+  id: Id41;
   lastName: Lastname2;
   locale: Locale3;
   notificationPrefs?: Notificationprefs;
@@ -2448,7 +2470,7 @@ export interface Payload {
 export interface SimGuest {
   guestId: Guestid;
   inHouse: Inhouse;
-  name: Name27;
+  name: Name28;
   phone: Phone4;
   propertyId: Propertyid2;
   propertyName: Propertyname2;
@@ -2466,12 +2488,12 @@ export interface StaffConversationDetail {
   avatarUrl?: Avatarurl2;
   createdAt: Createdat8;
   displayName: Displayname2;
-  id: Id41;
+  id: Id42;
   kind: StaffConversationKind;
   lastMessageAt?: Lastmessageat;
   lastMessagePreview?: Lastmessagepreview1;
   messages: Messages2;
-  name?: Name28;
+  name?: Name29;
   otherUserId?: Otheruserid;
   participants: Participants;
   unread: Unread;
@@ -2487,7 +2509,7 @@ export interface StaffMessageOut {
   body?: Body15;
   conversationId: Conversationid3;
   createdAt: Createdat9;
-  id: Id42;
+  id: Id43;
   photoUrl?: Photourl1;
 }
 /**
@@ -2510,11 +2532,11 @@ export interface StaffConversationOut {
   avatarUrl?: Avatarurl4;
   createdAt: Createdat10;
   displayName: Displayname3;
-  id: Id43;
+  id: Id44;
   kind: StaffConversationKind;
   lastMessageAt?: Lastmessageat1;
   lastMessagePreview?: Lastmessagepreview2;
-  name?: Name29;
+  name?: Name30;
   otherUserId?: Otheruserid1;
   participants: Participants1;
   unread: Unread1;
@@ -2559,7 +2581,7 @@ export interface StaffUserOut {
   departmentId?: Departmentid23;
   email: Email4;
   firstName: Firstname5;
-  id: Id44;
+  id: Id45;
   lastName: Lastname5;
   role: Role;
   status: Status2;
@@ -2579,7 +2601,7 @@ export interface StartRunRequest {
 export interface SweepCounts {
   completed: Completed;
   remaining: Remaining;
-  total: Total4;
+  total: Total5;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -2588,7 +2610,7 @@ export interface SweepCounts {
 export interface SweepCycleOut {
   daysLeft: Daysleft1;
   endsOn: Endson2;
-  id: Id45;
+  id: Id46;
   ordinal: Ordinal2;
   startsOn: Startson2;
 }
@@ -2608,8 +2630,8 @@ export interface SweepOut {
  */
 export interface SweepTemplateOut {
   cadence: PmCadence;
-  id: Id46;
-  name: Name30;
+  id: Id47;
+  name: Name31;
 }
 /**
  * This interface was referenced by `RelayAPI`'s JSON-Schema
@@ -2619,10 +2641,10 @@ export interface SweepUnitOut {
   code: Code2;
   currentRun?: SweepRunBrief | null;
   floor?: Floor1;
-  id: Id48;
+  id: Id49;
   lastPassedAt?: Lastpassedat;
   lastPassedByName?: Lastpassedbyname;
-  name: Name31;
+  name: Name32;
   passedThisCycle: Passedthiscycle;
   roomType?: Roomtype2;
 }
@@ -2631,7 +2653,7 @@ export interface SweepUnitOut {
  * via the `definition` "SweepRunBrief".
  */
 export interface SweepRunBrief {
-  id: Id47;
+  id: Id48;
   startedByName?: Startedbyname2;
   startedByUserId?: Startedbyuserid1;
   status: PmRunStatus;
@@ -2656,7 +2678,7 @@ export interface TemplateIn {
   departmentId?: Departmentid24;
   items?: Items5;
   mode: PmTemplateMode;
-  name: Name32;
+  name: Name33;
   rrule?: Rrule;
   rruleDtstart?: Rruledtstart;
   unitIds?: Unitids;
@@ -2670,7 +2692,7 @@ export interface TemplateIn {
  * via the `definition` "TemplateItemIn".
  */
 export interface TemplateItemIn {
-  id?: Id49;
+  id?: Id50;
   itemType: PmItemType;
   label: Label7;
   maxValue?: Maxvalue3;
@@ -2688,11 +2710,11 @@ export interface TemplateOut {
   createdAt: Createdat11;
   departmentId?: Departmentid25;
   hasRuns: Hasruns;
-  id: Id50;
+  id: Id51;
   items?: Items6;
   lastFiredAt?: Lastfiredat;
   mode: PmTemplateMode;
-  name: Name33;
+  name: Name34;
   rrule?: Rrule1;
   rruleDtstart?: Rruledtstart1;
   unitIds?: Unitids1;
@@ -2708,7 +2730,7 @@ export interface TemplatePatch {
   departmentId?: Departmentid26;
   items?: Items7;
   mode?: PmTemplateMode | null;
-  name?: Name34;
+  name?: Name35;
   rrule?: Rrule2;
   rruleDtstart?: Rruledtstart2;
   unitIds?: Unitids2;
@@ -2741,7 +2763,7 @@ export interface UnitIn {
   externalId?: Externalid;
   floor?: Floor2;
   kind: PmUnitKind;
-  name: Name35;
+  name: Name36;
   notes?: Notes3;
   roomType?: Roomtype3;
 }
@@ -2764,9 +2786,9 @@ export interface UnitOut {
   createdAt: Createdat12;
   externalId?: Externalid1;
   floor?: Floor3;
-  id: Id51;
+  id: Id52;
   kind: PmUnitKind;
-  name: Name36;
+  name: Name37;
   notes?: Notes4;
   roomType?: Roomtype4;
   source: PmUnitSource;
@@ -2781,7 +2803,7 @@ export interface UnitPatch {
   externalId?: Externalid2;
   floor?: Floor4;
   kind?: PmUnitKind | null;
-  name?: Name37;
+  name?: Name38;
   notes?: Notes5;
   roomType?: Roomtype5;
 }
@@ -2807,7 +2829,7 @@ export interface WorkOrderDetail {
   events: Events1;
   guestName?: Guestname1;
   guestNotifiedAt?: Guestnotifiedat1;
-  id: Id53;
+  id: Id54;
   locationRef?: Locationref1;
   locationType: LocationType1;
   photos: Photos4;
@@ -2832,7 +2854,7 @@ export interface WorkOrderEventOut {
   comment?: Comment3;
   createdAt: Createdat14;
   fromValue?: Fromvalue1;
-  id: Id52;
+  id: Id53;
   toValue?: Tovalue1;
   type: WorkOrderEventType;
   userId?: Userid8;
@@ -2846,7 +2868,7 @@ export interface WorkOrderPhotoOut {
   byteSize: Bytesize2;
   contentType: Contenttype2;
   createdAt: Createdat15;
-  id: Id54;
+  id: Id55;
   kind: WorkOrderPhotoKind;
   uploadedByName?: Uploadedbyname;
   uploadedByUserId?: Uploadedbyuserid1;
@@ -2878,7 +2900,7 @@ export interface WorkOrderOut {
   description?: Description5;
   dueAt?: Dueat3;
   guestNotifiedAt?: Guestnotifiedat2;
-  id: Id55;
+  id: Id56;
   locationRef?: Locationref2;
   locationType: LocationType1;
   priority: Priority;

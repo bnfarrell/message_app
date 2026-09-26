@@ -720,6 +720,41 @@
       "title": "ChecklistCategoryOut",
       "type": "object"
     },
+    "ChecklistCategoryProgressOut": {
+      "additionalProperties": false,
+      "description": "A category heading on the checklist page: `done / total` over its items.",
+      "properties": {
+        "done": {
+          "title": "Done",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "position": {
+          "title": "Position",
+          "type": "integer"
+        },
+        "total": {
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "position",
+        "done",
+        "total"
+      ],
+      "title": "ChecklistCategoryProgressOut",
+      "type": "object"
+    },
     "ChecklistCommentPatch": {
       "additionalProperties": false,
       "properties": {
@@ -773,6 +808,13 @@
           ],
           "default": null,
           "title": "Assigneduserid"
+        },
+        "categories": {
+          "items": {
+            "$ref": "#/$defs/ChecklistCategoryProgressOut"
+          },
+          "title": "Categories",
+          "type": "array"
         },
         "comment": {
           "anyOf": [
@@ -834,10 +876,13 @@
         },
         "items": {
           "items": {
-            "$ref": "#/$defs/TemplateItemOut"
+            "$ref": "#/$defs/ChecklistItemOut"
           },
           "title": "Items",
           "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ChecklistKind"
         },
         "missingRequired": {
           "items": {
@@ -915,9 +960,11 @@
         "shift",
         "onDemand",
         "status",
+        "kind",
         "done",
         "total",
         "outOfRangeCount",
+        "categories",
         "items",
         "answers",
         "photos",
@@ -1029,6 +1076,9 @@
           "title": "Id",
           "type": "string"
         },
+        "kind": {
+          "$ref": "#/$defs/ChecklistKind"
+        },
         "onDemand": {
           "title": "Ondemand",
           "type": "boolean"
@@ -1066,6 +1116,7 @@
         "shift",
         "onDemand",
         "status",
+        "kind",
         "done",
         "total",
         "outOfRangeCount"

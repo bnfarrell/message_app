@@ -21,9 +21,9 @@ import { ChecklistRunPage } from './ChecklistRunPage'
 const BASE: ChecklistInstanceOut = {
   id: 'i-1', templateId: 't-1', templateName: 'Engineering AM Rounds', departmentId: 'dept-eng',
   departmentName: 'Engineering', dueDate: '2026-09-10', shift: 'am', onDemand: false,
-  status: 'in_progress', assignedUserId: 'u-eli', assignedName: 'Eli Engineer',
+  status: 'in_progress', kind: 'normal', assignedUserId: 'u-eli', assignedName: 'Eli Engineer',
   completedByName: null, done: 0, total: 0, outOfRangeCount: 0, startedByName: 'Eli Engineer',
-  startedAt: '2026-09-10T11:30:00Z', completedAt: null, comment: null,
+  startedAt: '2026-09-10T11:30:00Z', completedAt: null, comment: null, categories: [],
   items: [], answers: [], photos: [], missingRequired: [],
 }
 // Same comment (null) as BASE on purpose: the bug is that a same-valued dependency array
