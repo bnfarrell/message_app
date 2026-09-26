@@ -252,6 +252,20 @@ describe('invalidationsFor', () => {
     expect(keys).toContainEqual(qk.pmSweepAll('prop-a'))
     expect(keys).toContainEqual(qk.pmCyclesAll('prop-a'))
   })
+
+  it('refreshes the board, my rooms, the inspection queue and each room for housekeeping.rooms.changed', () => {
+    const keys = invalidationsFor(
+      { ...base, type: 'housekeeping.rooms.changed', payload: { ids: ['r-1', 'r-2'] } },
+      'prop-a',
+    )
+    expect(keys).toEqual([
+      ['hk', 'prop-a', 'board'],
+      ['hk', 'prop-a', 'my-rooms'],
+      ['hk', 'prop-a', 'inspections'],
+      ['hk', 'prop-a', 'room', 'r-1'],
+      ['hk', 'prop-a', 'room', 'r-2'],
+    ])
+  })
 })
 
 describe('RealtimeProvider', () => {

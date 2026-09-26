@@ -62,6 +62,12 @@ export const qk = {
   pmCompliance: (propertyId: string, from: string, to: string) =>
     ['pm', propertyId, 'compliance', from, to] as const,
 
+  hkAll: (propertyId: string) => ['hk', propertyId] as const,
+  hkBoardAll: (propertyId: string) => ['hk', propertyId, 'board'] as const,
+  hkMyRoomsAll: (propertyId: string) => ['hk', propertyId, 'my-rooms'] as const,
+  hkInspectionsAll: (propertyId: string) => ['hk', propertyId, 'inspections'] as const,
+  hkRoom: (propertyId: string, id: string) => ['hk', propertyId, 'room', id] as const,
+
   analyticsOverview: (propertyId: string, from: string, to: string) =>
     ['analytics', 'overview', propertyId, from, to] as const,
   analyticsAgents: (propertyId: string, from: string, to: string) =>

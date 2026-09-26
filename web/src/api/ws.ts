@@ -102,6 +102,20 @@ export function invalidationsFor(event: ServerEvent, propertyId: string): readon
       keys.push([...qk.pmSweepAll(propertyId)])
       keys.push([...qk.pmCyclesAll(propertyId)])
       break
+    case 'housekeeping.rooms.changed': {
+      // One event per action, ids only (spec §5): every housekeeping screen refetches.
+      keys.push([...qk.hkBoardAll(propertyId)])
+      keys.push([...qk.hkMyRoomsAll(propertyId)])
+      keys.push([...qk.hkInspectionsAll(propertyId)])
+      const ids = event.payload['ids']
+      if (Array.isArray(ids)) {
+        for (const value of ids) {
+          const roomId = str(value)
+          if (roomId) keys.push([...qk.hkRoom(propertyId, roomId)])
+        }
+      }
+      break
+    }
     default:
       break
   }
