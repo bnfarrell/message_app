@@ -9,7 +9,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.domain import audit, pm_cycles
+from app.domain import audit, pm_cycles, typed_items
 from app.domain._patch import patch_changes
 from app.errors import Conflict, NotFound, ValidationFailed
 from app.models import (
@@ -21,8 +21,8 @@ from app.models import (
     PmTemplateUnit,
     Property,
 )
-from app.schemas.enums import PmCadence, PmItemType, PmTemplateMode, PmUnitKind
-from app.schemas.pm import TemplateIn, TemplateItemIn, TemplateItemOut, TemplateOut, TemplatePatch
+from app.schemas.enums import PmCadence, PmTemplateMode, PmUnitKind
+from app.schemas.pm import TemplateIn, TemplateItemOut, TemplateOut, TemplatePatch
 
 
 def get(db: Session, property_id: str, template_id: str) -> PmTemplate:
@@ -136,56 +136,6 @@ def _assert_units(db: Session, property_id: str, unit_ids: list[str]) -> None:
                                details={"unitIds": "unknown_unit"})
 
 
-def _sync_items(db: Session, template: PmTemplate, items: list[TemplateItemIn]) -> None:
-    """Replace-by-list with soft deletes: an item in the list is updated or created in its
-    position; one missing from it is deactivated. Type never changes on an existing item —
-    answers already recorded against it would mean something else."""
-    existing = {i.id: i for i in db.scalars(select(PmTemplateItem).where(
-        PmTemplateItem.template_id == template.id)).all()}
-    seen_ids: set[str] = set()
-    for data in items:
-        if data.id:
-            if data.id in seen_ids:
-                raise ValidationFailed("Duplicate item id", details={"items": "duplicate_item"})
-            seen_ids.add(data.id)
-    keep: set[str] = set()
-    for position, data in enumerate(items):
-        if data.item_type != PmItemType.number and (
-                data.min_value is not None or data.max_value is not None or data.unit):
-            raise ValidationFailed("Bounds and units apply to number items only",
-                                   details={"items": "bounds_on_non_number"})
-        if (data.min_value is not None and data.max_value is not None
-                and data.min_value > data.max_value):
-            raise ValidationFailed("Minimum must not exceed maximum",
-                                   details={"items": "min_over_max"})
-        if data.id:
-            row = existing.get(data.id)
-            if row is None:
-                raise ValidationFailed("Unknown item", details={"items": "unknown_item"})
-            if row.item_type != data.item_type:
-                raise ValidationFailed("An item's type cannot change; remove it and add a new one",
-                                       details={"items": "type_change"})
-            row.position, row.label, row.unit = position, data.label.strip(), data.unit
-            row.min_value, row.max_value = data.min_value, data.max_value
-            row.required, row.active = data.required, True
-        else:
-            row = PmTemplateItem(template_id=template.id, property_id=template.property_id,
-                                 position=position, label=data.label.strip(),
-                                 item_type=data.item_type, unit=data.unit,
-                                 min_value=data.min_value, max_value=data.max_value,
-                                 required=data.required)
-            db.add(row)
-            db.flush()
-        keep.add(row.id)
-    retired = [row for row in existing.values() if row.id not in keep]
-    for n, row in enumerate(retired):
-        # Pushed past the live range so a retired item never shares a position with a kept one —
-        # historical runs render their answers `order_by(position)`.
-        row.active = False
-        row.position = 1000 + n
-    db.flush()
-
-
 def _set_units(db: Session, template: PmTemplate, unit_ids: list[str]) -> None:
     _assert_units(db, template.property_id, unit_ids)
     db.execute(delete(PmTemplateUnit).where(PmTemplateUnit.template_id == template.id))
@@ -211,7 +161,7 @@ def create(db: Session, property_id: str, actor_user_id: str, data: TemplateIn) 
     db.add(t)
     db.flush()
     _set_units(db, t, data.unit_ids)
-    _sync_items(db, t, data.items)
+    typed_items.sync_items(db, PmTemplateItem, t, data.items)
     # A sweep template gets its first cycle now, not on the next tick (spec §4.1).
     pm_cycles.ensure_open_cycle(db, t, pm_cycles.local_today(db.get(Property, property_id)))
     audit.record(db, property_id, actor_user_id, "pm_template.created", "pm_template", t.id,
@@ -251,7 +201,7 @@ def patch(db: Session, property_id: str, actor_user_id: str, template_id: str,
     if unit_ids is not None:
         _set_units(db, t, unit_ids)
     if "items" in data.model_fields_set and data.items is not None:
-        _sync_items(db, t, data.items)
+        typed_items.sync_items(db, PmTemplateItem, t, data.items)
     pm_cycles.ensure_open_cycle(db, t, pm_cycles.local_today(db.get(Property, property_id)))
     audit.record(db, property_id, actor_user_id, "pm_template.updated", "pm_template", t.id,
                  before={k: str(v) for k, v in before.items()},

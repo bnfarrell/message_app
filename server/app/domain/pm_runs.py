@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.domain import audit, notifications, pm_cycles, pm_templates, pm_units
+from app.domain import audit, notifications, pm_cycles, pm_templates, pm_units, typed_items
 from app.domain import work_orders as wo_domain
 from app.domain.work_orders import MAX_PHOTO_BYTES, sniff_image_type
 from app.errors import Conflict, NotFound, TransitionError, ValidationFailed
@@ -16,7 +16,6 @@ from app.models import (
     PmRunPhoto,
     PmTemplate,
     PmTemplateItem,
-    PropertyMembership,
     UserAccount,
     WorkOrder,
 )
@@ -26,20 +25,11 @@ from app.schemas.enums import (
     PmRunStatus,
     PmTemplateMode,
     Priority,
-    Role,
-    UserStatus,
     WorkOrderStatus,
     WorkOrderType,
 )
 from app.schemas.pm import AnswerPatch, RunAnswerOut, RunOut, RunPhotoOut, StartRunRequest
 from app.schemas.work_orders import CreateWorkOrder
-
-VALUE_COLUMN: dict[PmItemType, str] = {
-    PmItemType.checkbox: "bool_value",
-    PmItemType.text: "text_value",
-    PmItemType.number: "number_value",
-}
-WIRE_NAME = {"bool_value": "boolValue", "text_value": "textValue", "number_value": "numberValue"}
 
 
 def get(db: Session, property_id: str, run_id: str) -> PmRun:
@@ -127,23 +117,7 @@ def save_answer(db: Session, property_id: str, actor_user_id: str, run_id: str,
     if answer is None:
         raise NotFound("Answer not found")
     item = db.get(PmTemplateItem, answer.item_id)
-    column = VALUE_COLUMN.get(item.item_type)
-    if column is None:
-        raise ValidationFailed("A photo item is answered by uploading a photo",
-                               details={"itemId": "photo_item"})
-    provided = data.model_dump(exclude_unset=True)
-    if set(provided) != {column}:
-        raise ValidationFailed(f"This item takes {WIRE_NAME[column]} only",
-                               details={WIRE_NAME[column]: "required"})
-    value = provided[column]
-    if column == "text_value" and value is not None:
-        value = value.strip() or None
-    setattr(answer, column, value)
-    answer.answered_at = clock.now() if value is not None else None
-    if item.item_type == PmItemType.number:
-        answer.out_of_range = value is not None and (
-            (item.min_value is not None and value < item.min_value)
-            or (item.max_value is not None and value > item.max_value))
+    typed_items.apply_answer(item, answer, data)
     db.flush()
     return answer
 
@@ -159,38 +133,9 @@ def missing_required(db: Session, run: PmRun) -> list[str]:
         PmRunPhoto.run_id == run.id, PmRunPhoto.item_id.is_not(None))).all())
     missing: list[str] = []
     for answer, item in rows:
-        if item.item_type == PmItemType.checkbox:
-            done = answer.bool_value is True
-        elif item.item_type == PmItemType.text:
-            done = bool(answer.text_value)
-        elif item.item_type == PmItemType.number:
-            done = answer.number_value is not None
-        else:
-            done = item.id in photographed
-        if not done:
+        if not typed_items.is_answered(item, answer, photographed):
             missing.append(item.id)
     return missing
-
-
-def _escalation_targets(db: Session, property_id: str, department_id: str | None) -> list[str]:
-    """Active supervisor-or-above members of the department; failing that, the property's
-    managers and admins, so an out-of-range reading is never reported to nobody."""
-    stmt = (select(PropertyMembership.user_id)
-            .join(UserAccount, UserAccount.id == PropertyMembership.user_id)
-            .where(PropertyMembership.property_id == property_id,
-                   UserAccount.status == UserStatus.active))
-    if department_id:
-        scoped = list(db.scalars(stmt.where(
-            PropertyMembership.department_id == department_id,
-            PropertyMembership.role.in_([Role.supervisor, Role.manager, Role.admin]))).all())
-        if scoped:
-            return scoped
-    return list(db.scalars(stmt.where(
-        PropertyMembership.role.in_([Role.manager, Role.admin]))).all())
-
-
-def _fmt(value: float | None) -> str:
-    return "" if value is None else f"{value:g}"
 
 
 def _raise_out_of_range(db: Session, run: PmRun, actor_user_id: str) -> list[WorkOrder]:
@@ -202,12 +147,12 @@ def _raise_out_of_range(db: Session, run: PmRun, actor_user_id: str) -> list[Wor
         return []
     template = db.get(PmTemplate, run.template_id)
     unit = db.get(MaintainableUnit, run.unit_id)
-    targets = [t for t in _escalation_targets(db, run.property_id, template.department_id)
+    targets = [t for t in typed_items.escalation_targets(db, run.property_id,
+                                                         template.department_id)
                if t != actor_user_id]
     created: list[WorkOrder] = []
     for answer, item in rows:
-        title = (f"{item.label} {_fmt(answer.number_value)}{item.unit or ''} out of range "
-                 f"({_fmt(item.min_value)}–{_fmt(item.max_value)}) — {unit.name}")[:200]
+        title = typed_items.out_of_range_title(item, answer, unit.name)
         wo = wo_domain.create(db, run.property_id, actor_user_id, CreateWorkOrder(
             title=title, description=f"Recorded during {template.name} on {unit.name}.",
             type=WorkOrderType.maintenance, priority=Priority.high,
