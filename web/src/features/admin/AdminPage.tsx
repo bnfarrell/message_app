@@ -3,6 +3,7 @@ import { cn } from '../../lib/cn'
 import { ADMIN_SECTIONS } from '../../components/navModel'
 import { AssetsAdmin } from './AssetsAdmin'
 import { CategoriesAdmin } from './CategoriesAdmin'
+import { ChecklistTemplatesAdmin } from './ChecklistTemplatesAdmin'
 import { DepartmentsAdmin } from './DepartmentsAdmin'
 import { PmTemplatesAdmin } from './PmTemplatesAdmin'
 import { PropertySettingsAdmin } from './PropertySettingsAdmin'
@@ -62,6 +63,7 @@ export function AdminPage() {
         <Route path="property" element={<PropertySettingsAdmin />} />
         <Route path="units" element={<UnitsAdmin />} />
         <Route path="pm-templates" element={<PmTemplatesAdmin />} />
+        <Route path="checklist-templates" element={<ChecklistTemplatesAdmin />} />
       </Routes>
     </div>
   )
