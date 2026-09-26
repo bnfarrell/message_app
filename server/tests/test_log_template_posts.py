@@ -102,6 +102,16 @@ def test_not_a_number_and_infinity_are_not_numbers(database, fx):
                 ids["ADR"]: "not_a_number"}
 
 
+def test_a_huge_integer_that_overflows_float_is_a_400_not_a_500(database, fx):
+    """`float()` raises `OverflowError`, not `ValueError`, on an integer this large -- a
+    ~400-digit JSON number is otherwise an unhandled 500 (final review finding 2)."""
+    with database.session() as db:
+        t = make_template(db, fx)
+        ids = field_ids(db, t)
+        assert _failure(db, fx, t, {"Arrivals actual": int("9" * 400), "Occupancy": 5}) == {
+            ids["Arrivals actual"]: "not_a_number"}
+
+
 def test_a_number_too_big_for_the_column_is_a_400_not_a_postgres_overflow(database, fx):
     """number_value is Numeric(10, 2). PostgreSQL raises on 10**8 — a 500 — where SQLite
     stores it, so the domain must refuse it on both (review focus 1)."""

@@ -124,9 +124,17 @@ def _name(raw: str) -> str:
     return name
 
 
-def _clean_audience(db: Session, property_id: str, refs: list[MentionRef]) -> list[MentionRef]:
+def _clean_audience(db: Session, property_id: str, refs: list[MentionRef],
+                    stored: frozenset[tuple[MentionTargetType, str]] = frozenset()
+                    ) -> list[MentionRef]:
     """De-duplicated (the table's unique key would otherwise turn a repeat into a 500) and
-    scoped: every user must be a member here and every department must be this property's."""
+    scoped: every user must be a member here and every department must be this property's.
+
+    A ref in `stored` -- already saved on this template before this patch -- is dropped
+    silently rather than refused when it is no longer valid: `users.remove_membership` and
+    `users.delete_department` hard-delete without touching `log_template_audience`, and without
+    this the admin editor could never save the template again (final review finding 1). A ref
+    that was never stored still gets the ordinary 400."""
     out: list[MentionRef] = []
     for type_, target_id in dict.fromkeys((r.type, r.id) for r in refs):
         if type_ == MentionTargetType.user:
@@ -135,10 +143,17 @@ def _clean_audience(db: Session, property_id: str, refs: list[MentionRef]) -> li
             known = db.scalar(select(Department.id).where(
                 Department.id == target_id, Department.property_id == property_id)) is not None
         if not known:
+            if (type_, target_id) in stored:
+                continue
             raise ValidationFailed("Share a template only with people and departments here",
                                    details={"audience": f"unknown_{type_.value}"})
         out.append(MentionRef(type=type_, id=target_id))
     return out
+
+
+def _stored_audience(db: Session, template_id: str) -> frozenset[tuple[MentionTargetType, str]]:
+    return frozenset((row.type, row.target_id) for row in db.scalars(
+        select(LogTemplateAudience).where(LogTemplateAudience.template_id == template_id)))
 
 
 def _replace_audience(db: Session, template: LogTemplate, refs: list[MentionRef]) -> None:
@@ -224,7 +239,8 @@ def patch(db: Session, property_id: str, actor_id: str, template_id: str,
     if data.fields is not None:
         _sync_fields(db, t, data.fields)
     if data.audience is not None:
-        _replace_audience(db, t, _clean_audience(db, property_id, data.audience))
+        stored = _stored_audience(db, t.id)
+        _replace_audience(db, t, _clean_audience(db, property_id, data.audience, stored))
     audit.record(db, property_id, actor_id, "log_template.updated", "log_template", t.id,
                  after={"fields": sorted(provided)})
     return t
@@ -255,7 +271,7 @@ def _coerce(field_type: LogFieldType, raw: object) -> tuple[str | None, float | 
             return None, None, None
     try:
         number = float(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # a ~400-digit JSON int overflows float()
         return None, None, "not_a_number"
     if not math.isfinite(number):  # float("nan") and float("inf") both parse
         return None, None, "not_a_number"

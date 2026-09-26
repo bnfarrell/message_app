@@ -1,7 +1,7 @@
 """Log templates: admin create/patch and the audience rule (log templates spec §2.1, §3.1)."""
 import pytest
 
-from app.domain import log_templates
+from app.domain import log_templates, users
 from app.errors import Forbidden, NotFound, ValidationFailed
 from app.schemas.log import LogTemplateFieldIn, LogTemplatePatch, MentionRef
 from tests.log_template_helpers import FIELDS, field_ids, front_desk, make_template
@@ -139,3 +139,57 @@ def test_a_listed_user_may_use_it_and_an_empty_audience_means_everyone(database,
         log_templates.assert_can_use(db, fx.property_a.id, fx.housekeeper_a.id, everyone)
         with pytest.raises(Forbidden):  # a member of another property never can
             log_templates.assert_can_use(db, fx.property_a.id, fx.agent_b.id, everyone)
+
+
+def test_patch_drops_a_stale_user_ref_but_a_new_unknown_ref_still_fails(database, fx):
+    """Final review finding 1: `remove_membership` hard-deletes the membership without touching
+    `log_template_audience`, so a ref already stored on the template must not block every future
+    save of it -- only a brand-new unknown ref should."""
+    with database.session() as db:
+        t = make_template(db, fx, audience=[MentionRef(type="user", id=fx.agent_a.id),
+                                            *front_desk(fx)])
+        users.remove_membership(db, fx.property_a.id, fx.admin_a.id, fx.agent_a.id)
+
+        out = log_templates.patch(db, fx.property_a.id, fx.admin_a.id, t.id, LogTemplatePatch(
+            active=False, audience=[MentionRef(type="user", id=fx.agent_a.id), *front_desk(fx)]))
+        assert out.active is False
+        assert [(r.type.value, r.id) for r in log_templates.to_out(db, t).audience] == [
+            ("department", fx.dept_front_desk.id)]  # the stale user ref is gone
+
+        with pytest.raises(ValidationFailed) as e:
+            log_templates.patch(db, fx.property_a.id, fx.admin_a.id, t.id, LogTemplatePatch(
+                audience=[MentionRef(type="user", id="00000000-0000-0000-0000-000000000000")]))
+        assert e.value.details == {"audience": "unknown_user"}
+
+
+def test_patch_drops_a_stale_department_ref(database, fx):
+    """Same as above for a hard-deleted department (`delete_department`)."""
+    with database.session() as db:
+        t = make_template(db, fx, audience=[MentionRef(type="department",
+                                                       id=fx.dept_housekeeping.id)])
+        users.remove_membership(db, fx.property_a.id, fx.admin_a.id, fx.housekeeper_a.id)
+        users.delete_department(db, fx.property_a.id, fx.dept_housekeeping.id)
+        db.flush()
+
+        out = log_templates.patch(db, fx.property_a.id, fx.admin_a.id, t.id, LogTemplatePatch(
+            active=False, audience=[MentionRef(type="department", id=fx.dept_housekeeping.id)]))
+        assert out.active is False
+        assert log_templates.to_out(db, t).audience == []
+
+
+def test_a_stale_stored_audience_ref_neither_500s_nor_grants_access(database, fx):
+    """The read side (usable list / assert_can_use) must tolerate a ref nothing was ever
+    cleaned up for, without letting it grant access to anyone."""
+    with database.session() as db:
+        t = make_template(db, fx, audience=[MentionRef(type="user", id=fx.agent_a.id),
+                                            MentionRef(type="department",
+                                                       id=fx.dept_housekeeping.id)])
+        users.remove_membership(db, fx.property_a.id, fx.admin_a.id, fx.agent_a.id)
+        users.remove_membership(db, fx.property_a.id, fx.admin_a.id, fx.housekeeper_a.id)
+        users.delete_department(db, fx.property_a.id, fx.dept_housekeeping.id)
+        db.flush()
+
+        with pytest.raises(Forbidden):
+            log_templates.assert_can_use(db, fx.property_a.id, fx.engineer_a.id, t)
+        assert t.id not in [u.id for u in log_templates.list_usable(db, fx.property_a.id,
+                                                                    fx.engineer_a.id)]
