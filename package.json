@@ -10,5 +10,8 @@
     "test:web": "cd web && npm test",
     "gen:types": "cd web && npm run gen:types",
     "dev": "echo Run npm run server and npm run web in two terminals, or use start.bat"
+  },
+  "devDependencies": {
+    "railway": "^3.11.0"
   }
 }
