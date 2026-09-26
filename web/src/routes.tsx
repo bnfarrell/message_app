@@ -19,6 +19,7 @@ import { RunPage } from './features/pm/RunPage'
 import { InspectionPage } from './features/pm/InspectionPage'
 import { CompliancePage } from './features/pm/CompliancePage'
 import { RoomBoardPage } from './features/housekeeping/RoomBoardPage'
+import { MyRoomsPage } from './features/housekeeping/MyRoomsPage'
 
 function LandingRedirect() {
   const { membership } = useSession()
@@ -88,6 +89,14 @@ export function AppRoutes() {
             element={
               <RequireCapability capability="view_housekeeping">
                 <RoomBoardPage />
+              </RequireCapability>
+            }
+          />
+          <Route
+            path="my-rooms"
+            element={
+              <RequireCapability capability="perform_housekeeping">
+                <MyRoomsPage />
               </RequireCapability>
             }
           />
