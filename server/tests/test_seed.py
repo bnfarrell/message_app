@@ -15,6 +15,8 @@ from app.models import (
     Guest,
     HousekeepingAssignment,
     LogEntry,
+    LogEntryFieldValue,
+    LogTemplate,
     MaintainableUnit,
     Message,
     PmRun,
@@ -81,7 +83,13 @@ def test_seed_matches_spec_counts(tmp_path):
         assert count(ResolutionCategory, ResolutionCategory.property_id == hvh.id) >= 10
         assert count(Message, Message.delivery_status == DeliveryStatus.failed) >= 1
         assert db.scalar(select(UserAccount).where(UserAccount.email == "ava@hvh.test")) is not None
-        assert count(LogEntry, LogEntry.property_id == hvh.id) == 3
+        # 3 free-form entries + 4 templated posts (log templates spec §5)
+        assert count(LogEntry, LogEntry.property_id == hvh.id) == 7
+        assert count(LogTemplate, LogTemplate.property_id == hvh.id) == 3
+        assert count(LogEntry, LogEntry.property_id == hvh.id,
+                     LogEntry.template_id.is_not(None)) == 4
+        # two posts answer all ten fields, two leave the optional Notes blank
+        assert count(LogEntryFieldValue, LogEntryFieldValue.property_id == hvh.id) == 38
         assert count(LogEntry, LogEntry.property_id == hvh.id, LogEntry.pinned.is_(True)) == 1
         assert count(LogEntry, LogEntry.property_id == hvh.id,
                      LogEntry.requires_ack.is_(True)) == 1
@@ -131,6 +139,7 @@ def test_seed_matches_spec_counts(tmp_path):
         assert summary.log_entries == count(LogEntry)
         assert (summary.rooms, summary.hk_assignments) == (120, 28)
         assert summary.checklist_templates == 5
+        assert summary.log_templates == 3
     db_.engine.dispose()
     assert summary.conversations == 35
     assert summary.guests == 110 and summary.stays == 113

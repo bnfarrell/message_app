@@ -32,11 +32,13 @@ from app.domain import (
     hk_rooms,
     hk_tick,
     hk_transitions,
+    log_templates,
     pm_cycles,
     shifts,
     staff_messages,
 )
 from app.domain.assets import new_short_code
+from app.domain.log import create as post_log_entry
 from app.domain.log import shift_for
 from app.models import (
     ChecklistAnswer,
@@ -52,6 +54,7 @@ from app.models import (
     InternalNote,
     LogEntry,
     LogEntryMention,
+    LogTemplate,
     MaintainableUnit,
     Message,
     PmCycle,
@@ -102,6 +105,13 @@ from app.schemas.enums import (
     WorkOrderStatus,
     WorkOrderType,
 )
+from app.schemas.log import (
+    CreateLogEntryRequest,
+    LogFieldValueIn,
+    LogTemplateFieldIn,
+    LogTemplateIn,
+    MentionRef,
+)
 from app.schemas.pm import AnswerPatch, TemplateItemIn
 from seed import data
 from seed.pm_units import unit_rows
@@ -132,6 +142,7 @@ class SeedSummary:
     hk_assignments: int
     checklist_templates: int
     checklist_instances: int
+    log_templates: int
 
 
 def _phone(rng: random.Random, used: set[str]) -> str:
@@ -390,6 +401,51 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
             requires_ack=True,
             ack_expected=[staff["hana"].id, staff["rosa"].id, staff["hk_sup"].id],
             created_at=overnight_at))
+        db.flush()
+
+        # ---- hotel log post templates (log templates spec §5): the hotel's three shift reports,
+        # each shared with Front Desk, created and posted through the domain. The posts sit on
+        # the previous two local days at fixed local times, so nothing test_seed asserts depends
+        # on when the seed runs.
+        report_fields = [
+            LogTemplateFieldIn(label=label, field_type=field_type, required=required)
+            for label, field_type, required in (
+                ("Number of enrollments", "integer", True),
+                ("Arrivals left", "integer", True),
+                ("Arrivals actual", "integer", True),
+                ("Departures actual", "integer", True),
+                ("Departures left", "integer", True),
+                ("Walk-ins", "integer", True),
+                ("Occupancy", "percent", True),
+                ("Max occupied", "integer", True),
+                ("Min available tonight", "integer", True),
+                ("Notes", "long_text", False))]
+        shift_reports = {
+            name: log_templates.create(db, hvh.id, staff["alex"].id, LogTemplateIn(
+                name=name, shift=shift, fields=report_fields,
+                audience=[MentionRef(type=MentionTargetType.department,
+                                     id=depts["front_desk"].id)]))
+            for name, shift in (("AM Checklist", "am"), ("PM Checklist", "pm"),
+                                ("Night Audit", "overnight"))}
+        log_today = pm_cycles.local_today(hvh)
+        for days_ago, name, author, hour, numbers, notes in (
+                (2, "AM Checklist", "ava", 13, (2, 3, 38, 41, 0, 1, 87, 104, 16),
+                 "Harlow wedding block picked up in full."),
+                (2, "PM Checklist", "marcus", 20, (1, 0, 12, 2, 0, 3, 92, 110, 10), None),
+                (1, "Night Audit", "jordan", 5, (0, 0, 1, 0, 0, 1, 92, 110, 10),
+                 "Audit balanced first pass. 305 key encoder slow again."),
+                (1, "AM Checklist", "ava", 13, (3, 5, 31, 44, 2, 0, 71, 110, 35), None)):
+            template = shift_reports[name]
+            answers = [*numbers, notes]
+            entry = post_log_entry(db, hvh.id, staff[author].id, CreateLogEntryRequest(
+                template_id=template.id,
+                field_values=[LogFieldValueIn(field_id=field.id, value=value)
+                              for field, value in zip(
+                                  log_templates.active_fields(db, template.id), answers,
+                                  strict=True)
+                              if value is not None]))
+            at = local_at(log_today - timedelta(days=days_ago), hour, 30)
+            entry.created_at, entry.shift = at, shift_for(hvh, at)
         db.flush()
 
         # ---- content
@@ -999,6 +1055,7 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
             hk_assignments=db.scalar(select(func.count()).select_from(HousekeepingAssignment)),
             checklist_templates=db.scalar(select(func.count()).select_from(ChecklistTemplate)),
             checklist_instances=db.scalar(select(func.count()).select_from(ChecklistInstance)),
+            log_templates=db.scalar(select(func.count()).select_from(LogTemplate)),
         )
     database.engine.dispose()
     return summary
