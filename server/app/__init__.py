@@ -84,6 +84,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(staff_messages.bp)
     app.register_blueprint(staff_messages.directory_bp)
     app.register_blueprint(log.bp)
+    app.register_blueprint(log.templates_bp)
     app.register_blueprint(maintainable_units.bp)
     app.register_blueprint(pm.bp)
     app.register_blueprint(housekeeping.bp)

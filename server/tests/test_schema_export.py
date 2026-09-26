@@ -14,6 +14,7 @@ def test_export_contains_the_public_models():
                  "SimGuest", "StaffConversationOut", "StaffMessageOut",
                  "LogEntryOut", "LogFeedOut", "LogMentionableOut", "LogTemplateOut",
                  "LogTemplateRef", "LogFieldValueOut",
+                 "LogTemplateIn", "LogTemplatePatch", "LogFieldValueIn",
                  "UnitOut", "UnitImportOut", "TemplateOut", "SweepOut", "RunOut",
                  "InspectionRowOut", "CycleOut", "ComplianceOut",
                  "HkBoardOut", "HkRoomOut", "HkAssignmentOut", "HkRoomDetailOut",

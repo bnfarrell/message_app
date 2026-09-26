@@ -2,12 +2,22 @@ from flask import Blueprint, Response, g, request
 
 from app.api._util import db_session, ok, parse_body, parse_query
 from app.auth.decorators import require_auth, require_capability, require_property
-from app.domain import log
+from app.domain import log, log_templates
 from app.domain.work_orders import MAX_PHOTO_BYTES, sniff_image_type
 from app.errors import ValidationFailed
-from app.schemas.log import CreateLogEntryRequest, LogFeedQuery
+from app.schemas.log import (
+    CreateLogEntryRequest,
+    LogFeedQuery,
+    LogTemplateIn,
+    LogTemplatePatch,
+)
 
 bp = Blueprint("log", __name__, url_prefix="/api/p/<property_id>/log-entries")
+
+# Admin → Log templates lives apart from the composer's `/log-entries/templates`: the two lists
+# have different capabilities and contents (log templates spec §3.2).
+templates_bp = Blueprint("log_templates", __name__,
+                         url_prefix="/api/p/<property_id>/log-templates")
 
 # Defined per-api-module by existing convention — app/api/staff_messages.py:47 and
 # app/api/work_orders.py:22 each carry their own copy rather than sharing one.
@@ -77,6 +87,16 @@ def mentionables(property_id: str):
         return ok(log.mentionables(db, g.property_id))
 
 
+@bp.get("/templates")
+@require_auth
+@require_property
+@require_capability("post_log")
+def usable_templates(property_id: str):
+    # A static segment, so it wins over `/<entry_id>` as `/mentionables` does.
+    with db_session() as db:
+        return ok(log_templates.list_usable(db, g.property_id, g.user.id))
+
+
 @bp.get("/<entry_id>")
 @require_auth
 @require_property
@@ -128,3 +148,34 @@ def get_entry_photo(property_id: str, entry_id: str):
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, max-age=86400",
     })
+
+
+@templates_bp.get("")
+@require_auth
+@require_property
+@require_capability("manage_admin")
+def list_templates(property_id: str):
+    with db_session() as db:
+        return ok(log_templates.list_admin(db, g.property_id))
+
+
+@templates_bp.post("")
+@require_auth
+@require_property
+@require_capability("manage_admin")
+def create_template(property_id: str):
+    data = parse_body(LogTemplateIn)
+    with db_session() as db:
+        t = log_templates.create(db, g.property_id, g.user.id, data)
+        return ok(log_templates.to_out(db, t), 201)
+
+
+@templates_bp.patch("/<template_id>")
+@require_auth
+@require_property
+@require_capability("manage_admin")
+def patch_template(property_id: str, template_id: str):
+    data = parse_body(LogTemplatePatch)
+    with db_session() as db:
+        t = log_templates.patch(db, g.property_id, g.user.id, template_id, data)
+        return ok(log_templates.to_out(db, t))
