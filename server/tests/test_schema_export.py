@@ -24,7 +24,8 @@ def test_export_contains_the_public_models():
                  "ChecklistInstanceOut", "ChecklistAssignRequest",
                  "ChecklistItemIn", "ChecklistItemOut", "ChecklistCategoryIn",
                  "ChecklistCategoryOut", "ChecklistTemplatePatch",
-                 "ChecklistCategoryProgressOut"):
+                 "ChecklistCategoryProgressOut", "ChecklistLibraryEntryOut",
+                 "ChecklistLibraryCategoryOut", "ChecklistLibraryImport"):
         assert name in defs, name
     assert defs["GuestThread"]["additionalProperties"] is False
     assert "notes" not in defs["GuestThread"]["properties"]

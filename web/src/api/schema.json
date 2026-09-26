@@ -1308,6 +1308,93 @@
       "title": "ChecklistKind",
       "type": "string"
     },
+    "ChecklistLibraryCategoryOut": {
+      "additionalProperties": false,
+      "properties": {
+        "itemCount": {
+          "title": "Itemcount",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "itemCount"
+      ],
+      "title": "ChecklistLibraryCategoryOut",
+      "type": "object"
+    },
+    "ChecklistLibraryEntryOut": {
+      "additionalProperties": false,
+      "properties": {
+        "categories": {
+          "items": {
+            "$ref": "#/$defs/ChecklistLibraryCategoryOut"
+          },
+          "title": "Categories",
+          "type": "array"
+        },
+        "departmentType": {
+          "$ref": "#/$defs/DepartmentType"
+        },
+        "itemCount": {
+          "title": "Itemcount",
+          "type": "integer"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ChecklistKind"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "name",
+        "kind",
+        "departmentType",
+        "categories",
+        "itemCount"
+      ],
+      "title": "ChecklistLibraryEntryOut",
+      "type": "object"
+    },
+    "ChecklistLibraryImport": {
+      "additionalProperties": false,
+      "properties": {
+        "departmentId": {
+          "title": "Departmentid",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        }
+      },
+      "required": [
+        "departmentId"
+      ],
+      "title": "ChecklistLibraryImport",
+      "type": "object"
+    },
     "ChecklistMissedQuery": {
       "additionalProperties": false,
       "properties": {

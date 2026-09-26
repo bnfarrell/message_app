@@ -5,7 +5,13 @@ from datetime import date, datetime
 from pydantic import Field
 
 from app.schemas.common import CamelModel
-from app.schemas.enums import ChecklistKind, ChecklistSchedule, ChecklistStatus, Shift
+from app.schemas.enums import (
+    ChecklistKind,
+    ChecklistSchedule,
+    ChecklistStatus,
+    DepartmentType,
+    Shift,
+)
 from app.schemas.pm import RunAnswerOut, RunPhotoOut, TemplateItemIn, TemplateItemOut
 
 MAX_CATEGORIES = 30
@@ -112,6 +118,25 @@ class ChecklistInstanceOut(ChecklistInstanceRowOut):
     answers: list[RunAnswerOut]
     photos: list[RunPhotoOut]
     missing_required: list[str]
+
+
+class ChecklistLibraryCategoryOut(CamelModel):
+    name: str
+    item_count: int
+
+
+class ChecklistLibraryEntryOut(CamelModel):
+    key: str
+    name: str
+    kind: ChecklistKind
+    department_type: DepartmentType
+    categories: list[ChecklistLibraryCategoryOut]
+    item_count: int
+
+
+class ChecklistLibraryImport(CamelModel):
+    department_id: str
+    name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class ChecklistAssignRequest(CamelModel):

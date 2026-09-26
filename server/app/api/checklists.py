@@ -4,13 +4,14 @@ from flask import Blueprint, Response, g, request
 
 from app.api._util import db_session, ok, parse_body, parse_query
 from app.auth.decorators import require_auth, require_capability, require_property
-from app.domain import ck_instances, ck_photos, ck_templates, ck_views
+from app.domain import ck_instances, ck_library, ck_photos, ck_templates, ck_views
 from app.domain.work_orders import MAX_PHOTO_BYTES
 from app.errors import ValidationFailed
 from app.schemas.checklists import (
     ChecklistAssignRequest,
     ChecklistCommentPatch,
     ChecklistInstanceQuery,
+    ChecklistLibraryImport,
     ChecklistMissedQuery,
     ChecklistTemplateIn,
     ChecklistTemplatePatch,
@@ -64,6 +65,25 @@ def patch_template(property_id: str, template_id: str):
     with db_session() as db:
         t = ck_templates.patch(db, g.property_id, g.user.id, template_id, data)
         return ok(ck_templates.to_out(db, t))
+
+
+@bp.get("/library")
+@require_auth
+@require_property
+@require_capability("manage_admin")
+def library(property_id: str):
+    return ok(ck_library.list_entries())
+
+
+@bp.post("/library/<key>/import")
+@require_auth
+@require_property
+@require_capability("manage_admin")
+def import_from_library(property_id: str, key: str):
+    data = parse_body(ChecklistLibraryImport)
+    with db_session() as db:
+        t = ck_library.import_entry(db, g.property_id, g.user.id, key, data)
+        return ok(ck_templates.to_out(db, t), 201)
 
 
 @bp.post("/templates/<template_id>/start")
