@@ -18,6 +18,7 @@ import { SweepPage } from './features/pm/SweepPage'
 import { RunPage } from './features/pm/RunPage'
 import { InspectionPage } from './features/pm/InspectionPage'
 import { CompliancePage } from './features/pm/CompliancePage'
+import { RoomBoardPage } from './features/housekeeping/RoomBoardPage'
 
 function LandingRedirect() {
   const { membership } = useSession()
@@ -79,6 +80,14 @@ export function AppRoutes() {
             element={
               <RequireCapability capability="inspect_pm">
                 <InspectionPage />
+              </RequireCapability>
+            }
+          />
+          <Route
+            path="housekeeping"
+            element={
+              <RequireCapability capability="view_housekeeping">
+                <RoomBoardPage />
               </RequireCapability>
             }
           />
