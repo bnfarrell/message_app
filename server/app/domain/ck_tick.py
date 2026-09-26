@@ -2,7 +2,7 @@
 records "I ran today" — it asks what ought to exist and what has ended."""
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app import clock
@@ -35,9 +35,16 @@ def tick(db: Session) -> dict[str, int]:
             ChecklistInstance.status.in_(ck_instances.LIVE))).all()
         for inst in live:
             if now >= shifts.shift_window(prop, inst.due_date, inst.shift)[1]:
-                inst.status = ChecklistStatus.missed
-                changed.append(inst.id)
-                missed += 1
+                # Conditional on still being live: between the select above and this write,
+                # someone may have just completed the instance. The status predicate makes
+                # that a no-op instead of overwriting a just-completed instance as missed.
+                result = db.execute(update(ChecklistInstance).where(
+                    ChecklistInstance.id == inst.id,
+                    ChecklistInstance.status.in_(ck_instances.LIVE))
+                    .values(status=ChecklistStatus.missed))
+                if result.rowcount:
+                    changed.append(inst.id)
+                    missed += 1
         db.flush()
         ck_instances.emit(db, prop.id, changed)
     return {"generated": generated, "missed": missed}

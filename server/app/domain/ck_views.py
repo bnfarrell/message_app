@@ -6,7 +6,8 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain import ck_instances, ck_photos, ck_templates, pm_cycles, typed_items
+from app import clock
+from app.domain import ck_instances, ck_photos, ck_templates, pm_cycles, shifts, typed_items
 from app.domain.pm_runs import names_for
 from app.models import (
     ChecklistAnswer,
@@ -74,7 +75,8 @@ def _rows(db: Session, triples) -> list[ChecklistInstanceRowOut]:
 
 def list_instances(db: Session, property_id: str,
                    query: ChecklistInstanceQuery) -> list[ChecklistInstanceRowOut]:
-    day = query.day or pm_cycles.local_today(db.get(Property, property_id))
+    prop = db.get(Property, property_id)
+    day = query.day or shifts.current_shift(prop, clock.now())[0]
     stmt = _joined(property_id).where(ChecklistInstance.due_date == day)
     if query.department_id:
         stmt = stmt.where(ChecklistTemplate.department_id == query.department_id)
@@ -87,7 +89,7 @@ def list_instances(db: Session, property_id: str,
 
 def missed(db: Session, property_id: str,
            query: ChecklistMissedQuery) -> list[ChecklistInstanceRowOut]:
-    since = pm_cycles.local_today(db.get(Property, property_id)) - timedelta(days=query.days)
+    since = pm_cycles.local_today(db.get(Property, property_id)) - timedelta(days=query.days - 1)
     triples = sorted(db.execute(_joined(property_id).where(
         ChecklistInstance.status == ChecklistStatus.missed,
         ChecklistInstance.due_date >= since)).all(),

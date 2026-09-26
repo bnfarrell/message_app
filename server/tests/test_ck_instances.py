@@ -64,6 +64,23 @@ def test_starting_twice_is_a_409(database, fx):
                                inst.id)
 
 
+def test_concurrent_start_after_a_committed_start_is_a_409_not_a_500(database, fx):
+    """Review finding: two simultaneous starts on Postgres are check-then-act, so both could
+    pass the open-status check and then collide on the unique answer constraint with an
+    unhandled 500. Locking the instance row for update means the second transaction re-reads
+    the committed status and raises a clean TransitionError (409) instead."""
+    with database.session() as db:
+        _, inst = _open(db, fx)
+        instance_id = inst.id
+    with database.session() as db:
+        ck_instances.start(db, fx.property_a.id, fx.supervisor_a.id, Role.supervisor,
+                           instance_id)
+    with database.session() as db:
+        with pytest.raises(TransitionError):
+            ck_instances.start(db, fx.property_a.id, fx.engineer_a.id, Role.dept_staff,
+                               instance_id)
+
+
 def test_other_department_staff_are_refused(database, fx):
     """Review focus 4: a housekeeper can't run Engineering's rounds; a manager (no department)
     can, through the supervisor exemption."""

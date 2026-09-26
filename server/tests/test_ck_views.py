@@ -1,12 +1,15 @@
 """Read models (checklists spec §4.2; plan clarification 4)."""
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
+from app import clock
 from app.domain import ck_instances, ck_photos, ck_views
 from app.schemas.checklists import ChecklistInstanceQuery, ChecklistMissedQuery
 from app.schemas.enums import ChecklistStatus, Role
 from app.schemas.pm import AnswerPatch
 from tests.ck_helpers import make_template
 from tests.hk_helpers import local_today
+
+THU = 1 << 3
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00IHDR-not-a-real-png-but-the-signature-is"
 
@@ -76,3 +79,33 @@ def test_missed_lists_the_last_n_days_newest_first(database, fx):
         rows = ck_views.missed(db, pid, ChecklistMissedQuery(days=7))
         assert [r.due_date for r in rows] == [today - timedelta(days=1),
                                              today - timedelta(days=3)]
+
+
+def test_missed_seven_days_includes_today_minus_six_excludes_minus_seven(database, fx):
+    """Finding 5: "last 7 days" is 7 local dates including today, so back=6 is the boundary
+    that is still in range and back=7 is just outside it."""
+    with database.session() as db:
+        pid, today = fx.property_a.id, local_today(db, fx.property_a.id)
+        t = make_template(db, fx)
+        for back in (6, 7):
+            inst, _ = ck_instances.ensure_instance(db, t, today - timedelta(days=back))
+            inst.status = ChecklistStatus.missed
+        db.flush()
+        rows = ck_views.missed(db, pid, ChecklistMissedQuery(days=7))
+        assert [r.due_date for r in rows] == [today - timedelta(days=6)]
+
+
+def test_list_default_day_is_the_hotel_day_not_the_calendar_date(database, fx):
+    """Critical finding 1: FROZEN clock is Thu 2026-09-10 12:00 UTC = Thu 08:00 New York. An
+    overnight instance due Thursday is still live at Fri 02:00 New York (06:00 UTC) — after
+    local midnight but before the AM boundary — so the default day must follow the hotel's
+    current shift day, not the calendar date `local_today` would give (which has already
+    rolled to Friday)."""
+    with database.session() as db:
+        pid, today = fx.property_a.id, local_today(db, fx.property_a.id)
+        t = make_template(db, fx, name="Night Watch", shift="overnight", weekdays=THU)
+        ck_instances.ensure_instance(db, t, today)
+    clock.freeze(datetime(2026, 9, 11, 6, 0, tzinfo=UTC))  # Fri 02:00 New York
+    with database.session() as db:
+        rows = ck_views.list_instances(db, pid, ChecklistInstanceQuery())
+        assert [r.template_name for r in rows] == ["Night Watch"]

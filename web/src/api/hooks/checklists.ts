@@ -90,7 +90,7 @@ export function useMissedChecklists(enabled: boolean) {
 }
 
 export const useAssignChecklist = () =>
-  useCkMutation<{ instanceId: string; userId: string }, ChecklistInstanceOut>(
+  useCkMutation<{ instanceId: string; userId: string | null }, ChecklistInstanceOut>(
     (p, { instanceId, userId }) =>
       api(ckPath(p, `instances/${instanceId}/assign`), { method: 'POST', json: { userId } }),
   )

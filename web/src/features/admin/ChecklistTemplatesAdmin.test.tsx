@@ -72,4 +72,15 @@ describe('ChecklistTemplatesAdmin', () => {
     await waitFor(() => expect(posted()).toMatchObject(
       { schedule: 'on_demand', shift: null, weekdays: null }))
   })
+
+  it('blocks saving a weekly template with no day ticked', async () => {
+    await startNew('AM Rounds')
+    for (const day of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']) {
+      await userEvent.click(screen.getByRole('checkbox', { name: day }))
+    }
+    await addCheckbox('Skimmers')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Pick at least one day')).toBeInTheDocument()
+    expect(posted()).toBeUndefined()
+  })
 })

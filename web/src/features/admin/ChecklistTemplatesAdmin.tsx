@@ -51,6 +51,7 @@ export function ChecklistTemplatesAdmin() {
   const pending = create.isPending || patch.isPending
   const failed = create.error ?? patch.error
   const fields = fieldErrors(failed)
+  const noDaysTicked = draft?.schedule === 'weekly' && !draft.days.some(Boolean)
 
   const columns: Column<ChecklistTemplateOut>[] = [
     { key: 'name', head: 'Name', render: (r) => r.name },
@@ -87,7 +88,7 @@ export function ChecklistTemplatesAdmin() {
   }
 
   function save() {
-    if (!draft || !draft.name.trim()) return
+    if (!draft || !draft.name.trim() || noDaysTicked) return
     const weekly = draft.schedule === 'weekly'
     const body: ChecklistTemplateIn = {
       name: draft.name.trim(), departmentId: draft.departmentId, schedule: draft.schedule,
@@ -201,7 +202,7 @@ export function ChecklistTemplatesAdmin() {
                     </label>
                   ))}
                 </div>
-                <FieldError message={fields.weekdays} />
+                <FieldError message={fields.weekdays ?? (noDaysTicked ? 'Pick at least one day' : undefined)} />
               </div>
             </>
           ) : null}

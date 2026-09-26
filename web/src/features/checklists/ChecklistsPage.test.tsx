@@ -144,6 +144,64 @@ describe('ChecklistsPage', () => {
     expect(await within(am).findByRole('alert')).toHaveTextContent('Not on this shift')
   })
 
+  it('sends userId: null, not an empty string, when unassigning', async () => {
+    const user = userEvent.setup()
+    const bodies: unknown[] = []
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      calls.push({ url, method })
+      if (url.endsWith('/instances/i-am/assign')) {
+        bodies.push(JSON.parse(String(init?.body)))
+        return Promise.resolve(new Response(JSON.stringify(row({ assignedUserId: null })),
+          { status: 200 }))
+      }
+      const body = url.includes('/departments') ? [aDepartment()]
+        : url.includes('staff-directory') ? [
+            { userId: 'u-eli', firstName: 'Eli', lastName: 'Engineer', role: 'dept_staff',
+              departmentId: 'dept-eng' },
+          ]
+        : url.includes('/checklists/missed') ? MISSED
+        : url.includes('/checklists/templates') && method === 'GET' ? [ON_DEMAND]
+        : [row({ assignedUserId: 'u-eli', assignedName: 'Eli Engineer' }), TODAY[1]!]
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
+    })
+    mount('supervisor')
+    const am = (await screen.findByText('Engineering AM Rounds')).closest('li')!
+    await within(am).findByText('Eli Engineer')
+    await user.selectOptions(within(am).getByLabelText('Assign Engineering AM Rounds'), 'Unassigned')
+    await waitFor(() => expect(bodies).toEqual([{ userId: null }]))
+  })
+
+  it('does not offer Start for another department\'s row when viewing all departments', async () => {
+    const user = userEvent.setup()
+    const frontDesk = row({
+      id: 'i-fd', templateId: 't-fd', templateName: 'Front Desk Opening',
+      departmentId: 'dept-fd', departmentName: 'Front Desk', shift: 'am',
+    })
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      calls.push({ url, method })
+      const body = url.includes('/departments')
+          ? [aDepartment(), aDepartment({ id: 'dept-fd', name: 'Front Desk' })]
+        : url.includes('staff-directory') ? []
+        : url.includes('/checklists/missed') ? MISSED
+        : url.includes('/checklists/templates') && method === 'GET' ? [ON_DEMAND]
+        : method === 'POST' ? { ...row({}), id: 'i-am' }
+        : [...TODAY, frontDesk]
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
+    })
+    mount('dept_staff')
+    await screen.findByText('Engineering AM Rounds')
+    await user.selectOptions(screen.getByLabelText('Department'), '')
+    const fd = (await screen.findByText('Front Desk Opening')).closest('li')!
+    expect(within(fd).queryByRole('button', { name: 'Start' })).not.toBeInTheDocument()
+    expect(within(fd).getByRole('button', { name: 'View' })).toBeInTheDocument()
+    const eng = (await screen.findByText('Engineering AM Rounds')).closest('li')!
+    expect(within(eng).getByRole('button', { name: 'Start' })).toBeInTheDocument()
+  })
+
   it('starts an on-demand checklist from the menu', async () => {
     const user = userEvent.setup()
     mount('dept_staff')

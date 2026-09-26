@@ -38,7 +38,7 @@ function AssignSelect({
       className={SELECT}
       value={row.assignedUserId ?? ''}
       onChange={(event) =>
-        assign.mutate({ instanceId: row.id, userId: event.target.value })
+        assign.mutate({ instanceId: row.id, userId: event.target.value || null })
       }
     >
       <option value="">Unassigned</option>
@@ -52,10 +52,16 @@ function AssignSelect({
 }
 
 function ChecklistCard({ row }: { row: ChecklistInstanceRowOut }) {
-  const { can } = useSession()
+  const { can, membership, user } = useSession()
   const navigate = useNavigate()
   const start = useStartChecklist()
   const assign = useAssignChecklist()
+  const canStart =
+    row.status === 'open' &&
+    can('perform_checklists') &&
+    (can('manage_checklists') ||
+      membership.departmentId === row.departmentId ||
+      row.assignedUserId === user.id)
 
   return (
     <li className="flex flex-col gap-2 rounded-card border border-border2 bg-surface p-3">
@@ -74,7 +80,7 @@ function ChecklistCard({ row }: { row: ChecklistInstanceRowOut }) {
           {can('manage_checklists') && (row.status === 'open' || row.status === 'in_progress') ? (
             <AssignSelect row={row} departmentId={row.departmentId} assign={assign} />
           ) : null}
-          {row.status === 'open' && can('perform_checklists') ? (
+          {canStart ? (
             <Button
               variant="primary"
               loading={start.isPending}

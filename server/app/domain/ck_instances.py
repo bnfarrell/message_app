@@ -100,6 +100,20 @@ def _load(db: Session, property_id: str, instance_id: str):
     return inst, db.get(ChecklistTemplate, inst.template_id)
 
 
+def _load_for_update(db: Session, property_id: str, instance_id: str):
+    """Like `_load`, but locks the instance row: `start` is check-then-act, and two concurrent
+    starts on Postgres would otherwise both pass the open-status check and collide on the
+    unique answer constraint with an unhandled 500. The lock makes the second transaction block
+    until the first commits, then re-read the now-committed status. Portable: SQLite ignores
+    `with_for_update()` (see app/queue/jobs.py), so this only changes behaviour on Postgres."""
+    inst = db.scalar(select(ChecklistInstance).where(
+        ChecklistInstance.id == instance_id, ChecklistInstance.property_id == property_id)
+        .with_for_update())
+    if inst is None:
+        raise NotFound("Checklist not found")
+    return inst, db.get(ChecklistTemplate, inst.template_id)
+
+
 def assign(db: Session, property_id: str, actor_id: str, instance_id: str,
            user_id: str | None) -> ChecklistInstance:
     inst, template = _load(db, property_id, instance_id)
@@ -133,7 +147,7 @@ def _begin(db: Session, inst: ChecklistInstance, actor_id: str) -> None:
 
 def start(db: Session, property_id: str, actor_id: str, role: Role,
           instance_id: str) -> ChecklistInstance:
-    inst, template = _load(db, property_id, instance_id)
+    inst, template = _load_for_update(db, property_id, instance_id)
     require_actor(db, inst, template, actor_id, role)
     if inst.status != ChecklistStatus.open:
         raise TransitionError("Only an open checklist can be started")

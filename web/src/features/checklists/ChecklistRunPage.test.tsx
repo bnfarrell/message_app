@@ -104,6 +104,11 @@ describe('ChecklistRunPage', () => {
     expect(screen.getByRole('checkbox', { name: /Skimmers/ })).toBeDisabled()
   })
 
+  it('lets the note grow to the server\'s 4000-character limit', async () => {
+    mount()
+    expect(await screen.findByLabelText('Handover note')).toHaveAttribute('maxlength', '4000')
+  })
+
   it('shows a failed save inline', async () => {
     patchStatus = 409
     const user = userEvent.setup()

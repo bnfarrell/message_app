@@ -29,7 +29,7 @@ export function ChecklistRunPage() {
   useEffect(() => {
     if (instance) setNote(instance.comment ?? '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instance?.comment])
+  }, [instance?.id, instance?.comment])
 
   if (isPending) {
     return (
@@ -153,7 +153,7 @@ export function ChecklistRunPage() {
             id="ck-handover-note"
             aria-label="Handover note"
             value={note}
-            maxLength={2000}
+            maxLength={4000}
             disabled={readOnly}
             onChange={(event) => setNote(event.target.value)}
           />
