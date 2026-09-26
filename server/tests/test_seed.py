@@ -5,10 +5,11 @@ import pytest
 from sqlalchemy import func, select
 
 from app.db import Database
-from app.domain import pm_cycles
+from app.domain import ck_templates, pm_cycles
 from app.models import (
     ChecklistInstance,
     ChecklistTemplate,
+    ChecklistTemplateItem,
     Conversation,
     DigitalAsset,
     DraftPrompt,
@@ -31,6 +32,7 @@ from app.models import (
     WorkOrder,
 )
 from app.schemas.enums import (
+    ChecklistKind,
     ChecklistStatus,
     ConversationStatus,
     DeliveryStatus,
@@ -127,6 +129,16 @@ def test_seed_matches_spec_counts(tmp_path):
         assert count(ChecklistInstance, ChecklistInstance.due_date == yesterday,
                      ChecklistInstance.status == ChecklistStatus.missed) == 1
         assert count(WorkOrder, WorkOrder.title.like("Pool pH 8.1 out of range%")) == 1
+        # checklist structure (spec §5): one readings checklist, the Night Audit in 3 categories
+        assert db.scalars(select(ChecklistTemplate.name).where(
+            ChecklistTemplate.property_id == hvh.id,
+            ChecklistTemplate.kind == ChecklistKind.readings)).all() == ["Engineering AM Rounds"]
+        night = db.scalar(select(ChecklistTemplate).where(
+            ChecklistTemplate.name == "Front Desk Overnight Night Audit"))
+        assert [c.name for c in ck_templates.active_categories(db, night.id)] == [
+            "Audit", "Payments", "Reports"]
+        assert count(ChecklistTemplateItem, ChecklistTemplateItem.template_id == night.id,
+                     ChecklistTemplateItem.category_id.is_(None)) == 0
         # SeedSummary must match real rows, not an in-memory counter that a rewire can desync
         # (the showcase conversation's messages are deleted and re-added after being counted).
         assert summary.properties == count(Property)

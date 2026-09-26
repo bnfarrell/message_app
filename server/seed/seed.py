@@ -75,7 +75,7 @@ from app.models import (
     WorkOrderEvent,
 )
 from app.queue import jobs
-from app.schemas.checklists import ChecklistTemplateIn
+from app.schemas.checklists import ChecklistCategoryIn, ChecklistItemIn, ChecklistTemplateIn
 from app.schemas.enums import (
     AssetType,
     AuthorType,
@@ -112,7 +112,7 @@ from app.schemas.log import (
     LogTemplateIn,
     MentionRef,
 )
-from app.schemas.pm import AnswerPatch, TemplateItemIn
+from app.schemas.pm import AnswerPatch
 from seed import data
 from seed.pm_units import unit_rows
 
@@ -953,10 +953,15 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
         # ---- shift checklists (checklists spec §5). Through the domain. Yesterday's instances
         # are planted directly so test_seed never depends on the time of day (plan
         # clarification 6); today's depend on when the seed runs and are not asserted.
-        def ck_template(name, dept, schedule, shift, weekdays, items):
+        def ck_template(name, dept, schedule, shift, weekdays, items, *, kind="normal",
+                        categories=()):
+            # Checklist structure spec §5: a category's key is its name, and each item names
+            # its category by that key.
             return ck_templates.create(db, hvh.id, staff["alex"].id, ChecklistTemplateIn(
                 name=name, department_id=depts[dept].id, schedule=schedule, shift=shift,
-                weekdays=weekdays, items=[TemplateItemIn(**i) for i in items]))
+                weekdays=weekdays, kind=kind,
+                categories=[ChecklistCategoryIn(key=c, name=c) for c in categories],
+                items=[ChecklistItemIn(**i) for i in items]))
 
         every_day, mon_wed_fri = 0b1111111, 0b0010101
         fd_open = ck_template("Front Desk AM Opening", "front_desk", "weekly", "am", every_day, [
@@ -966,16 +971,20 @@ def run(database_url: str, *, reset: bool = True, now: datetime | None = None) -
             {"label": "Key encoder tested", "item_type": "checkbox"}])
         ck_template("Front Desk Overnight Night Audit", "front_desk", "weekly", "overnight",
                     every_day, [
-                        {"label": "Night audit run", "item_type": "checkbox"},
-                        {"label": "Credit card batch closed", "item_type": "checkbox"},
-                        {"label": "Audit report", "item_type": "photo"}])
+                        {"label": "Night audit run", "item_type": "checkbox",
+                         "category_key": "Audit"},
+                        {"label": "Credit card batch closed", "item_type": "checkbox",
+                         "category_key": "Payments"},
+                        {"label": "Audit report", "item_type": "photo",
+                         "category_key": "Reports"}],
+                    categories=("Audit", "Payments", "Reports"))
         rounds = ck_template("Engineering AM Rounds", "engineering", "weekly", "am", every_day, [
             {"label": "Pool free chlorine", "item_type": "number", "unit": "ppm",
              "min_value": 1.0, "max_value": 3.0},
             {"label": "Pool pH", "item_type": "number", "unit": "", "min_value": 7.2,
              "max_value": 7.8},
             {"label": "Boiler supply temp", "item_type": "number", "unit": "°F",
-             "min_value": 140, "max_value": 180}])
+             "min_value": 140, "max_value": 180}], kind="readings")
         linen = ck_template("Housekeeping PM Linen Par", "housekeeping", "weekly", "pm",
                             mon_wed_fri, [
                                 {"label": "King sheet sets", "item_type": "number",
