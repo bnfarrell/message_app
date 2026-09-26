@@ -95,11 +95,18 @@ export function LogComposer({ onPosted }: { onPosted?: (entry: LogEntryOut) => v
 
   const available = templates ?? []
   const template = available.find((t) => t.id === templateId)
+  // The picker refetches after a 400 naming `inactive`/`unknown_field` (useCreateLogEntry), so a
+  // template that was deactivated or lost its audience while the form sat open disappears from
+  // `templates` out from under the still-selected id. Falling back to a free-form post here would
+  // send it silently under the vanished template's name (final review finding 4).
+  const templateVanished = templateId !== '' && templates !== undefined && !template
   const fields = fieldErrors(create.error)
   const ready = template
     ? template.fields.every((f) => !f.required || answered(answers, f))
       && (template.fields.some((f) => answered(answers, f)) || body.trim() !== '')
-    : body.trim() !== ''
+    : templateVanished
+      ? false
+      : body.trim() !== ''
 
   function toggleRequiresAck(checked: boolean) {
     setRequiresAck(checked)
@@ -157,6 +164,11 @@ export function LogComposer({ onPosted }: { onPosted?: (entry: LogEntryOut) => v
       {create.error ? (
         <p role="alert" className="rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
           {create.error.message}
+        </p>
+      ) : null}
+      {templateVanished ? (
+        <p role="alert" className="rounded border border-danger bg-dangerBg px-3 py-2 text-xs text-dangerText">
+          This template is no longer available — pick another or post without one
         </p>
       ) : null}
 

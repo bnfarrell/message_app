@@ -343,4 +343,43 @@ describe('LogComposer with templates', () => {
     expect(screen.getByLabelText('Use a template')).toHaveValue('')
     expect(screen.queryByLabelText(/^Arrivals actual/)).not.toBeInTheDocument()
   })
+
+  it('warns and disables Post rather than posting free-form when the selected template vanishes', async () => {
+    // The template list is fetched again after the 400 (`useCreateLogEntry`'s onError), and by
+    // then it has lost `t-night` -- deactivated or its audience narrowed while the form sat open.
+    let vanished = false
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const reply = (body: unknown, status = 200) =>
+        Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
+      if (init?.method === 'POST') {
+        vanished = true
+        return reply(
+          { error: { code: 'VALIDATION_FAILED', message: 'That template is no longer in use',
+                    details: { templateId: 'inactive' } } },
+          400,
+        )
+      }
+      if (url.includes('/log-entries/templates')) return reply(vanished ? [] : [NIGHT_AUDIT])
+      if (url.includes('mentionables')) return reply(MENTIONABLES)
+      if (url.includes('/departments')) return reply(DEPARTMENTS)
+      return reply([])
+    })
+    mount()
+    await userEvent.selectOptions(await screen.findByLabelText('Use a template'), 't-night')
+    await userEvent.type(screen.getByLabelText(/^Arrivals actual/), '38')
+    await userEvent.type(screen.getByLabelText(/^Occupancy/), '87')
+    await userEvent.click(screen.getByRole('button', { name: 'Post' }))
+
+    expect(
+      await screen.findByText('This template is no longer available — pick another or post without one'),
+    ).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByLabelText(/^Arrivals actual/)).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Post' })).toBeDisabled()
+
+    // Free-form text alone must not re-enable it: the still-selected, now-vanished template
+    // would otherwise be posted under silently, as a plain post.
+    await userEvent.type(screen.getByPlaceholderText('Add to the log…'), 'Quiet night anyway')
+    expect(screen.getByRole('button', { name: 'Post' })).toBeDisabled()
+  })
 })

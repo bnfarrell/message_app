@@ -169,6 +169,21 @@ describe('LogEntryCard', () => {
       expect(screen.queryByText(/Arrivals actual: 38/)).toBeNull()
     })
 
+    it('keeps mono for numeric answers only, not short or long text', () => {
+      mount({
+        ...TEMPLATED,
+        fieldValues: [
+          ...TEMPLATED.fieldValues!,
+          { fieldId: 'f-mgr', label: 'Duty manager', fieldType: 'short_text', textValue: 'Sam' },
+          { fieldId: 'f-hand', label: 'Handover', fieldType: 'long_text', textValue: 'All quiet.' },
+        ],
+      })
+      expect(screen.getByText('38').className).toMatch(/font-mono/)
+      expect(screen.getByText('87.5%').className).toMatch(/font-mono/)
+      expect(screen.getByText('Sam').className).not.toMatch(/font-mono/)
+      expect(screen.getByText('All quiet.').className).not.toMatch(/font-mono/)
+    })
+
     it('renders no body paragraph at all when there are no notes', () => {
       mount({ ...TEMPLATED, body: 'Arrivals actual: 38\nOccupancy: 87.5%', notes: null })
       expect(screen.queryByText(/Arrivals actual:/)).toBeNull()

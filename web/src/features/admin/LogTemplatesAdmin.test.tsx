@@ -128,6 +128,17 @@ describe('LogTemplatesAdmin', () => {
     expect(sent('PATCH')!.body.audience).toHaveLength(4)
   })
 
+  it('shows an inline error and refuses to save a blank name', async () => {
+    mount()
+    await userEvent.click(await screen.findByRole('button', { name: 'New template' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Name is required')).toBeInTheDocument()
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+
+    await userEvent.type(screen.getByLabelText('Name'), 'AM Checklist')
+    expect(screen.queryByText('Name is required')).not.toBeInTheDocument()
+  })
+
   it('shows a server field error under the field list', async () => {
     vi.mocked(fetch).mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'POST') {

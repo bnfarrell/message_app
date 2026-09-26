@@ -105,6 +105,16 @@ export function useCreateLogEntry() {
       // A templated post moves its template's usage count on the admin screen.
       void client.invalidateQueries({ queryKey: qk.logTemplatesAll(propertyId) })
     },
+    onError: (error) => {
+      // The composer's picker can go stale mid-edit: the template was deactivated (`templateId:
+      // inactive`) or a field it still has answered was retired from under it (`unknown_field`).
+      // Either way the fix is the same refetch, so the composer sees the current picker rather
+      // than silently falling back to a free-form post (final review finding 4).
+      const details = error instanceof ApiError ? error.details : undefined
+      const stale = details && typeof details === 'object' && !Array.isArray(details)
+        && Object.values(details).some((v) => v === 'inactive' || v === 'unknown_field')
+      if (stale) void client.invalidateQueries({ queryKey: qk.logTemplatesUsable(propertyId) })
+    },
   })
 }
 

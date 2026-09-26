@@ -113,6 +113,7 @@ export function LogTemplatesAdmin() {
   const patch = usePatchLogTemplate()
   const [draft, setDraft] = useState<Draft | null>(null)
   const [selected, setSelected] = useState<LogTemplateOut | null>(null)
+  const [nameRequired, setNameRequired] = useState(false)
 
   const rows = data ?? []
   const pending = create.isPending || patch.isPending
@@ -132,6 +133,7 @@ export function LogTemplatesAdmin() {
   function clearFailures() {
     create.reset()
     patch.reset()
+    setNameRequired(false)
   }
 
   function close() {
@@ -142,6 +144,7 @@ export function LogTemplatesAdmin() {
 
   function edit(change: Partial<Draft>) {
     if (draft) setDraft({ ...draft, ...change })
+    if (typeof change.name === 'string' && change.name.trim()) setNameRequired(false)
   }
 
   function open(template: LogTemplateOut) {
@@ -151,7 +154,11 @@ export function LogTemplatesAdmin() {
   }
 
   function save() {
-    if (!draft || !draft.name.trim()) return
+    if (!draft) return
+    if (!draft.name.trim()) {
+      setNameRequired(true)
+      return
+    }
     const body: LogTemplateIn = {
       name: draft.name.trim(),
       shift: draft.shift || null,
@@ -214,7 +221,7 @@ export function LogTemplatesAdmin() {
           <div>
             <label className={LABEL} htmlFor="log-tpl-name">Name</label>
             <Input id="log-tpl-name" value={draft.name} maxLength={200} onChange={(e) => edit({ name: e.target.value })} />
-            <FieldError message={fields.name} />
+            <FieldError message={nameRequired ? 'Name is required' : fields.name} />
           </div>
           <div>
             <label className={LABEL} htmlFor="log-tpl-shift">Shift</label>

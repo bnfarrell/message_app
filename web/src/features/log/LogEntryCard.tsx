@@ -7,7 +7,7 @@ import { Avatar, Badge, Button } from '../../components/ui'
 import { relativeTime } from '../../lib/time'
 import { AckBar } from './AckBar'
 import { TOKEN_RE } from './MentionInput'
-import { formatFieldValue } from './templates'
+import { NUMERIC_FIELD_TYPES, formatFieldValue } from './templates'
 
 /**
  * Splits on `TOKEN_RE` via `matchAll`, which never touches the shared regex's own
@@ -65,7 +65,15 @@ export function LogEntryCard({ entry }: { entry: LogEntryOut }): JSX.Element {
           {fieldValues.map((value) => (
             <Fragment key={value.fieldId}>
               <dt className="text-text3">{value.label}</dt>
-              <dd className="whitespace-pre-wrap font-mono">{formatFieldValue(value)}</dd>
+              <dd
+                className={
+                  NUMERIC_FIELD_TYPES.has(value.fieldType)
+                    ? 'whitespace-pre-wrap font-mono'
+                    : 'whitespace-pre-wrap'
+                }
+              >
+                {formatFieldValue(value)}
+              </dd>
             </Fragment>
           ))}
         </dl>

@@ -32,6 +32,13 @@ const REASON_COPY: Record<string, string> = {
   too_long: 'That is too long.',
   unknown_field: 'This field is no longer on the template.',
   duplicate: 'This field was answered twice.',
+  // Log template admin (`app/domain/log_templates.py`) and posting with one (`app/domain/log.py`).
+  type_change: "A field's type cannot be changed once saved. Remove it and add a new one instead.",
+  duplicate_field: 'This field is listed twice.',
+  unknown_user: 'This person is no longer part of this property.',
+  unknown_department: 'This department is no longer part of this property.',
+  inactive: 'This template is no longer in use.',
+  no_template: 'Choose a template before answering its fields.',
 }
 
 /**
